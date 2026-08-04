@@ -23,7 +23,7 @@ Desktop.ini
 .env
 
 # Documentation
-doc/
+doc/*
 
 # Documentation files
 *.pdf
