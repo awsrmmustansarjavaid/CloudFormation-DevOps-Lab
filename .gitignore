@@ -1,0 +1,23 @@
+# AWS
+*.pem
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# CloudFormation
+outputs/
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# VS Code
+.vscode/
+
+# Logs
+*.log
+
+# Environment
+.env
