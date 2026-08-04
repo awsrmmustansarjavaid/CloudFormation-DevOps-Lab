@@ -21,3 +21,14 @@ Desktop.ini
 
 # Environment
 .env
+
+# Documentation
+doc/
+
+# Documentation files
+*.pdf
+*.doc
+*.docx
+*.md
+*.jpg
+*.png
