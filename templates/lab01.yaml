@@ -151,7 +151,7 @@ Resources:
 
       Tags:
         - Key: Name
-          Value: Lab-WebServer
+          Value: AWS-Lab-WebServer
 
   # -------------------------------------------------------
   # Create S3 Bucket
