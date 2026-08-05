@@ -1,0 +1,253 @@
+# ==========================================================
+# AWS CloudFormation DevOps Lab
+# GitHub Actions Workflow
+# ==========================================================
+#
+# File:
+#   .github/workflows/delete.yml
+#
+# Purpose
+# ----------------------------------------------------------
+# This workflow deletes an existing AWS CloudFormation stack.
+#
+# The workflow performs the following tasks:
+#
+# 1. Downloads the GitHub repository.
+# 2. Configures AWS credentials.
+# 3. Verifies AWS CLI.
+# 4. Checks whether the stack exists.
+# 5. Deletes the CloudFormation stack.
+# 6. Waits until deletion is complete.
+# 7. Displays the final result.
+#
+# ==========================================================
+
+# ----------------------------------------------------------
+# Workflow Name
+# ----------------------------------------------------------
+
+name: Delete AWS CloudFormation Stack
+
+# ----------------------------------------------------------
+# Trigger
+# ----------------------------------------------------------
+#
+# This workflow is started manually from
+# the GitHub Actions page.
+#
+# ----------------------------------------------------------
+
+on:
+
+  workflow_dispatch:
+
+# ----------------------------------------------------------
+# Global Variables
+# ----------------------------------------------------------
+
+env:
+
+  AWS_REGION: us-east-1
+
+  STACK_NAME: Lab01-CloudFormation
+
+# ----------------------------------------------------------
+# Jobs
+# ----------------------------------------------------------
+
+jobs:
+
+  delete-stack:
+
+    # ------------------------------------------------------
+    # GitHub Hosted Runner
+    # ------------------------------------------------------
+
+    runs-on: ubuntu-latest
+
+    name: Delete CloudFormation Stack
+
+    steps:
+
+    # ======================================================
+    # Step 1
+    # Download Repository
+    # ======================================================
+
+    - name: Checkout Repository
+
+      uses: actions/checkout@v4
+
+    # ======================================================
+    # Step 2
+    # Configure AWS Credentials
+    # ======================================================
+
+    - name: Configure AWS Credentials
+
+      uses: aws-actions/configure-aws-credentials@v4
+
+      with:
+
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+        aws-region: ${{ env.AWS_REGION }}
+
+    # ======================================================
+    # Step 3
+    # Verify AWS CLI
+    # ======================================================
+
+    - name: Verify AWS CLI
+
+      run: |
+
+        echo "====================================="
+        echo "AWS CLI Version"
+        echo "====================================="
+
+        aws --version
+
+    # ======================================================
+    # Step 4
+    # Check Whether Stack Exists
+    # ======================================================
+
+    - name: Check Stack
+
+      id: stack
+
+      shell: bash
+
+      run: |
+
+        if aws cloudformation describe-stacks \
+          --stack-name $STACK_NAME > /dev/null 2>&1
+
+        then
+
+          echo "exists=true" >> $GITHUB_OUTPUT
+
+          echo "CloudFormation stack exists."
+
+        else
+
+          echo "exists=false" >> $GITHUB_OUTPUT
+
+          echo "CloudFormation stack does not exist."
+
+        fi
+
+    # ======================================================
+    # Step 5
+    # Display Stack Information
+    # ======================================================
+
+    - name: Display Stack Information
+
+      if: steps.stack.outputs.exists == 'true'
+
+      run: |
+
+        echo "====================================="
+        echo "Stack Information"
+        echo "====================================="
+
+        aws cloudformation describe-stacks \
+          --stack-name $STACK_NAME
+
+    # ======================================================
+    # Step 6
+    # Delete Stack
+    # ======================================================
+
+    - name: Delete CloudFormation Stack
+
+      if: steps.stack.outputs.exists == 'true'
+
+      run: |
+
+        echo "====================================="
+        echo "Deleting CloudFormation Stack"
+        echo "====================================="
+
+        aws cloudformation delete-stack \
+          --stack-name $STACK_NAME
+
+    # ======================================================
+    # Step 7
+    # Wait Until Stack Is Deleted
+    # ======================================================
+
+    - name: Wait for Stack Deletion
+
+      if: steps.stack.outputs.exists == 'true'
+
+      run: |
+
+        echo "Waiting for stack deletion..."
+
+        aws cloudformation wait stack-delete-complete \
+          --stack-name $STACK_NAME
+
+    # ======================================================
+    # Step 8
+    # Verify Deletion
+    # ======================================================
+
+    - name: Verify Stack Deletion
+
+      if: steps.stack.outputs.exists == 'true'
+
+      shell: bash
+
+      run: |
+
+        if aws cloudformation describe-stacks \
+          --stack-name $STACK_NAME > /dev/null 2>&1
+
+        then
+
+          echo "Stack still exists."
+
+          exit 1
+
+        else
+
+          echo "====================================="
+          echo "CloudFormation stack deleted."
+          echo "====================================="
+        fi
+
+    # ======================================================
+    # Step 9
+    # Stack Not Found
+    # ======================================================
+
+    - name: Stack Not Found
+
+      if: steps.stack.outputs.exists == 'false'
+
+      run: |
+
+        echo "====================================="
+        echo "No CloudFormation stack was found."
+        echo "Nothing to delete."
+        echo "====================================="
+
+    # ======================================================
+    # Step 10
+    # Workflow Complete
+    # ======================================================
+
+    - name: Workflow Complete
+
+      run: |
+
+        echo ""
+        echo "====================================="
+        echo "Delete Workflow Completed"
+        echo "====================================="
+        echo ""
