@@ -1,105 +1,113 @@
 # ==========================================================
-# AWS DevOps CloudFormation Lab Docker Image
+# AWS CloudFormation DevOps Lab
+# Dockerfile
 # ==========================================================
 #
-# Purpose:
-# - Lightweight Linux development environment
-# - Install AWS CLI
-# - Install Git
-# - Install Bash
-# - Install Python 3
-# - Practice AWS CLI and CloudFormation
-# - Use as a reusable DevOps lab container
+# Author : IT Charlie
 #
-# Base OS:
-# Alpine Linux (Small, fast, secure)
+# Purpose
+# ----------------------------------------------------------
+# Creates a complete Linux development environment for
+# AWS CloudFormation practice.
+#
+# Installed Software
+#
+# • AWS CLI v2
+# • Git
+# • Bash
+# • Python 3
+# • Pip
+# • curl
+# • wget
+# • unzip
+# • zip
+# • jq
+# • tree
+# • vim
+# • nano
+# • OpenSSH Client
+# • less
+# • groff
 #
 # ==========================================================
 
 # ----------------------------------------------------------
 # Base Image
 # ----------------------------------------------------------
-# Use the latest Alpine Linux image.
-# Alpine is very small compared to Ubuntu,
-# making Docker images faster to download and build.
-# ----------------------------------------------------------
-FROM alpine:latest
+
+FROM ubuntu:24.04
 
 # ----------------------------------------------------------
-# Image Metadata (Optional but Recommended)
+# Image Metadata
 # ----------------------------------------------------------
+
 LABEL maintainer="IT Charlie"
-LABEL project="AWS DevOps CloudFormation Lab"
-LABEL description="Docker development environment for AWS CloudFormation practice"
+
+LABEL project="AWS CloudFormation DevOps Lab"
+
+LABEL description="Docker development environment for AWS CloudFormation"
 
 # ----------------------------------------------------------
-# Update Package Index and Install Required Packages
+# Prevent Interactive Installation
 # ----------------------------------------------------------
-# Install:
-#
-# bash      -> Linux shell
-# git       -> Version control
-# curl      -> Download files
-# unzip     -> Extract archives
-# python3   -> Required for AWS CLI
-# py3-pip   -> Python package manager
-#
-# --no-cache keeps the image smaller by avoiding
-# cached package indexes.
+
+ENV DEBIAN_FRONTEND=noninteractive
+
 # ----------------------------------------------------------
-RUN apk update && \
-    apk add --no-cache \
+# Update Ubuntu
+# ----------------------------------------------------------
+
+RUN apt-get update && \
+    apt-get install -y \
         bash \
         git \
         curl \
+        wget \
         unzip \
+        zip \
+        less \
+        groff \
+        jq \
+        tree \
+        nano \
+        vim \
+        make \
         python3 \
-        py3-pip
+        python3-pip \
+        openssh-client \
+        ca-certificates && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # ----------------------------------------------------------
-# Install AWS CLI
+# Install AWS CLI Version 2
 # ----------------------------------------------------------
-# Install the latest AWS CLI using pip.
-#
-# --no-cache-dir prevents pip from storing
-# unnecessary cache files, reducing image size.
-# ----------------------------------------------------------
-RUN pip3 install --no-cache-dir awscli
+
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o awscliv2.zip && \
+    unzip awscliv2.zip && \
+    ./aws/install && \
+    rm -rf aws awscliv2.zip
 
 # ----------------------------------------------------------
-# Verify Installed Tools
+# Verify Installation
 # ----------------------------------------------------------
-# Display installed versions during the image build.
-# This helps detect installation issues immediately.
-# ----------------------------------------------------------
-RUN aws --version && \
+
+RUN echo "=====================================" && \
+    echo "Installed Versions" && \
+    echo "=====================================" && \
+    aws --version && \
     git --version && \
     python3 --version && \
-    bash --version
+    bash --version | head -n 1
 
 # ----------------------------------------------------------
-# Create Working Directory
+# Working Directory
 # ----------------------------------------------------------
-# All project files will be accessed from /workspace.
-# Docker Compose will mount the project folder here.
-# ----------------------------------------------------------
+
 WORKDIR /workspace
 
 # ----------------------------------------------------------
-# Copy Project Files
+# Default Shell
 # ----------------------------------------------------------
-# Copies the project into the image.
-#
-# Note:
-# During development, Docker Compose mounts the project
-# directory as a volume, so this copy is mainly useful
-# when the image is run without a mounted volume.
-# ----------------------------------------------------------
-COPY . .
 
-# ----------------------------------------------------------
-# Default Command
-# ----------------------------------------------------------
-# Start an interactive Bash shell when the container starts.
-# ----------------------------------------------------------
-CMD ["/bin/bash"]
+CMD ["tail","-f","/dev/null"]

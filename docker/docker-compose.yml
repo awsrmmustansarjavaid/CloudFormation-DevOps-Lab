@@ -1,74 +1,56 @@
+version: "3.9"
+
 # ==========================================================
-# Docker Compose Configuration
-# ==========================================================
-#
-# Project:
-# AWS DevOps CloudFormation Lab
-#
-# Purpose:
-# - Build the Docker image
-# - Start a reusable development container
-# - Mount the project folder
-# - Mount AWS credentials
-# - Set AWS default region
-#
+# AWS CloudFormation DevOps Lab
+# Docker Compose
 # ==========================================================
 
 services:
 
-  aws-lab:
+  aws-cloudformation-lab:
 
-    # ------------------------------------------------------
-    # Build Docker Image
-    # ------------------------------------------------------
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-
-    # ------------------------------------------------------
-    # Container Name
-    # ------------------------------------------------------
     container_name: aws-cloudformation-lab
 
-    # ------------------------------------------------------
-    # Interactive Terminal
-    # ------------------------------------------------------
-    stdin_open: true
-    tty: true
+    image: cloudformation-lab
 
-    # ------------------------------------------------------
-    # Automatically restart unless stopped manually
-    # ------------------------------------------------------
+    build:
+
+      context: ..
+
+      dockerfile: docker/Dockerfile
+
     restart: unless-stopped
 
-    # ------------------------------------------------------
-    # Working Directory
-    # ------------------------------------------------------
+    stdin_open: true
+
+    tty: true
+
     working_dir: /workspace
 
-    # ------------------------------------------------------
-    # Mount Local Project
-    # ------------------------------------------------------
-    # The entire project is available inside the container.
-    volumes:
-
-      # Project folder
-      - ../:/workspace
-
-      # AWS credentials
-      # Linux/macOS
-      - ~/.aws:/root/.aws:ro
-
-      # Windows users can replace the above line with:
-      # - C:/Users/<YourUserName>/.aws:/root/.aws:ro
-
-    # ------------------------------------------------------
-    # Environment Variables
-    # ------------------------------------------------------
     environment:
+
       AWS_DEFAULT_REGION: us-east-1
 
-    # ------------------------------------------------------
-    # Default Command
-    # ------------------------------------------------------
-    command: /bin/bash
+      AWS_PAGER: ""
+
+      PYTHONUNBUFFERED: "1"
+
+    volumes:
+
+      # Mount the entire project
+      - ../:/workspace
+
+      # Use AWS credentials from the host machine
+      - ${USERPROFILE}/.aws:/root/.aws
+
+    healthcheck:
+
+      test: ["CMD", "aws", "--version"]
+
+      interval: 30s
+
+      timeout: 10s
+
+      retries: 3
+
+    command: tail -f /dev/null
