@@ -1,0 +1,328 @@
+# ==========================================================
+# AWS CloudFormation DevOps Lab
+# GitHub Actions Workflow
+# ==========================================================
+#
+# File:
+#   .github/workflows/deploy.yml
+#
+# Purpose
+# ----------------------------------------------------------
+# This workflow automates the deployment of an AWS
+# CloudFormation template.
+#
+# Every time code is pushed to the main branch,
+# GitHub Actions will:
+#
+# 1. Download the repository
+# 2. Configure AWS credentials
+# 3. Verify AWS CLI
+# 4. Validate the CloudFormation template
+# 5. Check whether the CloudFormation stack exists
+# 6. Create the stack if it does not exist
+# 7. Update the stack if it already exists
+# 8. Wait until deployment finishes
+# 9. Display deployment information
+#
+# ==========================================================
+
+# ----------------------------------------------------------
+# Workflow Name
+# ----------------------------------------------------------
+
+name: AWS CloudFormation Deployment
+
+# ----------------------------------------------------------
+# Workflow Trigger
+# ----------------------------------------------------------
+#
+# Run automatically whenever code is pushed
+# to the main branch.
+#
+# You can also run it manually from the
+# GitHub Actions page.
+#
+# ----------------------------------------------------------
+
+on:
+
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+# ----------------------------------------------------------
+# Global Environment Variables
+# ----------------------------------------------------------
+
+env:
+
+  AWS_REGION: us-east-1
+
+  STACK_NAME: Lab01-CloudFormation
+
+  TEMPLATE_FILE: templates/lab01.yaml
+
+# ----------------------------------------------------------
+# Jobs
+# ----------------------------------------------------------
+
+jobs:
+
+  deploy:
+
+    # ------------------------------------------------------
+    # Runner
+    # ------------------------------------------------------
+
+    runs-on: ubuntu-latest
+
+    # ------------------------------------------------------
+    # Job Name
+    # ------------------------------------------------------
+
+    name: Validate and Deploy CloudFormation Stack
+
+    steps:
+
+    # ======================================================
+    # Step 1
+    # Checkout Repository
+    # ======================================================
+
+    - name: Checkout Repository
+
+      uses: actions/checkout@v4
+
+    # ======================================================
+    # Step 2
+    # Configure AWS Credentials
+    # ======================================================
+    #
+    # Uses GitHub Secrets.
+    #
+    # Required Secrets:
+    #
+    # AWS_ACCESS_KEY_ID
+    #
+    # AWS_SECRET_ACCESS_KEY
+    #
+    # ------------------------------------------------------
+
+    - name: Configure AWS Credentials
+
+      uses: aws-actions/configure-aws-credentials@v4
+
+      with:
+
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+        aws-region: ${{ env.AWS_REGION }}
+
+    # ======================================================
+    # Step 3
+    # Verify AWS CLI
+    # ======================================================
+
+    - name: Verify AWS CLI
+
+      run: |
+
+        echo "======================================"
+        echo "AWS CLI Version"
+        echo "======================================"
+
+        aws --version
+
+    # ======================================================
+    # Step 4
+    # Verify GitHub Runner Information
+    # ======================================================
+
+    - name: Display Environment
+
+      run: |
+
+        echo "Current Directory"
+
+        pwd
+
+        echo ""
+
+        echo "Repository Files"
+
+        ls -la
+
+    # ======================================================
+    # Step 5
+    # Validate CloudFormation Template
+    # ======================================================
+    #
+    # This checks the template syntax before
+    # deployment.
+    #
+    # ------------------------------------------------------
+
+    - name: Validate CloudFormation Template
+
+      run: |
+
+        echo "======================================"
+        echo "Validating CloudFormation Template"
+        echo "======================================"
+
+        aws cloudformation validate-template \
+          --template-body file://${{ env.TEMPLATE_FILE }}
+
+    # ======================================================
+    # Step 6
+    # Check Whether Stack Exists
+    # ======================================================
+
+    - name: Check Stack Status
+
+      id: stack
+
+      shell: bash
+
+      run: |
+
+        if aws cloudformation describe-stacks \
+          --stack-name $STACK_NAME \
+          > /dev/null 2>&1
+
+        then
+
+          echo "exists=true" >> $GITHUB_OUTPUT
+
+        else
+
+          echo "exists=false" >> $GITHUB_OUTPUT
+
+        fi
+
+    # ======================================================
+    # Step 7
+    # Create New Stack
+    # ======================================================
+
+    - name: Create CloudFormation Stack
+
+      if: steps.stack.outputs.exists == 'false'
+
+      run: |
+
+        echo "======================================"
+        echo "Creating CloudFormation Stack"
+        echo "======================================"
+
+        aws cloudformation create-stack \
+          --stack-name $STACK_NAME \
+          --template-body file://${{ env.TEMPLATE_FILE }}
+
+    # ======================================================
+    # Step 8
+    # Wait Until Stack Creation Completes
+    # ======================================================
+
+    - name: Wait for Stack Creation
+
+      if: steps.stack.outputs.exists == 'false'
+
+      run: |
+
+        aws cloudformation wait stack-create-complete \
+          --stack-name $STACK_NAME
+
+    # ======================================================
+    # Step 9
+    # Update Existing Stack
+    # ======================================================
+
+    - name: Update CloudFormation Stack
+
+      if: steps.stack.outputs.exists == 'true'
+
+      shell: bash
+
+      run: |
+
+        set +e
+
+        aws cloudformation deploy \
+          --stack-name $STACK_NAME \
+          --template-file $TEMPLATE_FILE
+
+        EXIT_CODE=$?
+
+        if [ $EXIT_CODE -eq 0 ]; then
+
+          echo "Stack updated successfully."
+
+          exit 0
+
+        fi
+
+        echo "No changes detected or deployment failed."
+
+        exit 0
+
+    # ======================================================
+    # Step 10
+    # Display Stack Information
+    # ======================================================
+
+    - name: Display Stack Information
+
+      run: |
+
+        echo "======================================"
+        echo "CloudFormation Stack Details"
+        echo "======================================"
+
+        aws cloudformation describe-stacks \
+          --stack-name $STACK_NAME
+
+    # ======================================================
+    # Step 11
+    # Display Stack Resources
+    # ======================================================
+
+    - name: List Stack Resources
+
+      run: |
+
+        echo "======================================"
+        echo "Stack Resources"
+        echo "======================================"
+
+        aws cloudformation list-stack-resources \
+          --stack-name $STACK_NAME
+
+    # ======================================================
+    # Step 12
+    # Deployment Complete
+    # ======================================================
+
+    - name: Deployment Complete
+
+      run: |
+
+        echo ""
+
+        echo "======================================"
+
+        echo "CloudFormation Deployment Completed"
+
+        echo "======================================"
+
+        echo ""
+
+        echo "Stack Name : $STACK_NAME"
+
+        echo "Region     : $AWS_REGION"
+
+        echo ""
