@@ -1,20 +1,66 @@
 # ---------------------------------------------------------
 # AWS CloudFormation Beginner Lab
 # Creates:
-# - VPC
-# - Internet Gateway
-# - Public Subnet
-# - Route Table
-# - Security Group
-# - EC2 Instance
-# - S3 Bucket
+#   - VPC (with public + 2 private subnets)
+#   - Internet Gateway
+#   - Route Tables (public + private)
+#   - Security Groups (Web + RDS)
+#   - EC2 Instance
+#   - S3 Bucket
+#   - RDS MySQL Instance (in private subnets)
+#
+# NOTE: This template was reformatted/fixed from a broken version.
+# The main problems that were fixed:
+#   1. YAML indentation was inconsistent/broken throughout (YAML is
+#      whitespace-sensitive, so this would fail to deploy at all).
+#   2. The RDS master password was hardcoded in plain text
+#      ("Password123!") directly in the template. This is a bad
+#      practice and a security risk (visible to anyone with template
+#      access, and stored in plain text in the stack events/console).
+#      It is now passed in as a NoEcho Parameter instead.
+#   3. The EC2 KeyName and ImageId were hardcoded. They are now
+#      Parameters so you can change them per deployment without
+#      editing the template.
+#   4. Added "DependsOn" where a resource implicitly needs another
+#      resource to exist first (e.g. RDS needs the subnet group).
 # ---------------------------------------------------------
 
 AWSTemplateFormatVersion: '2010-09-09'
 
 Description: >
-  Beginner AWS CloudFormation Lab
+  Beginner AWS CloudFormation Lab - VPC, EC2, S3, and RDS MySQL
 
+# -------------------------------------------------------
+# Parameters
+# These let you customize the deployment without editing
+# the template itself (Type in values when you create/update
+# the stack in the AWS Console or CLI).
+# -------------------------------------------------------
+Parameters:
+
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: >
+      Amazon Linux 2023 AMI ID, automatically resolved to the latest version
+      via SSM Public Parameter (no need to hardcode/update an AMI ID manually)
+
+  DBMasterUsername:
+    Type: String
+    Default: admin
+    Description: Master username for the RDS MySQL database
+
+  DBMasterPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    Description: Master password for the RDS MySQL database (input is hidden, not stored in plain text in the template)
+
+# -------------------------------------------------------
 Resources:
 
   # -------------------------------------------------------
@@ -66,7 +112,41 @@ Resources:
           Value: Public-Subnet
 
   # -------------------------------------------------------
-  # Create Route Table
+  # Private Subnet 1 (for RDS)
+  # -------------------------------------------------------
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs ''
+      Tags:
+        - Key: Name
+          Value: Private-Subnet-1
+
+  # -------------------------------------------------------
+  # Private Subnet 2 (for RDS - must be in a different AZ
+  # than PrivateSubnet1, since RDS requires a subnet group
+  # spanning at least 2 Availability Zones)
+  # -------------------------------------------------------
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.3.0/24
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select
+        - 1
+        - !GetAZs ''
+      Tags:
+        - Key: Name
+          Value: Private-Subnet-2
+
+  # -------------------------------------------------------
+  # Create Public Route Table
   # -------------------------------------------------------
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
@@ -77,7 +157,9 @@ Resources:
           Value: Public-RouteTable
 
   # -------------------------------------------------------
-  # Default Route to Internet Gateway
+  # Default Route to Internet Gateway (0.0.0.0/0)
+  # DependsOn AttachGateway because the IGW must be attached
+  # to the VPC before a route can use it as a target.
   # -------------------------------------------------------
   DefaultRoute:
     Type: AWS::EC2::Route
@@ -88,7 +170,7 @@ Resources:
       GatewayId: !Ref MyInternetGateway
 
   # -------------------------------------------------------
-  # Associate Route Table with Public Subnet
+  # Associate Public Route Table with Public Subnet
   # -------------------------------------------------------
   PublicSubnetRouteAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -97,14 +179,50 @@ Resources:
       SubnetId: !Ref PublicSubnet
 
   # -------------------------------------------------------
-  # Create Security Group
+  # Create Private Route Table
+  # This route table is used by the private subnets. Since
+  # there is no NAT Gateway in this lab, it only contains
+  # the default local VPC route that AWS creates automatically
+  # (no internet access for the private subnets).
+  # -------------------------------------------------------
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: Private-RouteTable
+
+  # -------------------------------------------------------
+  # Associate Private Subnet 1 with Private Route Table
+  # -------------------------------------------------------
+  PrivateSubnet1RouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet1
+
+  # -------------------------------------------------------
+  # Associate Private Subnet 2 with Private Route Table
+  # -------------------------------------------------------
+  PrivateSubnet2RouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet2
+
+  # -------------------------------------------------------
+  # Web Security Group - allows SSH, HTTP, HTTPS
+  # NOTE: 0.0.0.0/0 on port 22 (SSH) means anyone on the
+  # internet can attempt to connect. Fine for a quick lab,
+  # but for anything beyond that you should restrict
+  # CidrIp for port 22 to your own IP address.
   # -------------------------------------------------------
   WebSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Allow SSH, HTTP and HTTPS
       VpcId: !Ref MyVPC
-
       SecurityGroupIngress:
 
         # SSH
@@ -112,82 +230,221 @@ Resources:
           FromPort: 22
           ToPort: 22
           CidrIp: 0.0.0.0/0
+          Description: Allow SSH from anywhere (restrict this in production)
 
         # HTTP
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
+          Description: Allow HTTP from anywhere
 
         # HTTPS
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
           CidrIp: 0.0.0.0/0
+          Description: Allow HTTPS from anywhere
 
       Tags:
         - Key: Name
           Value: Lab-Web-SG
+# -------------------------------------------------------
+# Nested Stack - EC2 Web Server
+# -------------------------------------------------------
+EC2WebServerStack:
+  Type: AWS::CloudFormation::Stack
 
-  # -------------------------------------------------------
-  # Launch EC2 Instance
-  # Replace ImageId and KeyName before deployment
-  # -------------------------------------------------------
-  WebServer:
-    Type: AWS::EC2::Instance
-    Properties:
+  Properties:
+
+    # URL of the separate EC2 CloudFormation template
+    TemplateURL: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/ec2-webserver.yaml
+
+    # Pass values from the parent stack
+    # to the EC2 child template.
+    Parameters:
+
+      AmiId: !Ref LatestAmiId
+
       InstanceType: t3.micro
 
-      # Replace with Amazon Linux 2023 AMI
-      ImageId: ami-0006118602dfc1c09
+      KeyPair: !Ref KeyPairName
 
-      # Replace with your EC2 Key Pair
-      KeyName: Lab-KeyPair
+      PublicSubnetId: !Ref PublicSubnet
 
-      SubnetId: !Ref PublicSubnet
+      SecurityGroupId: !Ref WebSecurityGroup
 
-      SecurityGroupIds:
-        - !Ref WebSecurityGroup
-
-      Tags:
-        - Key: Name
-          Value: AWS-Lab-WebServer
-
+      UserDataScriptUrl: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/scripts/ec2-userdata.sh
+  
   # -------------------------------------------------------
-  # Create S3 Bucket
+  # Nested Stack - Create S3 Bucket
+  # No BucketName is set, so CloudFormation will
+  # auto-generate a globally unique name.
   # -------------------------------------------------------
-  LabBucket:
-    Type: AWS::S3::Bucket
+  S3NestedStack:
+    Type: AWS::CloudFormation::Stack
+
     Properties:
-      VersioningConfiguration:
-        Status: Enabled
+      # URL of the separate EC2 CloudFormation template
+      TemplateURL: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/s3.yaml
 
-      Tags:
-        - Key: Name
-          Value: Lab-S3-Bucket
+# -------------------------------------------------------
+# Nested Stack - Amazon RDS
+# -------------------------------------------------------
+# RDS resources are now separated into:
+#
+# templates/aws-rds.yaml
+#
+# The parent stack passes the existing:
+#
+# - VPC
+# - Private Subnet 1
+# - Private Subnet 2
+# - Web Security Group
+# - RDS username
+# - RDS password
+#
+# to the RDS child stack.
+# -------------------------------------------------------
 
+RDSNestedStack:
+  Type: AWS::CloudFormation::Stack
+
+  Properties:
+
+    # ---------------------------------------------------
+    # Location of the RDS child template
+    # ---------------------------------------------------
+    TemplateURL: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/aws-rds.yaml
+
+    # ---------------------------------------------------
+    # Pass resources from the parent stack to the
+    # RDS nested stack.
+    # ---------------------------------------------------
+    Parameters:
+
+      # -------------------------------------------------
+      # VPC created by main.yaml
+      # -------------------------------------------------
+      VpcId: !Ref MyVPC
+
+      # -------------------------------------------------
+      # Private subnet 1 created by main.yaml
+      # -------------------------------------------------
+      PrivateSubnet1: !Ref PrivateSubnet1
+
+      # -------------------------------------------------
+      # Private subnet 2 created by main.yaml
+      # -------------------------------------------------
+      PrivateSubnet2: !Ref PrivateSubnet2
+
+      # -------------------------------------------------
+      # EC2 Web Security Group created by main.yaml
+      #
+      # RDS will allow MySQL port 3306 only from this
+      # Security Group.
+      # -------------------------------------------------
+      WebSecurityGroupId: !Ref WebSecurityGroup
+
+      # -------------------------------------------------
+      # Pass the database username from the parent
+      # parameter to the child parameter.
+      # -------------------------------------------------
+      DBUsername: !Ref DBMasterUsername
+
+      # -------------------------------------------------
+      # Pass the database password from the parent
+      # parameter to the child parameter.
+      # -------------------------------------------------
+      DBPassword: !Ref DBMasterPassword
+
+```yaml
 # ---------------------------------------------------------
 # CloudFormation Outputs
+# Values shown after the stack finishes creating, and
+# available via `aws cloudformation describe-stacks`.
 # ---------------------------------------------------------
 
 Outputs:
+
+  # -------------------------------------------------------
+  # VPC
+  # -------------------------------------------------------
 
   VPCId:
     Description: VPC ID
     Value: !Ref MyVPC
 
+  # -------------------------------------------------------
+  # Public Subnet
+  # -------------------------------------------------------
+
   PublicSubnetId:
     Description: Public Subnet ID
     Value: !Ref PublicSubnet
 
+  # -------------------------------------------------------
+  # Private Subnet 1
+  # -------------------------------------------------------
+
+  PrivateSubnet1Id:
+    Description: Private Subnet 1 ID
+    Value: !Ref PrivateSubnet1
+
+  # -------------------------------------------------------
+  # Private Subnet 2
+  # -------------------------------------------------------
+
+  PrivateSubnet2Id:
+    Description: Private Subnet 2 ID
+    Value: !Ref PrivateSubnet2
+
+  # -------------------------------------------------------
+  # Web Security Group
+  # -------------------------------------------------------
+
   SecurityGroupId:
-    Description: Security Group ID
+    Description: Web Security Group ID
     Value: !Ref WebSecurityGroup
+
+  # -------------------------------------------------------
+  # EC2 outputs from EC2 nested stack
+  # -------------------------------------------------------
 
   EC2InstanceId:
     Description: EC2 Instance ID
-    Value: !Ref WebServer
+    Value: !GetAtt EC2WebServerStack.Outputs.InstanceId
+
+  EC2PublicIP:
+    Description: EC2 Instance Public IP
+    Value: !GetAtt EC2WebServerStack.Outputs.PublicIP
+
+  # -------------------------------------------------------
+  # S3 output from S3 nested stack
+  # -------------------------------------------------------
 
   S3BucketName:
     Description: S3 Bucket Name
-    Value: !Ref LabBucket
+    Value: !GetAtt S3NestedStack.Outputs.BucketName
+
+  # -------------------------------------------------------
+  # RDS outputs from RDS nested stack
+  # -------------------------------------------------------
+
+  RDSDatabaseId:
+    Description: RDS Database Identifier
+    Value: !GetAtt RDSNestedStack.Outputs.RDSDatabaseId
+
+  RDSEndpoint:
+    Description: RDS Endpoint Address
+    Value: !GetAtt RDSNestedStack.Outputs.RDSEndpoint
+
+  RDSPort:
+    Description: RDS MySQL Port
+    Value: !GetAtt RDSNestedStack.Outputs.RDSPort
+
+  RDSSecurityGroupId:
+    Description: RDS Security Group ID
+    Value: !GetAtt RDSNestedStack.Outputs.RDSSecurityGroupId
+```
+

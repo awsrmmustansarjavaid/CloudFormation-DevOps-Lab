@@ -1,0 +1,462 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+# =======================================================
+# EC2 Web Server CloudFormation Template
+# =======================================================
+#
+# Purpose:
+# This template creates an EC2 Web Server and uses
+# EC2 UserData to download a separate Bash bootstrap
+# script from GitHub.
+#
+# Architecture:
+#
+# CloudFormation
+#       |
+#       v
+#      EC2
+#       |
+#       | First Boot
+#       v
+#   UserData
+#       |
+#       | Download
+#       v
+# GitHub Raw URL
+#       |
+#       v
+# ec2-userdata.sh
+#       |
+#       v
+# LAMP + Docker + Git + AWS CLI + DevOps Tools
+#
+# =======================================================
+
+
+# -------------------------------------------------------
+# Template Description
+# -------------------------------------------------------
+
+Description: >
+  CloudFormation template that deploys an EC2 Web Server
+  and automatically downloads a separate EC2 UserData
+  Bash bootstrap script from GitHub during the first boot.
+
+
+# =======================================================
+# Parameters
+# =======================================================
+
+Parameters:
+
+
+  # -----------------------------------------------------
+  # AMI ID
+  # -----------------------------------------------------
+  # The AMI used to launch the EC2 instance.
+  #
+  # Example:
+  # Amazon Linux 2023 AMI
+  #
+  # You can provide the AMI ID when creating the stack.
+  # -----------------------------------------------------
+
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Description: >
+      Amazon Machine Image (AMI) ID to use for the
+      EC2 Web Server.
+
+
+  # -----------------------------------------------------
+  # EC2 Instance Type
+  # -----------------------------------------------------
+  # Defines the compute size of the EC2 instance.
+  #
+  # t2.micro is kept as the default based on your
+  # existing lab configuration.
+  # -----------------------------------------------------
+
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    Description: >
+      EC2 instance type for the Web Server.
+
+
+  # -----------------------------------------------------
+  # EC2 Key Pair
+  # -----------------------------------------------------
+  # Existing EC2 Key Pair used for SSH access.
+  # -----------------------------------------------------
+
+  KeyPair:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: >
+      Existing EC2 Key Pair used to connect to the
+      Web Server through SSH.
+
+
+  # -----------------------------------------------------
+  # Public Subnet
+  # -----------------------------------------------------
+  # The EC2 instance will be deployed into this subnet.
+  #
+  # IMPORTANT:
+  # The subnet should have a route to an Internet Gateway
+  # if the EC2 instance needs to download the UserData
+  # script directly from GitHub.
+  # -----------------------------------------------------
+
+  PublicSubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: >
+      Public Subnet ID where the EC2 Web Server will
+      be deployed.
+
+
+  # -----------------------------------------------------
+  # Security Group
+  # -----------------------------------------------------
+  # Security Group associated with the EC2 instance.
+  # -----------------------------------------------------
+
+  SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: >
+      Security Group ID associated with the EC2
+      Web Server.
+
+
+  # -----------------------------------------------------
+  # UserData Script URL
+  # -----------------------------------------------------
+  #
+  # This parameter contains the RAW GitHub URL of the
+  # separate ec2-userdata.sh file.
+  #
+  # IMPORTANT:
+  #
+  # Replace:
+  #
+  # YOUR_GITHUB_USERNAME
+  # YOUR_REPOSITORY
+  #
+  # with your actual GitHub username and repository.
+  #
+  # Example:
+  #
+  # https://raw.githubusercontent.com/
+  # charlie/AWS-CloudFormation-Lab/main/scripts/ec2-userdata.sh
+  #
+  # -----------------------------------------------------
+
+  UserDataScriptUrl:
+    Type: String
+    Default: https://awsrmmustansarjavaid/CloudFormation-DevOps-Lab/tree/main/scripts/ec2-userdata.sh
+    Description: >
+      Raw GitHub URL pointing to the separate
+      ec2-userdata.sh bootstrap script.
+
+
+# =======================================================
+# Resources
+# =======================================================
+
+Resources:
+
+
+  # -----------------------------------------------------
+  # EC2 Web Server
+  # -----------------------------------------------------
+  #
+  # Creates the EC2 instance.
+  #
+  # The actual server configuration is NOT written here.
+  #
+  # Instead:
+  #
+  # 1. EC2 starts.
+  # 2. UserData runs.
+  # 3. UserData downloads ec2-userdata.sh from GitHub.
+  # 4. ec2-userdata.sh configures the server.
+  #
+  # -----------------------------------------------------
+
+  WebServer:
+
+    Type: AWS::EC2::Instance
+
+    Properties:
+
+
+      # -------------------------------------------------
+      # EC2 Configuration
+      # -------------------------------------------------
+
+      # AMI used for the EC2 instance.
+      ImageId: !Ref AmiId
+
+      # EC2 instance type.
+      InstanceType: !Ref InstanceType
+
+      # Existing EC2 Key Pair.
+      KeyName: !Ref KeyPair
+
+      # Public subnet where the EC2 instance will run.
+      SubnetId: !Ref PublicSubnetId
+
+
+      # -------------------------------------------------
+      # Security Group
+      # -------------------------------------------------
+      #
+      # Attach the provided Security Group to the
+      # EC2 Web Server.
+      #
+      # -------------------------------------------------
+
+      SecurityGroupIds:
+        - !Ref SecurityGroupId
+
+
+      # -------------------------------------------------
+      # EC2 Tags
+      # -------------------------------------------------
+
+      Tags:
+
+        - Key: Name
+          Value: CloudFormation-WebServer
+
+        - Key: Project
+          Value: AWS-CloudFormation-Lab
+
+        - Key: ManagedBy
+          Value: CloudFormation
+
+
+      # =================================================
+      # EC2 UserData
+      # =================================================
+      #
+      # IMPORTANT:
+      #
+      # The complete Bash script is NOT stored here.
+      #
+      # This small UserData wrapper:
+      #
+      # 1. Starts during the first EC2 boot.
+      # 2. Enables strict Bash error handling.
+      # 3. Creates a bootstrap log.
+      # 4. Downloads ec2-userdata.sh from GitHub.
+      # 5. Makes ec2-userdata.sh executable.
+      # 6. Executes ec2-userdata.sh.
+      # 7. Creates a completion status file.
+      #
+      # =================================================
+
+      UserData:
+        Fn::Base64: !Sub |
+
+          #!/bin/bash
+
+          # ------------------------------------------------
+          # EC2 UserData Wrapper
+          # ------------------------------------------------
+          #
+          # This wrapper downloads the actual EC2 bootstrap
+          # script from GitHub.
+          #
+          # The full server configuration is maintained in:
+          #
+          # scripts/ec2-userdata.sh
+          #
+          # ------------------------------------------------
+
+
+          # ------------------------------------------------
+          # Stop execution if a command fails.
+          #
+          # -e  = exit when a command fails
+          # -u  = error when using undefined variables
+          # -x  = display commands while executing
+          # pipefail = detect failures inside pipelines
+          # ------------------------------------------------
+
+          set -euxo pipefail
+
+
+          # ------------------------------------------------
+          # Create a log file for the UserData process.
+          #
+          # This is useful for troubleshooting.
+          # ------------------------------------------------
+
+          exec > >(tee /var/log/bootstrap.log) 2>&1
+
+
+          # ------------------------------------------------
+          # Display start message.
+          # ------------------------------------------------
+
+          echo "==============================================="
+          echo "Starting EC2 UserData Bootstrap"
+          echo "==============================================="
+
+
+          # ------------------------------------------------
+          # Move to temporary directory.
+          # ------------------------------------------------
+
+          cd /tmp
+
+
+          # ------------------------------------------------
+          # Display the GitHub script URL.
+          # ------------------------------------------------
+
+          echo "Downloading EC2 bootstrap script..."
+          echo "Script URL: ${UserDataScriptUrl}"
+
+
+          # ------------------------------------------------
+          # Download the separate Bash script from GitHub.
+          #
+          # CloudFormation substitutes the value of the
+          # UserDataScriptUrl parameter into this command.
+          # ------------------------------------------------
+
+          curl -fsSL \
+            "${UserDataScriptUrl}" \
+            -o ec2-userdata.sh
+
+
+          # ------------------------------------------------
+          # Verify that the script was downloaded.
+          # ------------------------------------------------
+
+          if [ ! -s /tmp/ec2-userdata.sh ]; then
+
+            echo "ERROR: ec2-userdata.sh was not downloaded."
+
+            exit 1
+
+          fi
+
+
+          # ------------------------------------------------
+          # Make the Bash script executable.
+          # ------------------------------------------------
+
+          chmod +x /tmp/ec2-userdata.sh
+
+
+          # ------------------------------------------------
+          # Display downloaded file information.
+          # ------------------------------------------------
+
+          echo "EC2 bootstrap script downloaded successfully."
+
+          ls -lh /tmp/ec2-userdata.sh
+
+
+          # ------------------------------------------------
+          # Execute the actual EC2 bootstrap script.
+          #
+          # This script contains:
+          #
+          # - Apache
+          # - PHP
+          # - MariaDB/MySQL client
+          # - Docker
+          # - Docker Compose
+          # - Git
+          # - AWS CLI
+          # - DevOps utilities
+          #
+          # ------------------------------------------------
+
+          echo "Executing ec2-userdata.sh..."
+
+          /bin/bash /tmp/ec2-userdata.sh
+
+
+          # ------------------------------------------------
+          # Create completion status file.
+          #
+          # This file can be checked after connecting to
+          # the EC2 instance.
+          # ------------------------------------------------
+
+          echo "Bootstrap completed successfully." \
+            > /var/log/bootstrap-status.log
+
+
+          # ------------------------------------------------
+          # Display completion message.
+          # ------------------------------------------------
+
+          echo "==============================================="
+          echo "EC2 UserData Bootstrap Completed Successfully"
+          echo "==============================================="
+
+
+# =======================================================
+# Outputs
+# =======================================================
+
+Outputs:
+
+
+  # -----------------------------------------------------
+  # EC2 Instance ID
+  # -----------------------------------------------------
+
+  InstanceId:
+
+    Description: >
+      EC2 Web Server Instance ID.
+
+    Value: !Ref WebServer
+
+
+  # -----------------------------------------------------
+  # EC2 Public IP
+  # -----------------------------------------------------
+
+  PublicIP:
+
+    Description: >
+      Public IP address assigned to the EC2 Web Server.
+
+    Value: !GetAtt WebServer.PublicIp
+
+
+  # -----------------------------------------------------
+  # EC2 Public DNS
+  # -----------------------------------------------------
+
+  PublicDNS:
+
+    Description: >
+      Public DNS name of the EC2 Web Server.
+
+    Value: !GetAtt WebServer.PublicDnsName
+
+
+  # -----------------------------------------------------
+  # UserData Script URL
+  # -----------------------------------------------------
+  #
+  # Displays the GitHub location of the bootstrap script.
+  #
+  # -----------------------------------------------------
+
+  UserDataScript:
+
+    Description: >
+      GitHub Raw URL used by EC2 UserData to download
+      the bootstrap script.
+
+    Value: !Ref UserDataScriptUrl

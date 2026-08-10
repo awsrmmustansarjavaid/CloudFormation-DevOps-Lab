@@ -1,0 +1,303 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+# -------------------------------------------------------
+# AWS RDS Nested CloudFormation Template
+# -------------------------------------------------------
+# This template creates the RDS infrastructure separately
+# from the main CloudFormation template.
+#
+# The parent stack will pass:
+#
+# 1. VPC ID
+# 2. Private Subnet 1
+# 3. Private Subnet 2
+# 4. Web Security Group ID
+#
+# This makes the RDS template reusable.
+# -------------------------------------------------------
+
+Description: >
+  Nested CloudFormation stack for Amazon RDS MySQL.
+  RDS is deployed separately from the main infrastructure.
+
+# =======================================================
+# PARAMETERS
+# =======================================================
+# These values are received from the parent stack.
+# =======================================================
+
+Parameters:
+
+  # -----------------------------------------------------
+  # VPC where RDS Security Group will be created
+  # -----------------------------------------------------
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID where the RDS security group exists
+
+  # -----------------------------------------------------
+  # First private subnet
+  # -----------------------------------------------------
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet::Id
+    Description: First private subnet for RDS
+
+  # -----------------------------------------------------
+  # Second private subnet
+  # -----------------------------------------------------
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet::Id
+    Description: Second private subnet for RDS
+
+  # -----------------------------------------------------
+  # Web Security Group
+  #
+  # This is the Security Group attached to the EC2
+  # web server.
+  #
+  # RDS will allow MySQL traffic only from this SG.
+  # -----------------------------------------------------
+  WebSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security Group ID of the EC2 web server
+
+  # -----------------------------------------------------
+  # Database username
+  # -----------------------------------------------------
+  DBUsername:
+    Type: String
+    Default: admin
+    Description: RDS master username
+
+  # -----------------------------------------------------
+  # Database password
+  #
+  # NoEcho prevents the password from being displayed
+  # in CloudFormation console output.
+  #
+  # For production environments, AWS Secrets Manager
+  # is recommended instead of passing a password directly.
+  # -----------------------------------------------------
+  DBPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    Description: RDS master password
+
+# =======================================================
+# RESOURCES
+# =======================================================
+
+Resources:
+
+  # =====================================================
+  # RDS SECURITY GROUP
+  # =====================================================
+  # Allows MySQL traffic ONLY from the EC2
+  # WebSecurityGroup.
+  #
+  # The database is NOT open to:
+  #
+  # 0.0.0.0/0
+  #
+  # This is an important security best practice.
+  # =====================================================
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+
+    Properties:
+
+      # Description of the security group
+      GroupDescription: Allow MySQL from EC2 only
+
+      # Attach the Security Group to the same VPC
+      VpcId: !Ref VpcId
+
+      # -------------------------------------------------
+      # Inbound Rule
+      # -------------------------------------------------
+      SecurityGroupIngress:
+
+        - IpProtocol: tcp
+
+          # MySQL port
+          FromPort: 3306
+          ToPort: 3306
+
+          # Only EC2 instances using WebSecurityGroup
+          # can connect to the database.
+          SourceSecurityGroupId: !Ref WebSecurityGroupId
+
+          Description: Allow MySQL access only from EC2 Web Security Group
+
+      Tags:
+
+        - Key: Name
+          Value: Lab-RDS-SG
+
+  # =====================================================
+  # RDS SUBNET GROUP
+  # =====================================================
+  # RDS requires a DB subnet group when using subnets.
+  #
+  # We provide two subnets so that RDS can support
+  # Multi-AZ configurations when required.
+  # =====================================================
+
+  RDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+
+    Properties:
+
+      DBSubnetGroupDescription: Subnet group for Lab RDS
+
+      # RDS will use these two subnets
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+
+      Tags:
+
+        - Key: Name
+          Value: Lab-RDS-SubnetGroup
+
+  # =====================================================
+  # AMAZON RDS MYSQL DATABASE
+  # =====================================================
+
+  RDSDatabase:
+    Type: AWS::RDS::DBInstance
+
+    Properties:
+
+      # -------------------------------------------------
+      # Database Engine
+      # -------------------------------------------------
+      Engine: mysql
+
+      # -------------------------------------------------
+      # MySQL version
+      #
+      # Verify that this version is available in the
+      # AWS region you are using before deployment.
+      # -------------------------------------------------
+      EngineVersion: '8.0'
+
+      # -------------------------------------------------
+      # Free-Tier / Learning Lab instance size
+      # -------------------------------------------------
+      DBInstanceClass: db.t3.micro
+
+      # -------------------------------------------------
+      # Database name
+      # -------------------------------------------------
+      DBName: labdb
+
+      # -------------------------------------------------
+      # Master username
+      # -------------------------------------------------
+      MasterUsername: !Ref DBUsername
+
+      # -------------------------------------------------
+      # Master password
+      # -------------------------------------------------
+      MasterUserPassword: !Ref DBPassword
+
+      # -------------------------------------------------
+      # Storage
+      # -------------------------------------------------
+      AllocatedStorage: 20
+
+      # General Purpose SSD
+      StorageType: gp2
+
+      # -------------------------------------------------
+      # Disable public access
+      #
+      # RDS should not receive direct internet traffic.
+      # EC2 connects to RDS privately through the VPC.
+      # -------------------------------------------------
+      PubliclyAccessible: false
+
+      # -------------------------------------------------
+      # RDS Security Group
+      # -------------------------------------------------
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+
+      # -------------------------------------------------
+      # RDS Subnet Group
+      # -------------------------------------------------
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+
+      # -------------------------------------------------
+      # Backup retention
+      #
+      # Set to 0 for a simple learning lab.
+      #
+      # Production databases should normally use backups.
+      # -------------------------------------------------
+      BackupRetentionPeriod: 0
+
+      # -------------------------------------------------
+      # Encryption
+      #
+      # Enable this for production workloads.
+      # For a basic learning lab, this can remain false.
+      # -------------------------------------------------
+      StorageEncrypted: false
+
+      # -------------------------------------------------
+      # Deletion Policy
+      #
+      # For a lab, we don't want an old database snapshot
+      # left behind after stack deletion.
+      # -------------------------------------------------
+      DeletionProtection: false
+
+      # -------------------------------------------------
+      # Tags
+      # -------------------------------------------------
+      Tags:
+
+        - Key: Name
+          Value: Lab-RDS-MySQL
+
+# =======================================================
+# OUTPUTS
+# =======================================================
+# These values are returned to the parent stack.
+# =======================================================
+
+Outputs:
+
+  # -----------------------------------------------------
+  # RDS Database ID
+  # -----------------------------------------------------
+  RDSDatabaseId:
+    Description: RDS database identifier
+    Value: !Ref RDSDatabase
+
+  # -----------------------------------------------------
+  # RDS Endpoint
+  #
+  # This is the hostname EC2 will use to connect to RDS.
+  # -----------------------------------------------------
+  RDSEndpoint:
+    Description: RDS MySQL endpoint
+    Value: !GetAtt RDSDatabase.Endpoint.Address
+
+  # -----------------------------------------------------
+  # RDS Port
+  # -----------------------------------------------------
+  RDSPort:
+    Description: RDS MySQL port
+    Value: !GetAtt RDSDatabase.Endpoint.Port
+
+  # -----------------------------------------------------
+  # RDS Security Group ID
+  # -----------------------------------------------------
+  RDSSecurityGroupId:
+    Description: RDS Security Group ID
+    Value: !Ref RDSSecurityGroup
