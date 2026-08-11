@@ -1,56 +1,127 @@
 version: "3.9"
 
 # ==========================================================
+
 # AWS CloudFormation DevOps Lab
+
 # Docker Compose
+
 # ==========================================================
 
 services:
 
-  aws-cloudformation-lab:
+aws-cloudformation-lab:
 
-    container_name: aws-cloudformation-lab
+```
+# --------------------------------------------------------
+# Container Name
+# --------------------------------------------------------
 
-    image: cloudformation-lab
+container_name: aws-cloudformation-lab
 
-    build:
+# --------------------------------------------------------
+# Docker Image
+# --------------------------------------------------------
 
-      context: ..
+image: cloudformation-lab
 
-      dockerfile: docker/Dockerfile
+# --------------------------------------------------------
+# Build Configuration
+# --------------------------------------------------------
 
-    restart: unless-stopped
+build:
+  context: ..
+  dockerfile: docker/Dockerfile
 
-    stdin_open: true
+# --------------------------------------------------------
+# Restart Policy
+# --------------------------------------------------------
 
-    tty: true
+restart: unless-stopped
 
-    working_dir: /workspace
+# --------------------------------------------------------
+# Interactive Terminal
+# --------------------------------------------------------
 
-    environment:
+stdin_open: true
+tty: true
 
-      AWS_DEFAULT_REGION: us-east-1
+# --------------------------------------------------------
+# Working Directory
+# --------------------------------------------------------
 
-      AWS_PAGER: ""
+working_dir: /workspace
 
-      PYTHONUNBUFFERED: "1"
+# --------------------------------------------------------
+# Environment Variables
+# --------------------------------------------------------
 
-    volumes:
+environment:
+  AWS_DEFAULT_REGION: us-east-1
+  AWS_PAGER: ""
+  PYTHONUNBUFFERED: "1"
 
-      # Mount the entire project
-      - ../:/workspace
+# --------------------------------------------------------
+# Port Mapping
+# --------------------------------------------------------
+# EC2 host port 3306 -> Container port 3306
+# This allows MariaDB to be accessed through the
+# Docker container from the EC2 host.
 
-      # Use AWS credentials from the host machine
-      - ${USERPROFILE}/.aws:/root/.aws
+ports:
+  - "3306:3306"
 
-    healthcheck:
+# --------------------------------------------------------
+# Volumes
+# --------------------------------------------------------
 
-      test: ["CMD", "aws", "--version"]
+volumes:
 
-      interval: 30s
+  # Mount the entire project
+  - ../:/workspace
 
-      timeout: 10s
+  # Use AWS credentials from the host machine
+  - ${USERPROFILE}/.aws:/root/.aws
 
-      retries: 3
+  # Persist MariaDB database files
+  # Database data will remain even if the container
+  # is stopped or recreated.
+  - mariadb_data:/var/lib/mysql
 
-    command: tail -f /dev/null
+# --------------------------------------------------------
+# Health Check
+# --------------------------------------------------------
+
+healthcheck:
+  test: ["CMD", "aws", "--version"]
+  interval: 30s
+  timeout: 10s
+  retries: 3
+
+# --------------------------------------------------------
+# Container Startup Command
+# --------------------------------------------------------
+# Do NOT use:
+# command: tail -f /dev/null
+#
+# That command would override the CMD from the Dockerfile.
+#
+# The Dockerfile CMD starts MariaDB and keeps the
+# container running:
+#
+# CMD ["bash", "-c", "service mariadb start && tail -f /dev/null"]
+#
+# Therefore, no "command:" is required here.
+```
+
+# ==========================================================
+
+# Named Volumes
+
+# ==========================================================
+
+volumes:
+
+# Persistent MariaDB storage
+
+mariadb_data:

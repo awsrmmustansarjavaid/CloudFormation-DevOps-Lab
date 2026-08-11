@@ -59,23 +59,25 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && \
     apt-get install -y \
-        bash \
-        git \
-        curl \
-        wget \
-        unzip \
-        zip \
-        less \
-        groff \
-        jq \
-        tree \
-        nano \
-        vim \
-        make \
-        python3 \
-        python3-pip \
-        openssh-client \
-        ca-certificates && \
+    bash \
+    git \
+    curl \
+    wget \
+    unzip \
+    zip \
+    less \
+    groff \
+    jq \
+    tree \
+    nano \
+    vim \
+    make \
+    python3 \
+    python3-pip \
+    openssh-client \
+    ca-certificates \
+    mariadb-server \
+    mariadb-client && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -107,7 +109,27 @@ RUN echo "=====================================" && \
 WORKDIR /workspace
 
 # ----------------------------------------------------------
-# Default Shell
+# MariaDB Port
 # ----------------------------------------------------------
 
-CMD ["tail","-f","/dev/null"]
+EXPOSE 3306
+
+# ----------------------------------------------------------
+
+# Default Shell / Container Startup Command
+
+# ----------------------------------------------------------
+
+# Original command:
+
+# Keeps the Docker container running without starting MariaDB.
+
+# This command is not used because MariaDB must start
+
+# automatically when the container starts.
+
+# CMD ["tail","-f","/dev/null"]
+
+# Starts the MariaDB service and keeps the container running.
+
+CMD ["bash", "-c", "service mariadb start && tail -f /dev/null"]
