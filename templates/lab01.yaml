@@ -426,4 +426,3 @@ Outputs:
   RDSSecurityGroupId:
     Description: RDS Security Group ID
     Value: !GetAtt RDSNestedStack.Outputs.RDSSecurityGroupId
-
