@@ -340,6 +340,7 @@ Resources:
 
         # Database password
         DBPassword: !Ref DBMasterPassword
+        
 
 # -------------------------------------------------------
 # Outputs
@@ -426,4 +427,4 @@ Outputs:
   RDSSecurityGroupId:
     Description: RDS Security Group ID
     Value: !GetAtt RDSNestedStack.Outputs.RDSSecurityGroupId
-```
+
