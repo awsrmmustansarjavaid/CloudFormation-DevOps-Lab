@@ -1,84 +1,41 @@
 # ---------------------------------------------------------
 # AWS CloudFormation Beginner Lab
-#
 # Creates:
-#   - VPC
-#   - Internet Gateway
-#   - 1 Public Subnet
-#   - 2 Private Subnets
-#   - Public Route Table
-#   - Private Route Table
-#   - Web Security Group
-#   - EC2 Instance through Nested Stack
-#   - S3 Bucket through Nested Stack
-#   - RDS MySQL through Nested Stack
+# - VPC
+# - Internet Gateway
+# - Public Subnet
+# - Route Table
+# - Security Group
+# - EC2 Instance
+# - S3 Bucket
 # ---------------------------------------------------------
 
 AWSTemplateFormatVersion: '2010-09-09'
 
 Description: >
-  Beginner AWS CloudFormation Lab - VPC, EC2, S3, and RDS MySQL
-
-# -------------------------------------------------------
-# Parameters
-# -------------------------------------------------------
-
-Parameters:
-
-  # Existing EC2 Key Pair
-  KeyPairName:
-    Type: AWS::EC2::KeyPair::KeyName
-    Description: Name of an existing EC2 KeyPair to enable SSH access
-
-  # Latest Amazon Linux 2023 AMI
-  LatestAmiId:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
-    Description: >
-      Amazon Linux 2023 AMI ID resolved through the AWS public SSM parameter
-
-  # RDS username
-  DBMasterUsername:
-    Type: String
-    Default: admin
-    Description: Master username for the RDS MySQL database
-
-  # RDS password
-  DBMasterPassword:
-    Type: String
-    NoEcho: true
-    MinLength: 8
-    Description: Master password for the RDS MySQL database
-
-# -------------------------------------------------------
-# Resources
-# -------------------------------------------------------
+  Beginner AWS CloudFormation Lab
 
 Resources:
 
   # -------------------------------------------------------
-  # VPC
+  # Create VPC
   # -------------------------------------------------------
-
   MyVPC:
     Type: AWS::EC2::VPC
     Properties:
       CidrBlock: 10.0.0.0/16
       EnableDnsSupport: true
       EnableDnsHostnames: true
-
       Tags:
         - Key: Name
           Value: Lab-VPC
 
   # -------------------------------------------------------
-  # Internet Gateway
+  # Create Internet Gateway
   # -------------------------------------------------------
-
   MyInternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
-
       Tags:
         - Key: Name
           Value: Lab-InternetGateway
@@ -86,7 +43,6 @@ Resources:
   # -------------------------------------------------------
   # Attach Internet Gateway to VPC
   # -------------------------------------------------------
-
   AttachGateway:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
@@ -94,79 +50,35 @@ Resources:
       VpcId: !Ref MyVPC
 
   # -------------------------------------------------------
-  # Public Subnet
+  # Create Public Subnet
   # -------------------------------------------------------
-
   PublicSubnet:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref MyVPC
       CidrBlock: 10.0.1.0/24
       MapPublicIpOnLaunch: true
-
       AvailabilityZone: !Select
         - 0
         - !GetAZs ''
-
       Tags:
         - Key: Name
           Value: Public-Subnet
 
   # -------------------------------------------------------
-  # Private Subnet 1
+  # Create Route Table
   # -------------------------------------------------------
-
-  PrivateSubnet1:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref MyVPC
-      CidrBlock: 10.0.2.0/24
-      MapPublicIpOnLaunch: false
-
-      AvailabilityZone: !Select
-        - 0
-        - !GetAZs ''
-
-      Tags:
-        - Key: Name
-          Value: Private-Subnet-1
-
-  # -------------------------------------------------------
-  # Private Subnet 2
-  # -------------------------------------------------------
-
-  PrivateSubnet2:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref MyVPC
-      CidrBlock: 10.0.3.0/24
-      MapPublicIpOnLaunch: false
-
-      AvailabilityZone: !Select
-        - 1
-        - !GetAZs ''
-
-      Tags:
-        - Key: Name
-          Value: Private-Subnet-2
-
-  # -------------------------------------------------------
-  # Public Route Table
-  # -------------------------------------------------------
-
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref MyVPC
-
       Tags:
         - Key: Name
           Value: Public-RouteTable
 
   # -------------------------------------------------------
-  # Default Internet Route
+  # Default Route to Internet Gateway
   # -------------------------------------------------------
-
   DefaultRoute:
     Type: AWS::EC2::Route
     DependsOn: AttachGateway
@@ -176,9 +88,8 @@ Resources:
       GatewayId: !Ref MyInternetGateway
 
   # -------------------------------------------------------
-  # Public Subnet Route Association
+  # Associate Route Table with Public Subnet
   # -------------------------------------------------------
-
   PublicSubnetRouteAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
@@ -186,55 +97,8 @@ Resources:
       SubnetId: !Ref PublicSubnet
 
   # -------------------------------------------------------
-  # Private Route Table
-  #
-  # No NAT Gateway is configured in this lab.
-  # Private subnets therefore have no internet access.
+  # Create Security Group
   # -------------------------------------------------------
-
-  PrivateRouteTable:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref MyVPC
-
-      Tags:
-        - Key: Name
-          Value: Private-RouteTable
-
-  # -------------------------------------------------------
-  # Private Subnet 1 Route Association
-  # -------------------------------------------------------
-
-  PrivateSubnet1RouteAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref PrivateRouteTable
-      SubnetId: !Ref PrivateSubnet1
-
-  # -------------------------------------------------------
-  # Private Subnet 2 Route Association
-  # -------------------------------------------------------
-
-  PrivateSubnet2RouteAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref PrivateRouteTable
-      SubnetId: !Ref PrivateSubnet2
-
-  # -------------------------------------------------------
-  # Web Security Group
-  #
-  # Allows:
-  #   SSH   - 22
-  #   HTTP  - 80
-  #   HTTPS - 443
-  #
-  # NOTE:
-  # SSH from 0.0.0.0/0 is acceptable for a temporary lab,
-  # but should be restricted to your own public IP in
-  # a real environment.
-  # -------------------------------------------------------
-
   WebSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -248,181 +112,82 @@ Resources:
           FromPort: 22
           ToPort: 22
           CidrIp: 0.0.0.0/0
-          Description: Allow SSH from anywhere
 
         # HTTP
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
-          Description: Allow HTTP from anywhere
 
         # HTTPS
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
           CidrIp: 0.0.0.0/0
-          Description: Allow HTTPS from anywhere
 
       Tags:
         - Key: Name
           Value: Lab-Web-SG
 
   # -------------------------------------------------------
-  # Nested Stack - EC2 Web Server
+  # Launch EC2 Instance
+  # Replace ImageId and KeyName before deployment
   # -------------------------------------------------------
-
-  EC2WebServerStack:
-    Type: AWS::CloudFormation::Stack
-
+  WebServer:
+    Type: AWS::EC2::Instance
     Properties:
+      InstanceType: t3.micro
 
-      # EC2 child CloudFormation template
-      TemplateURL: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/ec2-webserver.yaml
+      # Replace with Amazon Linux 2023 AMI
+      ImageId: ami-0006118602dfc1c09
 
-      # Parameters passed to EC2 child stack
-      Parameters:
+      # Replace with your EC2 Key Pair
+      KeyName: Lab-KeyPair
 
-        AmiId: !Ref LatestAmiId
+      SubnetId: !Ref PublicSubnet
 
-        InstanceType: t3.micro
+      SecurityGroupIds:
+        - !Ref WebSecurityGroup
 
-        KeyPair: !Ref KeyPairName
-
-        PublicSubnetId: !Ref PublicSubnet
-
-        SecurityGroupId: !Ref WebSecurityGroup
-
-        UserDataScriptUrl: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/scripts/ec2-userdata.sh
+      Tags:
+        - Key: Name
+          Value: AWS-Lab-WebServer
 
   # -------------------------------------------------------
-  # Nested Stack - S3
+  # Create S3 Bucket
   # -------------------------------------------------------
-
-  S3NestedStack:
-    Type: AWS::CloudFormation::Stack
-
+  LabBucket:
+    Type: AWS::S3::Bucket
     Properties:
+      VersioningConfiguration:
+        Status: Enabled
 
-      # S3 child CloudFormation template
-      TemplateURL: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/s3.yaml
+      Tags:
+        - Key: Name
+          Value: Lab-S3-Bucket
 
-  # -------------------------------------------------------
-  # Nested Stack - RDS MySQL
-  # -------------------------------------------------------
-
-  RDSNestedStack:
-    Type: AWS::CloudFormation::Stack
-
-    Properties:
-
-      # RDS child CloudFormation template
-      TemplateURL: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/aws-rds.yaml
-
-      # Parameters passed to RDS child stack
-      Parameters:
-
-        # VPC
-        VpcId: !Ref MyVPC
-
-        # Private Subnet 1
-        PrivateSubnet1: !Ref PrivateSubnet1
-
-        # Private Subnet 2
-        PrivateSubnet2: !Ref PrivateSubnet2
-
-        # Web Security Group
-        WebSecurityGroupId: !Ref WebSecurityGroup
-
-        # Database username
-        DBUsername: !Ref DBMasterUsername
-
-        # Database password
-        DBPassword: !Ref DBMasterPassword
-        
-
-# -------------------------------------------------------
-# Outputs
-# -------------------------------------------------------
+# ---------------------------------------------------------
+# CloudFormation Outputs
+# ---------------------------------------------------------
 
 Outputs:
-
-  # -------------------------------------------------------
-  # VPC
-  # -------------------------------------------------------
 
   VPCId:
     Description: VPC ID
     Value: !Ref MyVPC
 
-  # -------------------------------------------------------
-  # Public Subnet
-  # -------------------------------------------------------
-
   PublicSubnetId:
     Description: Public Subnet ID
     Value: !Ref PublicSubnet
 
-  # -------------------------------------------------------
-  # Private Subnet 1
-  # -------------------------------------------------------
-
-  PrivateSubnet1Id:
-    Description: Private Subnet 1 ID
-    Value: !Ref PrivateSubnet1
-
-  # -------------------------------------------------------
-  # Private Subnet 2
-  # -------------------------------------------------------
-
-  PrivateSubnet2Id:
-    Description: Private Subnet 2 ID
-    Value: !Ref PrivateSubnet2
-
-  # -------------------------------------------------------
-  # Web Security Group
-  # -------------------------------------------------------
-
   SecurityGroupId:
-    Description: Web Security Group ID
+    Description: Security Group ID
     Value: !Ref WebSecurityGroup
-
-  # -------------------------------------------------------
-  # EC2 Outputs
-  # -------------------------------------------------------
 
   EC2InstanceId:
     Description: EC2 Instance ID
-    Value: !GetAtt EC2WebServerStack.Outputs.InstanceId
-
-  EC2PublicIP:
-    Description: EC2 Instance Public IP
-    Value: !GetAtt EC2WebServerStack.Outputs.PublicIP
-
-  # -------------------------------------------------------
-  # S3 Output
-  # -------------------------------------------------------
+    Value: !Ref WebServer
 
   S3BucketName:
     Description: S3 Bucket Name
-    Value: !GetAtt S3NestedStack.Outputs.BucketName
-
-  # -------------------------------------------------------
-  # RDS Outputs
-  # -------------------------------------------------------
-
-  RDSDatabaseId:
-    Description: RDS Database Identifier
-    Value: !GetAtt RDSNestedStack.Outputs.RDSDatabaseId
-
-  RDSEndpoint:
-    Description: RDS Endpoint Address
-    Value: !GetAtt RDSNestedStack.Outputs.RDSEndpoint
-
-  RDSPort:
-    Description: RDS MySQL Port
-    Value: !GetAtt RDSNestedStack.Outputs.RDSPort
-
-  RDSSecurityGroupId:
-    Description: RDS Security Group ID
-    Value: !GetAtt RDSNestedStack.Outputs.RDSSecurityGroupId
+    Value: !Ref LabBucket
