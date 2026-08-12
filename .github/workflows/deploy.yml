@@ -313,31 +313,18 @@ jobs:
             --output text
 
 
-      # ======================================================
+     # ======================================================
       # Step 9 - Create New CloudFormation Stack
-      # ======================================================
-      #
-      # This runs only when the stack does not exist.
-      #
-      # IMPORTANT:
-      #
-      # KeyPairName is the AWS EC2 Key Pair NAME:
-      #
-      #     Lab-KeyPair
-      #
-      # NOT:
-      #
-      #     Lab-KeyPair.pem
-      #
-      # The .pem file must NOT be uploaded to GitHub.
-      #
-      # DB_MASTER_PASSWORD comes from GitHub Secrets.
-      #
       # ======================================================
 
       - name: Create CloudFormation Stack
 
         if: steps.stack.outputs.exists == 'false'
+
+        shell: bash
+
+        env:
+          DB_MASTER_PASSWORD: ${{ secrets.DB_MASTER_PASSWORD }}
 
         run: |
 
@@ -357,16 +344,83 @@ jobs:
             --template-body "file://$TEMPLATE_FILE" \
             --parameters \
               "ParameterKey=KeyPairName,ParameterValue=Lab-KeyPair" \
-              "ParameterKey=DBMasterPassword,ParameterValue=${{ secrets.DB_MASTER_PASSWORD }}" \
+              "ParameterKey=DBMasterPassword,ParameterValue=$DB_MASTER_PASSWORD" \
             --region "$AWS_REGION"
 
           echo ""
 
           echo "CloudFormation stack creation started."
 
+      # ======================================================
+      # Step 10 - Check Required Deployment Values
+      # ======================================================
+
+      - name: Check Required Deployment Values
+
+        shell: bash
+
+        env:
+          DB_MASTER_PASSWORD: ${{ secrets.DB_MASTER_PASSWORD }}
+
+        run: |
+
+          echo "======================================"
+          echo "Checking Required Deployment Values"
+          echo "======================================"
+
+          echo "AWS Region:"
+          echo "$AWS_REGION"
+
+          echo ""
+
+          echo "CloudFormation Stack:"
+          echo "$STACK_NAME"
+
+          echo ""
+
+          echo "Template:"
+          echo "$TEMPLATE_FILE"
+
+          echo ""
+
+          echo "Key Pair:"
+          echo "Lab-KeyPair"
+
+          echo ""
+
+          echo "Checking DB_MASTER_PASSWORD..."
+
+          if [ -z "$DB_MASTER_PASSWORD" ]; then
+
+            echo "ERROR: DB_MASTER_PASSWORD GitHub Secret is EMPTY or NOT AVAILABLE."
+
+            echo ""
+            echo "Please create this repository secret:"
+            echo "DB_MASTER_PASSWORD"
+
+            exit 1
+
+          fi
+
+          echo "DB_MASTER_PASSWORD is available."
+
+          echo "Password length:"
+          echo "${#DB_MASTER_PASSWORD}"
+
+          if [ "${#DB_MASTER_PASSWORD}" -lt 8 ]; then
+
+            echo "ERROR: DB_MASTER_PASSWORD must contain at least 8 characters."
+
+            exit 1
+
+          fi
+
+          echo ""
+          echo "All required deployment values are available."    
+
 
       # ======================================================
-      # Step 10 - Wait for Stack Creation
+      # Step 11 - Wait for Stack Creation
       # ======================================================
       #
       # This runs only when a new stack was created.
@@ -394,26 +448,17 @@ jobs:
 
 
       # ======================================================
-      # Step 11 - Update Existing CloudFormation Stack
-      # ======================================================
-      #
-      # This runs when the stack already exists.
-      #
-      # IMPORTANT:
-      #
-      # The same parameters are passed during update.
-      #
-      # KeyPairName:
-      #     Lab-KeyPair
-      #
-      # DBMasterPassword:
-      #     GitHub Secret
-      #
+      # Step 12 - Update Existing CloudFormation Stack
       # ======================================================
 
       - name: Update CloudFormation Stack
 
         if: steps.stack.outputs.exists == 'true'
+
+        shell: bash
+
+        env:
+          DB_MASTER_PASSWORD: ${{ secrets.DB_MASTER_PASSWORD }}
 
         run: |
 
@@ -428,21 +473,22 @@ jobs:
 
           echo ""
 
-          aws cloudformation deploy \
+          aws cloudformation update-stack \
             --stack-name "$STACK_NAME" \
-            --template-file "$TEMPLATE_FILE" \
-            --parameter-overrides \
-              "KeyPairName=Lab-KeyPair" \
-              "DBMasterPassword=${{ secrets.DB_MASTER_PASSWORD }}" \
+            --template-body "file://$TEMPLATE_FILE" \
+            --parameters \
+              "ParameterKey=KeyPairName,ParameterValue=Lab-KeyPair,UsePreviousValue=false" \
+              "ParameterKey=DBMasterPassword,ParameterValue=$DB_MASTER_PASSWORD,UsePreviousValue=false" \
+            --capabilities CAPABILITY_NAMED_IAM \
             --region "$AWS_REGION"
 
           echo ""
 
-          echo "CloudFormation deployment/update completed."
+          echo "CloudFormation stack update started."
 
 
       # ======================================================
-      # Step 12 - Wait for Existing Stack Update
+      # Step 13 - Wait for Existing Stack Update
       # ======================================================
       #
       # This waits for an existing stack update to finish.
@@ -468,7 +514,7 @@ jobs:
 
 
       # ======================================================
-      # Step 13 - Display Final Stack Information
+      # Step 14 - Display Final Stack Information
       # ======================================================
 
       - name: Display Stack Information
@@ -484,7 +530,7 @@ jobs:
 
 
       # ======================================================
-      # Step 14 - Display Stack Resources
+      # Step 15 - Display Stack Resources
       # ======================================================
 
       - name: List Stack Resources
@@ -500,7 +546,7 @@ jobs:
 
 
       # ======================================================
-      # Step 15 - Display Stack Outputs
+      # Step 16 - Display Stack Outputs
       # ======================================================
       #
       # This is especially useful because your lab01.yaml
@@ -533,7 +579,7 @@ jobs:
 
 
       # ======================================================
-      # Step 16 - Deployment Complete
+      # Step 17 - Deployment Complete
       # ======================================================
 
       - name: Deployment Complete
