@@ -120,6 +120,78 @@ $env:AWS_REGION
 
 ----
 
+Validate your parent template
+
+Before creating anything:
+
+aws cloudformation validate-template `
+  --template-body file://templates/lab01.yaml `
+  --region us-east-1
+
+If that succeeds, AWS should return information about the template.
+
+Validate each nested template
+
+Do this too:
+
+aws cloudformation validate-template `
+  --template-body file://templates/ec2.yaml `
+  --region us-east-1
+aws cloudformation validate-template `
+  --template-body file://templates/s3.yaml `
+  --region us-east-1
+aws cloudformation validate-template `
+  --template-body file://templates/rds.yaml `
+  --region us-east-1
+
+This catches YAML/template errors before deployment.
+
+--------------------
+
+aws cloudformation create-stack `
+  --stack-name Lab01-CloudFormation `
+  --template-body file://templates/lab01.yaml `
+  --parameters `
+    ParameterKey=KeyPairName,ParameterValue=Lab-KeyPair `
+    ParameterKey=DBMasterPassword,ParameterValue='AWS#RDSDB@2026#Strong' `
+  --capabilities CAPABILITY_NAMED_IAM `
+  --region us-east-1
+
+--------------
+2. Now we need the actual failure
+
+Do not recreate the stack yet.
+
+Run this command from PowerShell:
+
+aws cloudformation describe-stack-events `
+  --stack-name Lab01-CloudFormation `
+  --region us-east-1 `
+  --query "StackEvents[?ResourceStatus=='CREATE_FAILED'].[LogicalResourceId,ResourceType,ResourceStatusReason]" `
+  --output table
+
+Also run this one because nested stacks can hide the real error:
+
+aws cloudformation describe-stack-events `
+  --stack-name Lab01-CloudFormation `
+  --region us-east-1 `
+  --query "StackEvents[?ResourceStatus=='UPDATE_FAILED' || ResourceStatus=='CREATE_FAILED' || ResourceStatus=='DELETE_FAILED'].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" `
+  --output table
+Most important
+
+Please paste the complete output of those commands.
+
+The important column is:
+
+ResourceStatusReason
+
+That will tell us exactly why your stack rolled back.
+
+-------------------
+
+
+
+
 
 
 

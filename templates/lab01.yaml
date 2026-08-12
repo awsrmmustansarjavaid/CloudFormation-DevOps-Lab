@@ -50,6 +50,59 @@ Parameters:
     MinLength: 8
     Description: Master password for the RDS MySQL database
 
+  # -------------------------------------------------------
+  # EC2 Nested Stack Template URL
+  #
+  # This parameter contains the URL of the child
+  # CloudFormation template responsible for creating
+  # the EC2 web server.
+  #
+  # Example:
+  # https://raw.githubusercontent.com/USERNAME/REPOSITORY/main/templates/ec2-webserver.yaml
+  # -------------------------------------------------------
+  EC2TemplateURL:
+    Type: String
+    Default: https://cloudformation-devops-lab-537236558357-us-east-1.s3.amazonaws.com/templates/ec2-webserver.yaml
+    Description: URL of the EC2 nested CloudFormation template
+
+  # -------------------------------------------------------
+  # S3 Nested Stack Template URL
+  #
+  # This parameter contains the URL of the child
+  # CloudFormation template responsible for creating
+  # the S3 bucket.
+  # -------------------------------------------------------
+  S3TemplateURL:
+    Type: String
+    Default: https://cloudformation-devops-lab-537236558357-us-east-1.s3.amazonaws.com/templates/s3.yaml
+    Description: URL of the S3 nested CloudFormation template
+
+  # -------------------------------------------------------
+  # RDS Nested Stack Template URL
+  #
+  # This parameter contains the URL of the child
+  # CloudFormation template responsible for creating
+  # the RDS MySQL database.
+  # -------------------------------------------------------
+  RDSTemplateURL:
+    Type: String
+    Default: https://cloudformation-devops-lab-537236558357-us-east-1.s3.amazonaws.com/templates/aws-rds.yaml
+    Description: URL of the RDS nested CloudFormation template
+
+  # -------------------------------------------------------
+  # EC2 UserData Script URL
+  #
+  # This parameter contains the GitHub Raw URL of the
+  # shell script that will be passed to the EC2 instance.
+  #
+  # The script is NOT a CloudFormation template.
+  # It is the EC2 bootstrap/UserData script.
+  # -------------------------------------------------------
+  EC2UserDataScriptURL:
+    Type: String
+    Default: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/scripts/ec2-userdata.sh
+    Description: URL of the EC2 UserData bootstrap shell script  
+
 # -------------------------------------------------------
 # Resources
 # -------------------------------------------------------
@@ -278,7 +331,7 @@ Resources:
     Properties:
 
       # EC2 child CloudFormation template
-      TemplateURL: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/ec2-webserver.yaml
+      TemplateURL: !Ref EC2TemplateURL
 
       # Parameters passed to EC2 child stack
       Parameters:
@@ -293,7 +346,7 @@ Resources:
 
         SecurityGroupId: !Ref WebSecurityGroup
 
-        UserDataScriptUrl: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/scripts/ec2-userdata.sh
+        UserDataScriptUrl: !Ref EC2UserDataScriptURL
 
   # -------------------------------------------------------
   # Nested Stack - S3
@@ -305,7 +358,7 @@ Resources:
     Properties:
 
       # S3 child CloudFormation template
-      TemplateURL: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/s3.yaml
+      TemplateURL: !Ref S3TemplateURL
 
   # -------------------------------------------------------
   # Nested Stack - RDS MySQL
@@ -317,7 +370,7 @@ Resources:
     Properties:
 
       # RDS child CloudFormation template
-      TemplateURL: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/aws-rds.yaml
+      TemplateURL: !Ref RDSTemplateURL
 
       # Parameters passed to RDS child stack
       Parameters:
