@@ -103,6 +103,7 @@ Parameters:
   #
   # The script is NOT a CloudFormation template.
   # It is the EC2 bootstrap/UserData script.
+  # Github URL: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/scripts/ec2-userdata.sh
   # -------------------------------------------------------
   EC2UserDataScriptURL:
     Type: String

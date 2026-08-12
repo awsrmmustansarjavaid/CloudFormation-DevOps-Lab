@@ -153,7 +153,7 @@ Parameters:
 
   UserDataScriptUrl:
     Type: String
-    Default: https://awsrmmustansarjavaid/CloudFormation-DevOps-Lab/tree/main/scripts/ec2-userdata.sh
+    Default: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/scripts/ec2-userdata.sh
     Description: >
       Raw GitHub URL pointing to the separate
       ec2-userdata.sh bootstrap script.

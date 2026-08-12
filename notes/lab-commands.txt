@@ -189,6 +189,33 @@ That will tell us exactly why your stack rolled back.
 
 -------------------
 
+5. First test the GitHub Raw URLs
+
+Before touching CloudFormation, test each URL.
+
+Open these URLs in your browser:
+
+https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/ec2-webserver.yaml
+
+Then:
+
+https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/s3.yaml
+
+Then:
+
+https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/aws-rds.yaml
+
+You should see the raw YAML text, not the GitHub HTML page.
+
+This distinction is extremely important.
+
+Correct
+https://raw.githubusercontent.com/...
+Don't use
+https://github.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/blob/main/templates/ec2-webserver.yaml
+
+The second one is the normal GitHub webpage, not the raw template content.
+----
 
 
 
