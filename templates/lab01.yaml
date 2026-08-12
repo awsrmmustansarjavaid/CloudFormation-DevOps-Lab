@@ -59,10 +59,12 @@ Parameters:
   #
   # Example:
   # https://raw.githubusercontent.com/USERNAME/REPOSITORY/main/templates/ec2-webserver.yaml
+  # S3 URL: https://cloudformation-devops-lab-537236558357-us-east-1.s3.amazonaws.com/templates/ec2-webserver.yaml
+  # Github URL: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/ec2-webserver.yaml
   # -------------------------------------------------------
   EC2TemplateURL:
     Type: String
-    Default: https://cloudformation-devops-lab-537236558357-us-east-1.s3.amazonaws.com/templates/ec2-webserver.yaml
+    Default: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/ec2-webserver.yaml
     Description: URL of the EC2 nested CloudFormation template
 
   # -------------------------------------------------------
@@ -71,10 +73,12 @@ Parameters:
   # This parameter contains the URL of the child
   # CloudFormation template responsible for creating
   # the S3 bucket.
+  # S3 URL: https://cloudformation-devops-lab-537236558357-us-east-1.s3.amazonaws.com/templates/s3.yaml
+  # Github URL: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/s3.yaml
   # -------------------------------------------------------
   S3TemplateURL:
     Type: String
-    Default: https://cloudformation-devops-lab-537236558357-us-east-1.s3.amazonaws.com/templates/s3.yaml
+    Default: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/s3.yaml
     Description: URL of the S3 nested CloudFormation template
 
   # -------------------------------------------------------
@@ -83,10 +87,12 @@ Parameters:
   # This parameter contains the URL of the child
   # CloudFormation template responsible for creating
   # the RDS MySQL database.
+  # S3 URL: https://cloudformation-devops-lab-537236558357-us-east-1.s3.amazonaws.com/templates/s3.yaml
+  # Github URL: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/aws-rds.yaml
   # -------------------------------------------------------
   RDSTemplateURL:
     Type: String
-    Default: https://cloudformation-devops-lab-537236558357-us-east-1.s3.amazonaws.com/templates/aws-rds.yaml
+    Default: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/aws-rds.yaml
     Description: URL of the RDS nested CloudFormation template
 
   # -------------------------------------------------------
