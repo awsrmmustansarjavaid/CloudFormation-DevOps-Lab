@@ -51,6 +51,17 @@ Parameters:
     Description: Master password for the RDS MySQL database
 
   # -------------------------------------------------------
+  # S3 Bucket containing nested CloudFormation templates
+  # -------------------------------------------------------
+
+  TemplateBucketName:
+    Type: String
+    Description: >
+      Name of the S3 bucket containing the nested
+      CloudFormation templates
+  
+  
+  # -------------------------------------------------------
   # EC2 Nested Stack Template URL
   #
   # This parameter contains the URL of the child
@@ -62,10 +73,11 @@ Parameters:
   # S3 URL: https://cloudformation-devops-lab-537236558357-us-east-1.s3.amazonaws.com/templates/ec2-webserver.yaml
   # Github URL: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/ec2-webserver.yaml
   # -------------------------------------------------------
-  EC2TemplateURL:
-    Type: String
-    Default: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/ec2-webserver.yaml
-    Description: URL of the EC2 nested CloudFormation template
+
+  #EC2TemplateURL:
+    #Type: String
+    #Default: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/ec2-webserver.yaml
+    #Description: URL of the EC2 nested CloudFormation template
 
   # -------------------------------------------------------
   # S3 Nested Stack Template URL
@@ -76,10 +88,10 @@ Parameters:
   # S3 URL: https://cloudformation-devops-lab-537236558357-us-east-1.s3.amazonaws.com/templates/s3.yaml
   # Github URL: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/s3.yaml
   # -------------------------------------------------------
-  S3TemplateURL:
-    Type: String
-    Default: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/s3.yaml
-    Description: URL of the S3 nested CloudFormation template
+  #S3TemplateURL:
+    #Type: String
+    #Default: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/s3.yaml"
+    #Description: URL of the S3 nested CloudFormation template
 
   # -------------------------------------------------------
   # RDS Nested Stack Template URL
@@ -90,10 +102,10 @@ Parameters:
   # S3 URL: https://cloudformation-devops-lab-537236558357-us-east-1.s3.amazonaws.com/templates/s3.yaml
   # Github URL: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/aws-rds.yaml
   # -------------------------------------------------------
-  RDSTemplateURL:
-    Type: String
-    Default: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/aws-rds.yaml
-    Description: URL of the RDS nested CloudFormation template
+  #RDSTemplateURL:
+    #Type: String
+    #Default: https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/templates/aws-rds.yaml"
+    #Description: URL of the RDS nested CloudFormation template
 
   # -------------------------------------------------------
   # EC2 UserData Script URL
@@ -338,7 +350,11 @@ Resources:
     Properties:
 
       # EC2 child CloudFormation template
-      TemplateURL: !Ref EC2TemplateURL
+      #TemplateURL: !Ref EC2TemplateURL
+
+      # Build the EC2 child-template URL from the S3 bucket name
+      TemplateURL: !Sub >
+        https://${TemplateBucketName}.s3.amazonaws.com/templates/ec2-webserver.yaml
 
       # Parameters passed to EC2 child stack
       Parameters:
@@ -365,7 +381,11 @@ Resources:
     Properties:
 
       # S3 child CloudFormation template
-      TemplateURL: !Ref S3TemplateURL
+      #TemplateURL: !Ref S3TemplateURL
+
+      # Build the S3 child-template URL from the S3 bucket name
+      TemplateURL: !Sub >
+        https://${TemplateBucketName}.s3.amazonaws.com/templates/s3.yaml
 
   # -------------------------------------------------------
   # Nested Stack - RDS MySQL
@@ -377,7 +397,11 @@ Resources:
     Properties:
 
       # RDS child CloudFormation template
-      TemplateURL: !Ref RDSTemplateURL
+      #TemplateURL: !Ref RDSTemplateURL
+
+      # Build the RDS child-template URL from the S3 bucket name
+      TemplateURL: !Sub >
+        https://${TemplateBucketName}.s3.amazonaws.com/templates/aws-rds.yaml
 
       # Parameters passed to RDS child stack
       Parameters:

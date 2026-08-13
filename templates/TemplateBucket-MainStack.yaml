@@ -1,0 +1,74 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+  Creates an S3 bucket used to store nested
+  CloudFormation templates for the AWS DevOps Lab.
+
+# =======================================================
+# Resources
+# =======================================================
+
+Resources:
+
+  # -----------------------------------------------------
+  # S3 Bucket for CloudFormation Templates
+  # -----------------------------------------------------
+
+  TemplateBucket:
+    Type: AWS::S3::Bucket
+
+    Properties:
+
+      # -------------------------------------------------
+      # Enable Versioning
+      #
+      # This allows previous versions of CloudFormation
+      # templates to be retained in S3.
+      # -------------------------------------------------
+
+      VersioningConfiguration:
+        Status: Enabled
+
+      # -------------------------------------------------
+      # Add Tags
+      # -------------------------------------------------
+
+      Tags:
+
+        - Key: Name
+          Value: Lab-CloudFormation-Templates
+
+        - Key: Purpose
+          Value: CloudFormation-Nested-Templates
+
+
+# =======================================================
+# Outputs
+# =======================================================
+
+Outputs:
+
+  # -----------------------------------------------------
+  # S3 Bucket Name
+  # -----------------------------------------------------
+
+  BucketName:
+
+    Description: >
+      Name of the S3 bucket used to store nested
+      CloudFormation templates.
+
+    Value: !Ref TemplateBucket
+
+
+  # -----------------------------------------------------
+  # S3 Bucket ARN
+  # -----------------------------------------------------
+
+  BucketArn:
+
+    Description: >
+      ARN of the S3 bucket used to store nested
+      CloudFormation templates.
+
+    Value: !GetAtt TemplateBucket.Arn

@@ -55,6 +55,7 @@ aws cloudformation describe-stack-events `
   --region us-east-1 `
   --query "StackEvents[?ResourceStatus=='CREATE_FAILED'].[LogicalResourceId,ResourceType,ResourceStatusReason]" `
   --output table
+
 This is the most important command right now.
 
 It should give us something similar to:
@@ -153,7 +154,7 @@ aws cloudformation create-stack `
   --template-body file://templates/lab01.yaml `
   --parameters `
     ParameterKey=KeyPairName,ParameterValue=Lab-KeyPair `
-    ParameterKey=DBMasterPassword,ParameterValue='AWS#RDSDB@2026#Strong' `
+    ParameterKey=DBMasterPassword,ParameterValue='AWS#RDSDB#2026#Strong' `
   --capabilities CAPABILITY_NAMED_IAM `
   --region us-east-1
 
