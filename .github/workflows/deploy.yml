@@ -135,6 +135,12 @@ env:
 
   TEMPLATE_FILE: templates/lab01.yaml
 
+  # --------------------------------------------------
+  # Define CloudFormation parameter values
+  # --------------------------------------------------          
+
+  DB_PASSWORD="$DB_MASTER_PASSWORD"
+
 
 # ==========================================================
 # JOBS
@@ -1055,12 +1061,6 @@ jobs:
           echo ""
 
           # --------------------------------------------------
-          # Define CloudFormation parameter values
-          # --------------------------------------------------          
-
-          DB_PASSWORD="$DB_MASTER_PASSWORD"
-
-          # --------------------------------------------------
           # Validate KeyPairName
           # --------------------------------------------------
 
@@ -1095,6 +1095,20 @@ jobs:
           echo "DBMasterPassword length: ${#DB_PASSWORD}"
 
           echo ""
+          
+          # --------------------------------------------------
+          # Display the CloudFormation parameter keys
+          #
+          # IMPORTANT:
+          # We NEVER display the actual password.
+          # --------------------------------------------------
+
+          echo "CloudFormation Parameters Being Sent:"
+          echo "  TemplateBucketName = $TEMPLATE_BUCKET"
+          echo "  KeyPairName        = $KEY_PAIR_NAME"
+          echo "  DBMasterPassword   = [HIDDEN]"
+
+          echo ""
 
 
           # --------------------------------------------------
@@ -1111,7 +1125,7 @@ jobs:
               "ParameterKey=TemplateBucketName,ParameterValue=$TEMPLATE_BUCKET" \
               "ParameterKey=KeyPairName,ParameterValue=$KEY_PAIR_NAME" \
               "ParameterKey=DBMasterPassword,ParameterValue=$DB_MASTER_PASSWORD" \
-            --capabilities CAPABILITY_NAMED_IAM \
+            --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
             --region "$AWS_REGION" \
             --no-cli-pager
 
@@ -1266,7 +1280,7 @@ jobs:
               "ParameterKey=TemplateBucketName,ParameterValue=$TEMPLATE_BUCKET,UsePreviousValue=false" \
               "ParameterKey=KeyPairName,ParameterValue=$KEY_PAIR_NAME,UsePreviousValue=false" \
               "ParameterKey=DBMasterPassword,ParameterValue=$DB_MASTER_PASSWORD,UsePreviousValue=false" \
-            --capabilities CAPABILITY_NAMED_IAM \
+            --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
             --region "$AWS_REGION" \
             --no-cli-pager \
             2>&1 | tee /tmp/main-stack-update.txt
