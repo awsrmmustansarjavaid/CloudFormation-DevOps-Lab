@@ -47,7 +47,7 @@ Parameters:
   DBMasterPassword:
     Type: String
     NoEcho: true
-    MinLength: 8
+    # MinLength: 8
     Description: Master password for the RDS MySQL database
 
   # -------------------------------------------------------

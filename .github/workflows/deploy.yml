@@ -103,6 +103,12 @@ env:
 
 
   # ========================================================
+  # EC2 Key-Pair
+  # ========================================================
+
+  KEY_PAIR_NAME: Lab-KeyPair
+  
+  # ========================================================
   # CloudFormation Template Bucket Stack
   # ========================================================
   #
@@ -292,7 +298,7 @@ jobs:
           echo ""
 
           echo "Key Pair:"
-          echo "Lab-KeyPair"
+          echo "$KEY_PAIR_NAME"
 
           echo ""
 
@@ -1043,10 +1049,59 @@ jobs:
           echo "Stack Name : $STACK_NAME"
           echo "Template   : $TEMPLATE_FILE"
           echo "Region     : $AWS_REGION"
-          echo "Key Pair   : Lab-KeyPair"
+          echo "Key Pair   : $KEY_PAIR_NAME"
           echo "Template Bucket : $TEMPLATE_BUCKET"
 
           echo ""
+
+          # --------------------------------------------------
+          # Define CloudFormation parameter values
+          # --------------------------------------------------          
+
+          DB_PASSWORD="$DB_MASTER_PASSWORD"
+
+          # --------------------------------------------------
+          # Validate KeyPairName
+          # --------------------------------------------------
+
+          if [ -z "$KEY_PAIR_NAME" ]; then
+
+            echo "ERROR: KEY_PAIR_NAME is empty."
+
+            exit 1
+
+          fi
+
+
+          # --------------------------------------------------
+          # Validate DB password
+          #
+          # NEVER print the actual password.
+          # --------------------------------------------------
+
+          if [ -z "$DB_PASSWORD" ]; then
+
+            echo "ERROR: DB_MASTER_PASSWORD is empty."
+
+            exit 1
+
+          fi
+
+
+          echo "KeyPairName is available."
+
+          echo "DBMasterPassword is available."
+
+          echo "DBMasterPassword length: ${#DB_PASSWORD}"
+
+          echo ""
+
+
+          # --------------------------------------------------
+          # Create CloudFormation stack
+          # --------------------------------------------------
+
+          echo "Starting CloudFormation stack creation..."
 
 
           aws cloudformation create-stack \
@@ -1054,7 +1109,7 @@ jobs:
             --template-body "file://$TEMPLATE_FILE" \
             --parameters \
               "ParameterKey=TemplateBucketName,ParameterValue=$TEMPLATE_BUCKET" \
-              "ParameterKey=KeyPairName,ParameterValue=Lab-KeyPair" \
+              "ParameterKey=KeyPairName,ParameterValue=$KEY_PAIR_NAME" \
               "ParameterKey=DBMasterPassword,ParameterValue=$DB_MASTER_PASSWORD" \
             --capabilities CAPABILITY_NAMED_IAM \
             --region "$AWS_REGION" \
@@ -1145,7 +1200,7 @@ jobs:
           echo "Stack Name : $STACK_NAME"
           echo "Template   : $TEMPLATE_FILE"
           echo "Region     : $AWS_REGION"
-          echo "Key Pair   : Lab-KeyPair"
+          echo "Key Pair   : $KEY_PAIR_NAME"
           echo "Template Bucket : $TEMPLATE_BUCKET"
 
           echo ""
@@ -1209,7 +1264,7 @@ jobs:
             --template-body "file://$TEMPLATE_FILE" \
             --parameters \
               "ParameterKey=TemplateBucketName,ParameterValue=$TEMPLATE_BUCKET,UsePreviousValue=false" \
-              "ParameterKey=KeyPairName,ParameterValue=Lab-KeyPair,UsePreviousValue=false" \
+              "ParameterKey=KeyPairName,ParameterValue=$KEY_PAIR_NAME,UsePreviousValue=false" \
               "ParameterKey=DBMasterPassword,ParameterValue=$DB_MASTER_PASSWORD,UsePreviousValue=false" \
             --capabilities CAPABILITY_NAMED_IAM \
             --region "$AWS_REGION" \
