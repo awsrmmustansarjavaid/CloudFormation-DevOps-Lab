@@ -17,12 +17,12 @@
 #
 # 1. Checkout GitHub repository
 # 2. Configure AWS credentials
-# 3. Verify AWS CLI and AWS account
+# 3. Verify AWS CLI and AWS identity
 # 4. Check required deployment values
 # 5. Create/update the template bucket stack
 # 6. Get the template S3 bucket name
 # 7. Upload nested CloudFormation templates to S3
-# 8. Display repository information
+# 8. Display repository/deployment information
 # 9. Verify CloudFormation templates exist
 # 10. Validate the main CloudFormation template
 # 11. Check whether the main stack exists
@@ -30,32 +30,64 @@
 # 13. Create the main stack if it does not exist
 # 14. Wait for stack creation
 # 15. Update the main stack if it already exists
-# 16. Wait for stack update when required
+# 16. Wait for stack update
 # 17. Display final stack information
 # 18. Display stack resources
 # 19. Display stack outputs
 # 20. Display deployment completion message
 #
 # ==========================================================
+#
+# IMPORTANT RDS SECURITY DESIGN
+# ==========================================================
+#
+# This workflow DOES NOT contain:
+#
+# DB_MASTER_PASSWORD
+# DBMasterPassword
+#
+# The RDS nested CloudFormation template uses:
+#
+# ManageMasterUserPassword: true
+#
+# Therefore:
+#
+# GitHub Actions
+#       |
+#       v
+# CloudFormation
+#       |
+#       v
+# Amazon RDS
+#       |
+#       v
+# AWS Secrets Manager
+#
+# RDS automatically creates and manages the master database
+# password in AWS Secrets Manager.
+#
+# GitHub Actions never receives or stores the RDS password.
+#
+# ==========================================================
 
 
-# ==========================================================
-# WORKFLOW NAME
-# ==========================================================
+# ----------------------------------------------------------
+# Workflow Name
+# ----------------------------------------------------------
 
 name: AWS CloudFormation Deployment
 
 
-# ==========================================================
-# WORKFLOW TRIGGERS
-# ==========================================================
+# ----------------------------------------------------------
+# Workflow Triggers
+# ----------------------------------------------------------
 #
 # The workflow runs:
 #
 # 1. Automatically when code is pushed to main
 # 2. Manually from GitHub Actions
 #
-# ==========================================================
+# ----------------------------------------------------------
 
 on:
 
@@ -66,62 +98,70 @@ on:
   workflow_dispatch:
 
 
-# ==========================================================
-# GLOBAL ENVIRONMENT VARIABLES
-# ==========================================================
+# ----------------------------------------------------------
+# Global Environment Variables
+# ----------------------------------------------------------
 
 env:
 
-  # --------------------------------------------------------
+  # ========================================================
   # AWS Region
-  # --------------------------------------------------------
+  # ========================================================
 
   AWS_REGION: us-east-1
 
 
-  # --------------------------------------------------------
+  # ========================================================
   # Main CloudFormation Stack
-  # --------------------------------------------------------
+  # ========================================================
+  #
+  # This is the main infrastructure stack.
+  #
+  # It creates:
+  #
+  # - VPC
+  # - Internet Gateway
+  # - Subnets
+  # - Route Tables
+  # - Security Groups
+  # - EC2 nested stack
+  # - S3 nested stack
+  # - RDS nested stack
+  #
+  # ========================================================
 
   STACK_NAME: Lab01-CloudFormation
 
 
-  # --------------------------------------------------------
+  # ========================================================
   # EC2 Key Pair
-  #
-  # IMPORTANT:
-  # This must exactly match an existing EC2 Key Pair
-  # in the AWS region above.
-  #
-  # Example:
-  #
-  # Lab-KeyPair
-  #
-  # --------------------------------------------------------
+  # ========================================================
 
   KEY_PAIR_NAME: Lab-KeyPair
 
 
-  # --------------------------------------------------------
+  # ========================================================
   # Template Bucket CloudFormation Stack
+  # ========================================================
   #
-  # This stack creates the S3 bucket used to store
+  # This separate stack creates the S3 bucket used to store
   # nested CloudFormation templates.
-  # --------------------------------------------------------
+  #
+  # ========================================================
 
   TEMPLATE_BUCKET_STACK: Lab01-CloudFormation-TemplateBucket
 
 
-  # --------------------------------------------------------
+  # ========================================================
   # Template Bucket CloudFormation Template
-  # --------------------------------------------------------
+  # ========================================================
 
   TEMPLATE_BUCKET_FILE: templates/TemplateBucket-MainStack.yaml
 
 
-  # --------------------------------------------------------
+  # ========================================================
   # Main CloudFormation Template
-  # --------------------------------------------------------
+  # ========================================================
 
   TEMPLATE_FILE: templates/lab01.yaml
 
@@ -135,7 +175,7 @@ jobs:
   deploy:
 
     # --------------------------------------------------------
-    # GitHub-hosted Linux runner
+    # GitHub-hosted runner
     # --------------------------------------------------------
 
     runs-on: ubuntu-latest
@@ -151,12 +191,19 @@ jobs:
 
 
       # ======================================================
-      # STEP 1
-      # Checkout Repository
+      # Step 1 - Checkout Repository
       # ======================================================
       #
-      # Downloads the repository onto the GitHub Actions
-      # runner.
+      # Downloads the GitHub repository onto the GitHub
+      # Actions runner.
+      #
+      # This makes files such as:
+      #
+      # templates/lab01.yaml
+      # templates/aws-rds.yaml
+      # templates/ec2-webserver.yaml
+      #
+      # available to the workflow.
       #
       # ======================================================
 
@@ -166,19 +213,20 @@ jobs:
 
 
       # ======================================================
-      # STEP 2
-      # Configure AWS Credentials
+      # Step 2 - Configure AWS Credentials
       # ======================================================
       #
-      # Required GitHub Repository Secrets:
+      # Required GitHub Secrets:
       #
       # AWS_ACCESS_KEY_ID
       # AWS_SECRET_ACCESS_KEY
-      # DB_MASTER_PASSWORD
       #
       # IMPORTANT:
       #
-      # Never print the actual DB password.
+      # DB_MASTER_PASSWORD is NOT required anymore.
+      #
+      # RDS generates and manages the master password using
+      # AWS Secrets Manager.
       #
       # ======================================================
 
@@ -196,8 +244,15 @@ jobs:
 
 
       # ======================================================
-      # STEP 3
-      # Verify AWS CLI and AWS Account
+      # Step 3 - Verify AWS CLI
+      # ======================================================
+      #
+      # Confirms:
+      #
+      # 1. AWS CLI is available
+      # 2. GitHub Actions can authenticate with AWS
+      # 3. The expected AWS account is being used
+      #
       # ======================================================
 
       - name: Verify AWS CLI
@@ -223,21 +278,30 @@ jobs:
 
 
       # ======================================================
-      # STEP 4
-      # Check Required Deployment Values
+      # Step 4 - Check Required Deployment Values
       # ======================================================
       #
-      # The database password is checked but NEVER displayed.
+      # Checks the values required by the main CloudFormation
+      # template.
+      #
+      # Required values:
+      #
+      # - AWS Region
+      # - Stack name
+      # - Main template
+      # - Template bucket stack
+      # - Template bucket template
+      # - EC2 Key Pair
+      #
+      # There is intentionally NO database password check.
+      #
+      # RDS uses AWS Secrets Manager automatically.
       #
       # ======================================================
 
       - name: Check Required Deployment Values
 
         shell: bash
-
-        env:
-
-          DB_MASTER_PASSWORD: ${{ secrets.DB_MASTER_PASSWORD }}
 
         run: |
 
@@ -250,7 +314,7 @@ jobs:
 
           echo ""
 
-          echo "Main CloudFormation Stack:"
+          echo "CloudFormation Stack:"
           echo "$STACK_NAME"
 
           echo ""
@@ -270,14 +334,13 @@ jobs:
 
           echo ""
 
-          echo "EC2 Key Pair:"
+          echo "Key Pair:"
           echo "$KEY_PAIR_NAME"
 
           echo ""
 
-
           # --------------------------------------------------
-          # Check Key Pair
+          # Validate Key Pair
           # --------------------------------------------------
 
           if [ -z "$KEY_PAIR_NAME" ]; then
@@ -290,16 +353,14 @@ jobs:
 
 
           # --------------------------------------------------
-          # Check DB Password
+          # Validate main template path
           # --------------------------------------------------
 
-          if [ -z "$DB_MASTER_PASSWORD" ]; then
+          if [ ! -f "$TEMPLATE_FILE" ]; then
 
-            echo "ERROR: DB_MASTER_PASSWORD GitHub Secret is empty or unavailable."
+            echo "ERROR: Main CloudFormation template does not exist."
 
-            echo ""
-            echo "Create this GitHub repository secret:"
-            echo "DB_MASTER_PASSWORD"
+            echo "$TEMPLATE_FILE"
 
             exit 1
 
@@ -307,36 +368,40 @@ jobs:
 
 
           # --------------------------------------------------
-          # Basic password length validation
+          # Validate template bucket template path
           # --------------------------------------------------
 
-          if [ "${#DB_MASTER_PASSWORD}" -lt 8 ]; then
+          if [ ! -f "$TEMPLATE_BUCKET_FILE" ]; then
 
-            echo "ERROR: DB_MASTER_PASSWORD must contain at least 8 characters."
+            echo "ERROR: Template bucket CloudFormation template does not exist."
+
+            echo "$TEMPLATE_BUCKET_FILE"
 
             exit 1
 
           fi
 
-
-          echo "KEY_PAIR_NAME is available."
-
-          echo "DB_MASTER_PASSWORD is available."
-
-          echo "DB_MASTER_PASSWORD length: ${#DB_MASTER_PASSWORD}"
 
           echo ""
-
           echo "All required deployment values are available."
 
 
       # ======================================================
-      # STEP 5
-      # Create or Update Template Bucket Stack
+      # Step 5 - Create or Update Template Bucket Stack
       # ======================================================
       #
-      # This stack creates the S3 bucket used to store
-      # nested CloudFormation templates.
+      # This CloudFormation stack creates the S3 bucket that
+      # stores the nested CloudFormation templates.
+      #
+      # Architecture:
+      #
+      # GitHub Actions
+      #       |
+      #       v
+      # Template Bucket Stack
+      #       |
+      #       v
+      # S3 Template Bucket
       #
       # ======================================================
 
@@ -362,24 +427,10 @@ jobs:
 
 
           # --------------------------------------------------
-          # Verify template exists
+          # Validate template bucket template
           # --------------------------------------------------
 
-          if [ ! -f "$TEMPLATE_BUCKET_FILE" ]; then
-
-            echo "ERROR: Template bucket template was not found:"
-            echo "$TEMPLATE_BUCKET_FILE"
-
-            exit 1
-
-          fi
-
-
-          # --------------------------------------------------
-          # Validate template
-          # --------------------------------------------------
-
-          echo "Validating template bucket CloudFormation template..."
+          echo "Validating template bucket template..."
 
           aws cloudformation validate-template \
             --template-body "file://$TEMPLATE_BUCKET_FILE" \
@@ -393,7 +444,7 @@ jobs:
 
 
           # --------------------------------------------------
-          # Check whether stack exists
+          # Check whether the template bucket stack exists
           # --------------------------------------------------
 
           if aws cloudformation describe-stacks \
@@ -408,7 +459,7 @@ jobs:
 
 
             # ------------------------------------------------
-            # Get current status
+            # Get current stack status
             # ------------------------------------------------
 
             TEMPLATE_BUCKET_STATUS=$(aws cloudformation describe-stacks \
@@ -425,7 +476,7 @@ jobs:
 
 
             # ------------------------------------------------
-            # Prevent update while stack is busy
+            # Do not update a stack that is currently busy.
             # ------------------------------------------------
 
             case "$TEMPLATE_BUCKET_STATUS" in
@@ -440,32 +491,23 @@ jobs:
 
                 ;;
 
-              ROLLBACK_COMPLETE|ROLLBACK_FAILED|UPDATE_ROLLBACK_FAILED|CREATE_FAILED)
-
-                echo ""
-                echo "ERROR: Template bucket stack is in a failed state."
-                echo "Current status: $TEMPLATE_BUCKET_STATUS"
-
-                echo ""
-                echo "Manual recovery may be required."
-
-                exit 1
-
-                ;;
-
             esac
 
 
             # ------------------------------------------------
-            # Update existing stack
+            # Remove old update output
             # ------------------------------------------------
-
-            echo ""
-            echo "Checking for template bucket stack updates..."
-
 
             rm -f /tmp/template-bucket-update.txt
 
+
+            # ------------------------------------------------
+            # Attempt CloudFormation update.
+            #
+            # 'set +e' allows us to inspect the AWS CLI error
+            # and correctly handle "No updates are to be
+            # performed."
+            # ------------------------------------------------
 
             set +e
 
@@ -502,7 +544,7 @@ jobs:
 
 
             # ------------------------------------------------
-            # No changes
+            # No changes detected
             # ------------------------------------------------
 
             elif grep -qi "No updates are to be performed" \
@@ -537,7 +579,7 @@ jobs:
           else
 
             # ------------------------------------------------
-            # Stack does not exist
+            # Template bucket stack does not exist.
             # ------------------------------------------------
 
             echo ""
@@ -555,7 +597,6 @@ jobs:
 
 
             echo ""
-
             echo "Template bucket stack creation started."
 
 
@@ -569,7 +610,6 @@ jobs:
 
 
             echo ""
-
             echo "Template bucket stack creation completed."
 
           fi
@@ -582,8 +622,17 @@ jobs:
 
 
       # ======================================================
-      # STEP 6
-      # Get Template S3 Bucket Name
+      # Step 6 - Get Template S3 Bucket Name
+      # ======================================================
+      #
+      # Retrieves the bucket name from the template bucket
+      # CloudFormation stack output.
+      #
+      # The value is saved into GITHUB_ENV so later steps
+      # can use:
+      #
+      # $TEMPLATE_BUCKET
+      #
       # ======================================================
 
       - name: Get Template Bucket Name
@@ -614,11 +663,7 @@ jobs:
             echo "ERROR: Could not retrieve S3 template bucket name."
 
             echo ""
-            echo "Verify that TemplateBucket-MainStack.yaml contains:"
-            echo ""
-            echo "Outputs:"
-            echo "  BucketName:"
-            echo "    Value: !Ref <BucketResource>"
+            echo "Check the template bucket CloudFormation Outputs."
 
             exit 1
 
@@ -626,7 +671,7 @@ jobs:
 
 
           # --------------------------------------------------
-          # Save bucket name for later workflow steps
+          # Save bucket name for later steps
           # --------------------------------------------------
 
           echo "TEMPLATE_BUCKET=$TEMPLATE_BUCKET" >> "$GITHUB_ENV"
@@ -639,12 +684,19 @@ jobs:
 
 
       # ======================================================
-      # STEP 7
-      # Upload CloudFormation Templates to S3
+      # Step 7 - Upload Nested CloudFormation Templates
       # ======================================================
       #
-      # The main and nested CloudFormation templates are
-      # uploaded to the template bucket.
+      # Uploads the nested CloudFormation templates to S3.
+      #
+      # The main template references these files using:
+      #
+      # https://${TemplateBucketName}.s3.amazonaws.com/
+      # templates/<template>.yaml
+      #
+      # IMPORTANT:
+      #
+      # The template that creates the bucket itself is excluded.
       #
       # ======================================================
 
@@ -663,17 +715,15 @@ jobs:
 
           echo ""
 
-          echo "Source Directory:"
-          echo "templates/"
-
-          echo ""
-
 
           # --------------------------------------------------
           # Upload templates.
           #
-          # Exclude the template responsible for creating
-          # the template bucket itself.
+          # TemplateBucket-MainStack.yaml is excluded because
+          # it creates the template bucket itself.
+          #
+          # lab01.yaml is uploaded as well because it is part
+          # of the repository's CloudFormation templates.
           # --------------------------------------------------
 
           aws s3 sync \
@@ -699,8 +749,7 @@ jobs:
 
 
       # ======================================================
-      # STEP 8
-      # Display GitHub Runner Environment
+      # Step 8 - Display Repository Information
       # ======================================================
 
       - name: Display Environment
@@ -723,7 +772,7 @@ jobs:
 
           echo ""
 
-          echo "CloudFormation Template:"
+          echo "Main CloudFormation Template:"
           echo "$TEMPLATE_FILE"
 
           echo ""
@@ -748,8 +797,12 @@ jobs:
 
 
       # ======================================================
-      # STEP 9
-      # Verify CloudFormation Templates Exist
+      # Step 9 - Verify CloudFormation Templates Exist
+      # ======================================================
+      #
+      # Checks that both local templates required by this
+      # workflow are available.
+      #
       # ======================================================
 
       - name: Check CloudFormation Templates
@@ -764,7 +817,7 @@ jobs:
 
 
           # --------------------------------------------------
-          # Check Template Bucket template
+          # Check template bucket template
           # --------------------------------------------------
 
           if [ ! -f "$TEMPLATE_BUCKET_FILE" ]; then
@@ -785,7 +838,7 @@ jobs:
 
 
           # --------------------------------------------------
-          # Check Main template
+          # Check main template
           # --------------------------------------------------
 
           if [ ! -f "$TEMPLATE_FILE" ]; then
@@ -803,8 +856,20 @@ jobs:
 
 
       # ======================================================
-      # STEP 10
-      # Validate Main CloudFormation Template
+      # Step 10 - Validate Main CloudFormation Template
+      # ======================================================
+      #
+      # Validates the main CloudFormation template before
+      # attempting deployment.
+      #
+      # The template now contains:
+      #
+      # - VPC
+      # - EC2 nested stack
+      # - S3 nested stack
+      # - RDS nested stack
+      # - AWS Secrets Manager-managed RDS password
+      #
       # ======================================================
 
       - name: Validate CloudFormation Template
@@ -830,8 +895,19 @@ jobs:
 
 
       # ======================================================
-      # STEP 11
-      # Check Whether Main Stack Exists
+      # Step 11 - Check Whether Main Stack Exists
+      # ======================================================
+      #
+      # Stores:
+      #
+      # exists=true
+      #
+      # or:
+      #
+      # exists=false
+      #
+      # in GitHub Actions output.
+      #
       # ======================================================
 
       - name: Check Stack Status
@@ -868,8 +944,7 @@ jobs:
 
 
       # ======================================================
-      # STEP 12
-      # Display Existing Stack Status
+      # Step 12 - Display Existing Stack Status
       # ======================================================
 
       - name: Display Existing Stack Status
@@ -897,59 +972,28 @@ jobs:
           echo "$STACK_STATUS"
 
 
-          # --------------------------------------------------
-          # Detect unrecoverable states
-          # --------------------------------------------------
-
-          case "$STACK_STATUS" in
-
-            ROLLBACK_COMPLETE|ROLLBACK_FAILED|CREATE_FAILED)
-
-              echo ""
-              echo "ERROR: Main stack is in a failed state:"
-              echo "$STACK_STATUS"
-
-              echo ""
-              echo "If this is ROLLBACK_COMPLETE, delete the failed"
-              echo "stack and run the GitHub Actions workflow again."
-
-              exit 1
-
-              ;;
-
-            UPDATE_ROLLBACK_FAILED)
-
-              echo ""
-              echo "ERROR: Main stack is in UPDATE_ROLLBACK_FAILED."
-
-              echo ""
-              echo "CloudFormation rollback recovery is required"
-              echo "before another update can be performed."
-
-              exit 1
-
-              ;;
-
-          esac
-
-
       # ======================================================
-      # STEP 13
-      # Debug Deployment Environment
+      # Step 13 - Debug Deployment Environment
+      # ======================================================
+      #
+      # This step confirms the deployment configuration.
+      #
+      # IMPORTANT:
+      #
+      # There is NO DB_MASTER_PASSWORD here.
+      #
+      # The RDS password is managed by AWS Secrets Manager.
+      #
       # ======================================================
 
       - name: Debug Deployment Environment
 
         shell: bash
 
-        env:
-
-          DB_MASTER_PASSWORD: ${{ secrets.DB_MASTER_PASSWORD }}
-
         run: |
 
           echo "======================================"
-          echo "DEPLOYMENT DEBUG"
+          echo "DEPLOYMENT ENVIRONMENT"
           echo "======================================"
 
           echo "AWS_REGION=$AWS_REGION"
@@ -968,45 +1012,44 @@ jobs:
 
             echo "KEY_PAIR_NAME: EMPTY"
 
+            exit 1
+
           else
 
             echo "KEY_PAIR_NAME: SET"
 
           fi
 
+          echo ""
 
-          if [ -z "$DB_MASTER_PASSWORD" ]; then
+          echo "RDS Password Management:"
+          echo "AWS Secrets Manager"
 
-            echo "DB_MASTER_PASSWORD: EMPTY"
+          echo ""
 
-          else
-
-            echo "DB_MASTER_PASSWORD: SET"
-
-            echo "DB_MASTER_PASSWORD length: ${#DB_MASTER_PASSWORD}"
-
-          fi
-
+          echo "RDS password is NOT stored in GitHub Actions."
 
           echo ""
 
           echo "======================================"
-          echo "END DEPLOYMENT DEBUG"
+          echo "END DEPLOYMENT ENVIRONMENT"
           echo "======================================"
 
 
       # ======================================================
-      # STEP 14
-      # Create New Main CloudFormation Stack
+      # Step 14 - Create New Main CloudFormation Stack
       # ======================================================
       #
-      # IMPORTANT:
+      # Runs only when the main stack does not exist.
       #
-      # The previous workflow was missing:
+      # Parameters passed to the main template:
       #
-      # DBMasterPassword
+      # 1. TemplateBucketName
+      # 2. KeyPairName
       #
-      # This version explicitly passes it.
+      # DBMasterPassword is NOT passed.
+      #
+      # RDS creates/manages its password through Secrets Manager.
       #
       # ======================================================
 
@@ -1016,36 +1059,23 @@ jobs:
 
         shell: bash
 
-        env:
-
-          DB_MASTER_PASSWORD: ${{ secrets.DB_MASTER_PASSWORD }}
-
         run: |
 
           echo "======================================"
           echo "Creating CloudFormation Stack"
           echo "======================================"
 
-          echo "Stack Name:"
-          echo "$STACK_NAME"
-
-          echo "Template:"
-          echo "$TEMPLATE_FILE"
-
-          echo "Region:"
-          echo "$AWS_REGION"
-
-          echo "Key Pair:"
-          echo "$KEY_PAIR_NAME"
-
-          echo "Template Bucket:"
-          echo "$TEMPLATE_BUCKET"
+          echo "Stack Name       : $STACK_NAME"
+          echo "Template         : $TEMPLATE_FILE"
+          echo "Region           : $AWS_REGION"
+          echo "Key Pair         : $KEY_PAIR_NAME"
+          echo "Template Bucket  : $TEMPLATE_BUCKET"
 
           echo ""
 
 
           # --------------------------------------------------
-          # Validate Key Pair
+          # Validate KeyPairName
           # --------------------------------------------------
 
           if [ -z "$KEY_PAIR_NAME" ]; then
@@ -1058,45 +1088,21 @@ jobs:
 
 
           # --------------------------------------------------
-          # Validate database password
+          # Display deployment parameters.
+          #
+          # There is intentionally no database password.
           # --------------------------------------------------
 
-          if [ -z "$DB_MASTER_PASSWORD" ]; then
-
-            echo "ERROR: DB_MASTER_PASSWORD is empty."
-
-            exit 1
-
-          fi
-
-
-          if [ "${#DB_MASTER_PASSWORD}" -lt 8 ]; then
-
-            echo "ERROR: DB_MASTER_PASSWORD must contain at least 8 characters."
-
-            exit 1
-
-          fi
-
-
-          echo "KeyPairName is available."
-
-          echo "DBMasterPassword is available."
-
-          echo "DBMasterPassword length: ${#DB_MASTER_PASSWORD}"
+          echo "CloudFormation Parameters:"
+          echo "  TemplateBucketName = $TEMPLATE_BUCKET"
+          echo "  KeyPairName        = $KEY_PAIR_NAME"
+          echo "  RDS Password       = Managed by AWS Secrets Manager"
 
           echo ""
 
 
           # --------------------------------------------------
           # Create CloudFormation stack
-          #
-          # IMPORTANT:
-          #
-          # Do NOT put spaces after the backslash.
-          #
-          # The backslash must be the final character.
-          #
           # --------------------------------------------------
 
           echo "Starting CloudFormation stack creation..."
@@ -1108,7 +1114,6 @@ jobs:
             --parameters \
               "ParameterKey=TemplateBucketName,ParameterValue=$TEMPLATE_BUCKET" \
               "ParameterKey=KeyPairName,ParameterValue=$KEY_PAIR_NAME" \
-              "ParameterKey=DBMasterPassword,ParameterValue=$DB_MASTER_PASSWORD" \
             --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
             --region "$AWS_REGION" \
             --no-cli-pager
@@ -1120,8 +1125,7 @@ jobs:
 
 
       # ======================================================
-      # STEP 15
-      # Wait for Stack Creation
+      # Step 15 - Wait for Stack Creation
       # ======================================================
 
       - name: Wait for Stack Creation
@@ -1148,13 +1152,18 @@ jobs:
 
 
       # ======================================================
-      # STEP 16
-      # Update Existing Main CloudFormation Stack
+      # Step 16 - Update Existing Main CloudFormation Stack
       # ======================================================
       #
-      # IMPORTANT:
+      # Runs when the main stack already exists.
       #
-      # DBMasterPassword is passed here as well.
+      # Only these parameters are supplied:
+      #
+      # - TemplateBucketName
+      # - KeyPairName
+      #
+      # The RDS password is managed independently by RDS and
+      # Secrets Manager.
       #
       # ======================================================
 
@@ -1164,45 +1173,19 @@ jobs:
 
         shell: bash
 
-        env:
-
-          DB_MASTER_PASSWORD: ${{ secrets.DB_MASTER_PASSWORD }}
-
         run: |
 
           echo "======================================"
           echo "Updating CloudFormation Stack"
           echo "======================================"
 
-          echo "Stack Name:"
-          echo "$STACK_NAME"
-
-          echo "Template:"
-          echo "$TEMPLATE_FILE"
-
-          echo "Region:"
-          echo "$AWS_REGION"
-
-          echo "Key Pair:"
-          echo "$KEY_PAIR_NAME"
-
-          echo "Template Bucket:"
-          echo "$TEMPLATE_BUCKET"
+          echo "Stack Name       : $STACK_NAME"
+          echo "Template         : $TEMPLATE_FILE"
+          echo "Region           : $AWS_REGION"
+          echo "Key Pair         : $KEY_PAIR_NAME"
+          echo "Template Bucket  : $TEMPLATE_BUCKET"
 
           echo ""
-
-
-          # --------------------------------------------------
-          # Validate DB password
-          # --------------------------------------------------
-
-          if [ -z "$DB_MASTER_PASSWORD" ]; then
-
-            echo "ERROR: DB_MASTER_PASSWORD is empty."
-
-            exit 1
-
-          fi
 
 
           # --------------------------------------------------
@@ -1222,7 +1205,7 @@ jobs:
 
 
           # --------------------------------------------------
-          # Prevent updates while stack is busy
+          # Do not update a stack that is currently busy.
           # --------------------------------------------------
 
           case "$STACK_STATUS" in
@@ -1231,33 +1214,7 @@ jobs:
 
               echo ""
               echo "ERROR: Main CloudFormation stack is currently busy."
-
-              echo "Current status:"
-              echo "$STACK_STATUS"
-
-              exit 1
-
-              ;;
-
-            ROLLBACK_COMPLETE|ROLLBACK_FAILED|CREATE_FAILED)
-
-              echo ""
-              echo "ERROR: Main CloudFormation stack is in a failed state."
-
-              echo "Current status:"
-              echo "$STACK_STATUS"
-
-              exit 1
-
-              ;;
-
-            UPDATE_ROLLBACK_FAILED)
-
-              echo ""
-              echo "ERROR: Main CloudFormation stack is in UPDATE_ROLLBACK_FAILED."
-
-              echo ""
-              echo "CloudFormation rollback recovery is required."
+              echo "Current status: $STACK_STATUS"
 
               exit 1
 
@@ -1267,16 +1224,14 @@ jobs:
 
 
           # --------------------------------------------------
-          # Remove old output file
+          # Remove old update output
           # --------------------------------------------------
 
           rm -f /tmp/main-stack-update.txt
 
 
           # --------------------------------------------------
-          # Execute CloudFormation update
-          #
-          # set +e allows us to inspect the AWS CLI response.
+          # Execute CloudFormation update.
           # --------------------------------------------------
 
           set +e
@@ -1288,7 +1243,6 @@ jobs:
             --parameters \
               "ParameterKey=TemplateBucketName,ParameterValue=$TEMPLATE_BUCKET,UsePreviousValue=false" \
               "ParameterKey=KeyPairName,ParameterValue=$KEY_PAIR_NAME,UsePreviousValue=false" \
-              "ParameterKey=DBMasterPassword,ParameterValue=$DB_MASTER_PASSWORD,UsePreviousValue=false" \
             --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
             --region "$AWS_REGION" \
             --no-cli-pager \
@@ -1302,15 +1256,13 @@ jobs:
 
 
           # --------------------------------------------------
-          # Update started successfully
+          # Successful update
           # --------------------------------------------------
 
           if [ "$UPDATE_EXIT_CODE" -eq 0 ]; then
 
             echo ""
             echo "CloudFormation stack update started."
-
-            echo "UPDATE_STARTED=true" >> "$GITHUB_ENV"
 
 
           # --------------------------------------------------
@@ -1325,8 +1277,6 @@ jobs:
             echo "No main stack changes detected."
 
             echo "Existing CloudFormation infrastructure will be used."
-
-            echo "UPDATE_STARTED=false" >> "$GITHUB_ENV"
 
 
           # --------------------------------------------------
@@ -1349,40 +1299,85 @@ jobs:
 
 
       # ======================================================
-      # STEP 17
-      # Wait for Existing Stack Update
-      # ======================================================
-      #
-      # Only wait if an update was actually started.
-      #
+      # Step 17 - Wait for Existing Stack Update
       # ======================================================
 
       - name: Wait for Stack Update
 
-        if: steps.stack.outputs.exists == 'true' && env.UPDATE_STARTED == 'true'
+        if: steps.stack.outputs.exists == 'true'
 
         shell: bash
 
         run: |
 
           echo "======================================"
-          echo "Waiting for Main Stack Update"
+          echo "Checking Main Stack Update Status"
           echo "======================================"
 
 
-          aws cloudformation wait stack-update-complete \
+          CURRENT_STATUS=$(aws cloudformation describe-stacks \
             --stack-name "$STACK_NAME" \
-            --region "$AWS_REGION"
+            --region "$AWS_REGION" \
+            --query "Stacks[0].StackStatus" \
+            --output text \
+            --no-cli-pager)
 
 
-          echo ""
+          echo "Current Stack Status:"
+          echo "$CURRENT_STATUS"
 
-          echo "Stack update completed successfully."
+
+          # --------------------------------------------------
+          # Wait when an update is actually in progress.
+          # --------------------------------------------------
+
+          if [ "$CURRENT_STATUS" = "UPDATE_IN_PROGRESS" ]; then
+
+            echo ""
+            echo "Stack update is in progress."
+
+            echo ""
+            echo "Waiting for Stack Update..."
+
+
+            aws cloudformation wait stack-update-complete \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION"
+
+
+            echo ""
+            echo "Stack update completed successfully."
+
+
+          elif [ "$CURRENT_STATUS" = "UPDATE_COMPLETE" ]; then
+
+            echo ""
+            echo "Stack is already in UPDATE_COMPLETE state."
+
+            echo "No additional stack update wait is required."
+
+
+          elif [ "$CURRENT_STATUS" = "CREATE_COMPLETE" ]; then
+
+            echo ""
+            echo "Stack is in CREATE_COMPLETE state."
+
+            echo "No update was required."
+
+
+          else
+
+            echo ""
+            echo "ERROR: Unexpected CloudFormation stack status:"
+            echo "$CURRENT_STATUS"
+
+            exit 1
+
+          fi
 
 
       # ======================================================
-      # STEP 18
-      # Display Final Stack Information
+      # Step 18 - Display Final Stack Information
       # ======================================================
 
       - name: Display Stack Information
@@ -1403,8 +1398,7 @@ jobs:
 
 
       # ======================================================
-      # STEP 19
-      # Display Stack Resources
+      # Step 19 - Display Stack Resources
       # ======================================================
 
       - name: List Stack Resources
@@ -1425,8 +1419,30 @@ jobs:
 
 
       # ======================================================
-      # STEP 20
-      # Display Stack Outputs
+      # Step 20 - Display Stack Outputs
+      # ======================================================
+      #
+      # Expected outputs include:
+      #
+      # - VPC
+      # - Public subnet
+      # - Private subnets
+      # - Web security group
+      # - EC2 instance
+      # - EC2 public IP
+      # - S3 bucket
+      # - RDS database
+      # - RDS endpoint
+      # - RDS port
+      # - RDS security group
+      # - RDS Secrets Manager ARN
+      #
+      # IMPORTANT:
+      #
+      # The secret ARN is safe to display.
+      #
+      # The secret VALUE/password is never displayed.
+      #
       # ======================================================
 
       - name: Display Stack Outputs
@@ -1449,8 +1465,7 @@ jobs:
 
 
       # ======================================================
-      # STEP 21
-      # Deployment Complete
+      # Step 21 - Deployment Complete
       # ======================================================
 
       - name: Deployment Complete
@@ -1467,23 +1482,23 @@ jobs:
 
           echo ""
 
-          echo "Stack Name:"
-          echo "$STACK_NAME"
+          echo "Stack Name      : $STACK_NAME"
+
+          echo "Region          : $AWS_REGION"
+
+          echo "Template        : $TEMPLATE_FILE"
+
+          echo "Template Bucket : $TEMPLATE_BUCKET"
 
           echo ""
 
-          echo "AWS Region:"
-          echo "$AWS_REGION"
+          echo "RDS Password Management:"
+          echo "AWS Secrets Manager"
 
           echo ""
 
-          echo "Template:"
-          echo "$TEMPLATE_FILE"
-
-          echo ""
-
-          echo "Template Bucket:"
-          echo "$TEMPLATE_BUCKET"
+          echo "The RDS master password was NOT stored"
+          echo "in GitHub Actions."
 
           echo ""
 
