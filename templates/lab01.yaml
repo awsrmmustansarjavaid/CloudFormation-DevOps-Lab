@@ -44,11 +44,13 @@ Parameters:
     Description: Master username for the RDS MySQL database
 
   # RDS password
-  DBMasterPassword:
-    Type: String
-    NoEcho: true
-    # MinLength: 8
-    Description: Master password for the RDS MySQL database
+  #DBMasterPassword:
+    #Type: String
+    #NoEcho: true
+    ## MinLength: 8
+    #Description: Master password for the RDS MySQL database
+   
+  ManageMasterUserPassword: true  
 
   # -------------------------------------------------------
   # S3 Bucket containing nested CloudFormation templates
