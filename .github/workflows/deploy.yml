@@ -126,7 +126,7 @@ env:
   # Template Bucket CloudFormation Template
   # ========================================================
 
-  TEMPLATE_BUCKET_FILE: templates/template-bucket.yaml
+  TEMPLATE_BUCKET_FILE: templates/TemplateBucket-MainStack.yaml
 
 
   # ========================================================
