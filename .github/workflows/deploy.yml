@@ -135,12 +135,6 @@ env:
 
   TEMPLATE_FILE: templates/lab01.yaml
 
-  # --------------------------------------------------
-  # Define CloudFormation parameter values
-  # --------------------------------------------------          
-
-  DB_PASSWORD="$DB_MASTER_PASSWORD"
-
 
 # ==========================================================
 # JOBS
@@ -1021,9 +1015,77 @@ jobs:
           echo "Current Stack Status:"
           echo "$STACK_STATUS"
 
-
       # ======================================================
-      # Step 13 - Create New Main CloudFormation Stack
+      # Step 13 - Debug Deployment Environment
+      # ======================================================
+      #
+      # This diagnostic step verifies that the values required
+      # for CloudFormation stack creation are available.
+      #
+      # The database password itself is NEVER displayed.
+      # Only whether it exists and its length are displayed.
+      #
+      # ======================================================
+
+      - name: Debug Deployment Environment
+
+        if: steps.stack.outputs.exists == 'false'
+
+        shell: bash
+
+        env:
+
+          DB_MASTER_PASSWORD: ${{ secrets.DB_MASTER_PASSWORD }}
+
+        run: |
+
+          echo "======================================"
+          echo "DEPLOYMENT DEBUG"
+          echo "======================================"
+
+          echo "AWS_REGION=$AWS_REGION"
+
+          echo "STACK_NAME=$STACK_NAME"
+
+          echo "KEY_PAIR_NAME=$KEY_PAIR_NAME"
+
+          echo "TEMPLATE_FILE=$TEMPLATE_FILE"
+
+          echo "TEMPLATE_BUCKET=$TEMPLATE_BUCKET"
+
+          echo ""
+
+          if [ -z "$KEY_PAIR_NAME" ]; then
+
+            echo "KEY_PAIR_NAME: EMPTY"
+
+          else
+
+            echo "KEY_PAIR_NAME: SET"
+
+          fi
+
+          if [ -z "$DB_MASTER_PASSWORD" ]; then
+
+            echo "DB_MASTER_PASSWORD: EMPTY"
+
+          else
+
+            echo "DB_MASTER_PASSWORD: SET"
+
+            echo "DB_MASTER_PASSWORD length: ${#DB_MASTER_PASSWORD}"
+
+          fi
+
+          echo ""
+
+          echo "======================================"
+          echo "END DEPLOYMENT DEBUG"
+          echo "======================================"
+      
+      
+      # ======================================================
+      # Step 14 - Create New Main CloudFormation Stack
       # ======================================================
       #
       # This step runs only when the main stack does not exist.
@@ -1079,7 +1141,7 @@ jobs:
           # NEVER print the actual password.
           # --------------------------------------------------
 
-          if [ -z "$DB_PASSWORD" ]; then
+          if [ -z "$DB_MASTER_PASSWORD" ]; then
 
             echo "ERROR: DB_MASTER_PASSWORD is empty."
 
@@ -1092,9 +1154,44 @@ jobs:
 
           echo "DBMasterPassword is available."
 
-          echo "DBMasterPassword length: ${#DB_PASSWORD}"
+          echo "DBMasterPassword length: ${#DB_MASTER_PASSWORD}"
 
           echo ""
+          
+          # --------------------------------------------------
+          # Create CloudFormation parameter JSON
+          #
+          # jq safely handles special characters.
+          #
+          # The password is NEVER printed.
+          # --------------------------------------------------
+
+          jq -n \
+            --arg keypair "$KEY_PAIR_NAME" \
+            --arg password "$DB_MASTER_PASSWORD" \
+            '[
+              {
+                ParameterKey: "KeyPairName",
+                ParameterValue: $keypair
+              },
+              {
+                ParameterKey: "DBMasterPassword",
+                ParameterValue: $password
+              }
+            ]' \
+            > /tmp/cloudformation-parameters.json
+
+
+          echo "CloudFormation parameter file created."
+
+          echo ""
+
+          echo "Parameters being sent:"
+          echo "  KeyPairName      = $KEY_PAIR_NAME"
+          echo "  DBMasterPassword = [HIDDEN]"
+
+          echo ""         
+          
           
           # --------------------------------------------------
           # Display the CloudFormation parameter keys
@@ -1134,9 +1231,15 @@ jobs:
 
           echo "Main CloudFormation stack creation started."
 
+          # --------------------------------------------------
+          # Remove parameter file
+          # --------------------------------------------------
+
+          rm -f /tmp/cloudformation-parameters.json
+
 
       # ======================================================
-      # Step 14 - Wait for Stack Creation
+      # Step 15 - Wait for Stack Creation
       # ======================================================
       #
       # This runs only when a new stack was created.
@@ -1174,7 +1277,7 @@ jobs:
 
 
       # ======================================================
-      # Step 15 - Update Existing Main CloudFormation Stack
+      # Step 16 - Update Existing Main CloudFormation Stack
       # ======================================================
       #
       # This step runs only when the main stack already exists.
@@ -1277,7 +1380,7 @@ jobs:
             --stack-name "$STACK_NAME" \
             --template-body "file://$TEMPLATE_FILE" \
             --parameters \
-              "ParameterKey=TemplateBucketName,ParameterValue=$TEMPLATE_BUCKET,UsePreviousValue=false" \
+              "ParameterKey=TemplateBucketName,ParameterValue=$TEMPLATE_BUCKET,UsePreviousValue=false" \         
               "ParameterKey=KeyPairName,ParameterValue=$KEY_PAIR_NAME,UsePreviousValue=false" \
               "ParameterKey=DBMasterPassword,ParameterValue=$DB_MASTER_PASSWORD,UsePreviousValue=false" \
             --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
@@ -1333,7 +1436,7 @@ jobs:
 
 
       # ======================================================
-      # Step 16 - Wait for Existing Stack Update
+      # Step 17 - Wait for Existing Stack Update
       # ======================================================
       #
       # IMPORTANT:
@@ -1427,7 +1530,7 @@ jobs:
 
 
       # ======================================================
-      # Step 17 - Display Final Stack Information
+      # Step 18 - Display Final Stack Information
       # ======================================================
       #
       # Displays the complete CloudFormation stack
@@ -1453,7 +1556,7 @@ jobs:
 
 
       # ======================================================
-      # Step 18 - Display Stack Resources
+      # Step 19 - Display Stack Resources
       # ======================================================
       #
       # Displays all resources managed by the main
@@ -1481,7 +1584,7 @@ jobs:
 
 
       # ======================================================
-      # Step 19 - Display Stack Outputs
+      # Step 20 - Display Stack Outputs
       # ======================================================
       #
       # This is especially useful because your lab01.yaml
@@ -1521,7 +1624,7 @@ jobs:
 
 
       # ======================================================
-      # Step 20 - Deployment Complete
+      # Step 21 - Deployment Complete
       # ======================================================
       #
       # Final confirmation that the GitHub Actions workflow
