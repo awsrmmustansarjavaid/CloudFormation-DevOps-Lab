@@ -1220,8 +1220,7 @@ jobs:
             --template-body "file://$TEMPLATE_FILE" \
             --parameters \
               "ParameterKey=TemplateBucketName,ParameterValue=$TEMPLATE_BUCKET" \
-              "ParameterKey=KeyPairName,ParameterValue=$KEY_PAIR_NAME" \
-              "ParameterKey=DBMasterPassword,ParameterValue=$DB_MASTER_PASSWORD" \
+              "ParameterKey=KeyPairName,ParameterValue=$KEY_PAIR_NAME" \              
             --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
             --region "$AWS_REGION" \
             --no-cli-pager
@@ -1381,8 +1380,7 @@ jobs:
             --template-body "file://$TEMPLATE_FILE" \
             --parameters \
               "ParameterKey=TemplateBucketName,ParameterValue=$TEMPLATE_BUCKET,UsePreviousValue=false" \         
-              "ParameterKey=KeyPairName,ParameterValue=$KEY_PAIR_NAME,UsePreviousValue=false" \
-              "ParameterKey=DBMasterPassword,ParameterValue=$DB_MASTER_PASSWORD,UsePreviousValue=false" \
+              "ParameterKey=KeyPairName,ParameterValue=$KEY_PAIR_NAME,UsePreviousValue=false" \              
             --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
             --region "$AWS_REGION" \
             --no-cli-pager \

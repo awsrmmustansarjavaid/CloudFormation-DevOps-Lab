@@ -78,11 +78,10 @@ Parameters:
   # For production environments, AWS Secrets Manager
   # is recommended instead of passing a password directly.
   # -----------------------------------------------------
-  DBPassword:
-    Type: String
-    NoEcho: true
-    MinLength: 8
-    Description: RDS master password
+  #DBPassword:
+    #NoEcho: true
+    #MinLength: 8
+    #Description: RDS master password  
 
 # =======================================================
 # RESOURCES
@@ -202,7 +201,15 @@ Resources:
       # -------------------------------------------------
       # Master password
       # -------------------------------------------------
-      MasterUserPassword: !Ref DBPassword
+      # MasterUserPassword: !Ref DBPassword
+
+      # -------------------------------------------------
+      # AWS SECRETS MANAGER
+      #
+      # RDS automatically generates and manages the
+      # master database password in Secrets Manager.
+      # -------------------------------------------------
+      ManageMasterUserPassword: true
 
       # -------------------------------------------------
       # Storage
@@ -301,3 +308,14 @@ Outputs:
   RDSSecurityGroupId:
     Description: RDS Security Group ID
     Value: !Ref RDSSecurityGroup
+
+  # -----------------------------------------------------
+  # SECRET ARN
+  #
+  # RDS exposes the ARN of the Secrets Manager secret
+  # through the MasterUserSecret attribute.
+  # -----------------------------------------------------
+
+  RDSMasterUserSecretArn:
+    Description: Secrets Manager ARN containing RDS master credentials
+    Value: !GetAtt RDSDatabase.MasterUserSecret.SecretArn  
