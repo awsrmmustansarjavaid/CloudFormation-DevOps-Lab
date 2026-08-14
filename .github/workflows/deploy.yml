@@ -264,7 +264,7 @@ jobs:
 
         env:
 
-          # DB_MASTER_PASSWORD: ${{ secrets.DB_MASTER_PASSWORD }}
+          DB_MASTER_PASSWORD: ${{ secrets.DB_MASTER_PASSWORD }}
 
         run: |
 
@@ -306,47 +306,47 @@ jobs:
           # Check DB_MASTER_PASSWORD
           # --------------------------------------------------
 
-          # echo "Checking DB_MASTER_PASSWORD..."
+          echo "Checking DB_MASTER_PASSWORD..."
 
-          # if [ -z "$DB_MASTER_PASSWORD" ]; then
+          if [ -z "$DB_MASTER_PASSWORD" ]; then
 
-            # echo "ERROR: DB_MASTER_PASSWORD GitHub Secret is EMPTY or NOT AVAILABLE."
+            echo "ERROR: DB_MASTER_PASSWORD GitHub Secret is EMPTY or NOT AVAILABLE."
 
-            # echo ""
+            echo ""
 
-            # echo "Please create this repository secret:"
-            # echo "DB_MASTER_PASSWORD"
+            echo "Please create this repository secret:"
+            echo "DB_MASTER_PASSWORD"
 
-            # exit 1
+            exit 1
 
-          # fi
+          fi
 
 
-          # echo "DB_MASTER_PASSWORD is available."
+          echo "DB_MASTER_PASSWORD is available."
 
-          # echo ""
+          echo ""
 
-          # echo "Password length:"
-          # echo "${#DB_MASTER_PASSWORD}"
+          echo "Password length:"
+          echo "${#DB_MASTER_PASSWORD}"
 
 
           # --------------------------------------------------
           # Basic password length validation
           # --------------------------------------------------
 
-          # if [ "${#DB_MASTER_PASSWORD}" -lt 8 ]; then
+          if [ "${#DB_MASTER_PASSWORD}" -lt 8 ]; then
 
-            # echo ""
-            # echo "ERROR: DB_MASTER_PASSWORD must contain at least 8 characters."
+            echo ""
+            echo "ERROR: DB_MASTER_PASSWORD must contain at least 8 characters."
 
-            # exit 1
+            exit 1
 
-          # fi
+          fi
 
 
-          # echo ""
+          echo ""
 
-          # echo "All required deployment values are available."
+          echo "All required deployment values are available."
 
 
       # ======================================================
