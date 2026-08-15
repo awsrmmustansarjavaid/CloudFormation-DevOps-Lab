@@ -353,8 +353,7 @@ Resources:
       #TemplateURL: !Ref EC2TemplateURL
 
       # Build the EC2 child-template URL from the S3 bucket name
-      TemplateURL: !Sub >
-        https://${TemplateBucketName}.s3.amazonaws.com/templates/ec2-webserver.yaml
+      TemplateURL: !Sub "https://${TemplateBucketName}.s3.amazonaws.com/templates/ec2-webserver.yaml"
 
       # Parameters passed to EC2 child stack
       Parameters:
@@ -384,8 +383,7 @@ Resources:
       #TemplateURL: !Ref S3TemplateURL
 
       # Build the S3 child-template URL from the S3 bucket name
-      TemplateURL: !Sub >
-        https://${TemplateBucketName}.s3.amazonaws.com/templates/s3.yaml
+      TemplateURL: !Sub "https://${TemplateBucketName}.s3.amazonaws.com/templates/s3.yaml"
 
   # -------------------------------------------------------
   # Nested Stack - RDS MySQL
@@ -400,8 +398,7 @@ Resources:
       #TemplateURL: !Ref RDSTemplateURL
 
       # Build the RDS child-template URL from the S3 bucket name
-      TemplateURL: !Sub >
-        https://${TemplateBucketName}.s3.amazonaws.com/templates/aws-rds.yaml
+      TemplateURL: !Sub "https://${TemplateBucketName}.s3.amazonaws.com/templates/aws-rds.yaml"
 
       # Parameters passed to RDS child stack
       Parameters:

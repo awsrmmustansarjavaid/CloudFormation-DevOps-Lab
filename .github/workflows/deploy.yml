@@ -1219,6 +1219,15 @@ jobs:
               exit 1
 
               ;;
+          ROLLBACK_COMPLETE)
+
+              echo ""
+              echo "ERROR: Main CloudFormation stack is in ROLLBACK_COMPLETE."
+              echo "The stack must be deleted before it can be recreated."
+
+              exit 1
+
+              ;;    
 
           esac
 
