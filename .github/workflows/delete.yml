@@ -8,19 +8,29 @@
 #
 # Purpose
 # ----------------------------------------------------------
-# This workflow deletes an existing AWS CloudFormation stack.
+# This workflow deletes the Lab01 CloudFormation stack.
 #
-# The workflow performs the following tasks:
+# The workflow:
 #
-# 1. Downloads the GitHub repository.
+# 1. Downloads the repository.
 # 2. Configures AWS credentials.
 # 3. Verifies AWS CLI.
 # 4. Checks whether the stack exists.
-# 5. Deletes the CloudFormation stack.
-# 6. Waits until deletion is complete.
-# 7. Displays the final result.
+# 5. Displays the current stack status.
+# 6. Displays stack resources.
+# 7. Deletes the CloudFormation stack.
+# 8. Waits for deletion.
+# 9. Verifies that the stack no longer exists.
+#
+# This workflow is useful after:
+#
+#   - CREATE_FAILED
+#   - ROLLBACK_COMPLETE
+#   - UPDATE_FAILED
+#   - UPDATE_ROLLBACK_COMPLETE
 #
 # ==========================================================
+
 
 # ----------------------------------------------------------
 # Workflow Name
@@ -28,18 +38,19 @@
 
 name: Delete AWS CloudFormation Stack
 
+
 # ----------------------------------------------------------
 # Trigger
 # ----------------------------------------------------------
 #
-# This workflow is started manually from
-# the GitHub Actions page.
+# Manual execution from GitHub Actions.
 #
 # ----------------------------------------------------------
 
 on:
 
   workflow_dispatch:
+
 
 # ----------------------------------------------------------
 # Global Variables
@@ -50,6 +61,7 @@ env:
   AWS_REGION: us-east-1
 
   STACK_NAME: Lab01-CloudFormation
+
 
 # ----------------------------------------------------------
 # Jobs
@@ -67,16 +79,19 @@ jobs:
 
     name: Delete CloudFormation Stack
 
+
     steps:
+
 
     # ======================================================
     # Step 1
-    # Download Repository
+    # Checkout Repository
     # ======================================================
 
     - name: Checkout Repository
 
       uses: actions/checkout@v4
+
 
     # ======================================================
     # Step 2
@@ -95,6 +110,7 @@ jobs:
 
         aws-region: ${{ env.AWS_REGION }}
 
+
     # ======================================================
     # Step 3
     # Verify AWS CLI
@@ -104,11 +120,20 @@ jobs:
 
       run: |
 
-        echo "====================================="
+        echo "======================================"
         echo "AWS CLI Version"
-        echo "====================================="
+        echo "======================================"
 
         aws --version
+
+        echo ""
+
+        echo "======================================"
+        echo "AWS Account"
+        echo "======================================"
+
+        aws sts get-caller-identity
+
 
     # ======================================================
     # Step 4
@@ -123,25 +148,64 @@ jobs:
 
       run: |
 
+        echo "======================================"
+        echo "Checking CloudFormation Stack"
+        echo "======================================"
+
         if aws cloudformation describe-stacks \
-          --stack-name $STACK_NAME > /dev/null 2>&1
+          --stack-name "$STACK_NAME" \
+          --region "$AWS_REGION" \
+          > /dev/null 2>&1
 
         then
 
-          echo "exists=true" >> $GITHUB_OUTPUT
+          echo "exists=true" >> "$GITHUB_OUTPUT"
 
+          echo ""
           echo "CloudFormation stack exists."
 
         else
 
-          echo "exists=false" >> $GITHUB_OUTPUT
+          echo "exists=false" >> "$GITHUB_OUTPUT"
 
+          echo ""
           echo "CloudFormation stack does not exist."
 
         fi
 
+
     # ======================================================
     # Step 5
+    # Get Stack Status
+    # ======================================================
+
+    - name: Get Stack Status
+
+      if: steps.stack.outputs.exists == 'true'
+
+      id: status
+
+      shell: bash
+
+      run: |
+
+        echo "======================================"
+        echo "CloudFormation Stack Status"
+        echo "======================================"
+
+        STACK_STATUS=$(aws cloudformation describe-stacks \
+          --stack-name "$STACK_NAME" \
+          --region "$AWS_REGION" \
+          --query "Stacks[0].StackStatus" \
+          --output text)
+
+        echo "Stack Status: $STACK_STATUS"
+
+        echo "stack_status=$STACK_STATUS" >> "$GITHUB_OUTPUT"
+
+
+    # ======================================================
+    # Step 6
     # Display Stack Information
     # ======================================================
 
@@ -151,16 +215,68 @@ jobs:
 
       run: |
 
-        echo "====================================="
+        echo "======================================"
         echo "Stack Information"
-        echo "====================================="
+        echo "======================================"
 
         aws cloudformation describe-stacks \
-          --stack-name $STACK_NAME
+          --stack-name "$STACK_NAME" \
+          --region "$AWS_REGION" \
+          --output table
+
 
     # ======================================================
-    # Step 6
-    # Delete Stack
+    # Step 7
+    # Display Stack Resources
+    # ======================================================
+
+    - name: Display Stack Resources
+
+      if: steps.stack.outputs.exists == 'true'
+
+      run: |
+
+        echo "======================================"
+        echo "Stack Resources"
+        echo "======================================"
+
+        aws cloudformation list-stack-resources \
+          --stack-name "$STACK_NAME" \
+          --region "$AWS_REGION" \
+          --query "StackResourceSummaries[].[LogicalResourceId,ResourceType,ResourceStatus]" \
+          --output table
+
+
+    # ======================================================
+    # Step 8
+    # Display Stack Events
+    # ======================================================
+    #
+    # This is particularly useful when deleting a stack
+    # that previously failed.
+    #
+    # ======================================================
+
+    - name: Display Recent Stack Events
+
+      if: steps.stack.outputs.exists == 'true'
+
+      run: |
+
+        echo "======================================"
+        echo "Recent CloudFormation Events"
+        echo "======================================"
+
+        aws cloudformation describe-stack-events \
+          --stack-name "$STACK_NAME" \
+          --region "$AWS_REGION" \
+          --query "StackEvents[0:15].[Timestamp,LogicalResourceId,ResourceStatus,ResourceStatusReason]" \
+          --output table
+
+
+    # ======================================================
+    # Step 9
+    # Delete CloudFormation Stack
     # ======================================================
 
     - name: Delete CloudFormation Stack
@@ -169,15 +285,29 @@ jobs:
 
       run: |
 
-        echo "====================================="
+        echo "======================================"
         echo "Deleting CloudFormation Stack"
-        echo "====================================="
+        echo "======================================"
+
+        echo "Stack Name : $STACK_NAME"
+        echo "Region     : $AWS_REGION"
+        echo "Status     : ${{ steps.status.outputs.stack_status }}"
+
+        echo ""
+
+        echo "Starting stack deletion..."
 
         aws cloudformation delete-stack \
-          --stack-name $STACK_NAME
+          --stack-name "$STACK_NAME" \
+          --region "$AWS_REGION"
+
+        echo ""
+
+        echo "CloudFormation stack deletion started."
+
 
     # ======================================================
-    # Step 7
+    # Step 10
     # Wait Until Stack Is Deleted
     # ======================================================
 
@@ -187,13 +317,21 @@ jobs:
 
       run: |
 
-        echo "Waiting for stack deletion..."
+        echo "======================================"
+        echo "Waiting for Stack Deletion"
+        echo "======================================"
 
         aws cloudformation wait stack-delete-complete \
-          --stack-name $STACK_NAME
+          --stack-name "$STACK_NAME" \
+          --region "$AWS_REGION"
+
+        echo ""
+
+        echo "Stack deletion completed successfully."
+
 
     # ======================================================
-    # Step 8
+    # Step 11
     # Verify Deletion
     # ======================================================
 
@@ -205,24 +343,32 @@ jobs:
 
       run: |
 
+        echo "======================================"
+        echo "Verifying Stack Deletion"
+        echo "======================================"
+
         if aws cloudformation describe-stacks \
-          --stack-name $STACK_NAME > /dev/null 2>&1
+          --stack-name "$STACK_NAME" \
+          --region "$AWS_REGION" \
+          > /dev/null 2>&1
 
         then
 
-          echo "Stack still exists."
+          echo ""
+          echo "ERROR: CloudFormation stack still exists."
 
           exit 1
 
         else
 
-          echo "====================================="
-          echo "CloudFormation stack deleted."
-          echo "====================================="
+          echo ""
+          echo "CloudFormation stack no longer exists."
+
         fi
 
+
     # ======================================================
-    # Step 9
+    # Step 12
     # Stack Not Found
     # ======================================================
 
@@ -232,13 +378,20 @@ jobs:
 
       run: |
 
-        echo "====================================="
-        echo "No CloudFormation stack was found."
+        echo "======================================"
+        echo "CloudFormation Stack Not Found"
+        echo "======================================"
+
+        echo "Stack Name : $STACK_NAME"
+        echo "Region     : $AWS_REGION"
+
+        echo ""
+
         echo "Nothing to delete."
-        echo "====================================="
+
 
     # ======================================================
-    # Step 10
+    # Step 13
     # Workflow Complete
     # ======================================================
 
@@ -247,7 +400,18 @@ jobs:
       run: |
 
         echo ""
-        echo "====================================="
+
+        echo "======================================"
         echo "Delete Workflow Completed"
-        echo "====================================="
+        echo "======================================"
+
         echo ""
+
+        echo "Stack Name : $STACK_NAME"
+        echo "Region     : $AWS_REGION"
+
+        echo ""
+
+        echo "Cleanup operation finished."
+
+        echo "======================================"
