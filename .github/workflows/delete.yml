@@ -1,6 +1,6 @@
 # ==========================================================
 # AWS CloudFormation DevOps Lab
-# GitHub Actions Workflow
+# GitHub Actions - COMPLETE DELETE WORKFLOW
 # ==========================================================
 #
 # File:
@@ -8,30 +8,29 @@
 #
 # Purpose:
 # ----------------------------------------------------------
-# Deletes the Lab01-CloudFormation stack safely.
+# This workflow completely removes the Lab01 CloudFormation
+# environment and its resources.
 #
-# The workflow handles:
+# The workflow is designed for a LEARNING LAB.
 #
-#   1. Normal CloudFormation stack deletion
-#   2. ROLLBACK_COMPLETE stacks
-#   3. DELETE_FAILED stacks
-#   4. Resources that fail deletion
-#   5. Nested CloudFormation stacks
-#   6. FORCE_DELETE_STACK when normal deletion fails
+# It performs:
 #
-# Important:
-# ----------------------------------------------------------
-# FORCE_DELETE_STACK does NOT magically delete a resource
-# that AWS cannot delete.
-#
-# Instead, CloudFormation removes the stack while retaining
-# resources that failed deletion.
-#
-# Those resources will appear as:
-#
-#   DELETE_SKIPPED
-#
-# This workflow reports those resources at the end.
+# 1. Checkout repository
+# 2. Configure AWS credentials
+# 3. Verify AWS CLI
+# 4. Check whether the CloudFormation stack exists
+# 5. Check termination protection
+# 6. Find the RDS nested stack
+# 7. Find the RDS database instance
+# 8. Disable RDS deletion protection
+# 9. Delete RDS WITHOUT a final snapshot
+# 10. Delete RDS automated backups
+# 11. Wait for RDS deletion
+# 12. Delete the root CloudFormation stack
+# 13. Wait for CloudFormation deletion
+# 14. If DELETE_FAILED occurs, retry with FORCE_DELETE_STACK
+# 15. Verify the root stack no longer exists
+# 16. Display final result
 #
 # ==========================================================
 
@@ -47,12 +46,7 @@ name: Delete AWS CloudFormation Stack
 # Trigger
 # ----------------------------------------------------------
 #
-# Manual execution from:
-#
-# GitHub
-#   -> Actions
-#   -> Delete AWS CloudFormation Stack
-#   -> Run workflow
+# The workflow is manually started from GitHub Actions.
 #
 # ----------------------------------------------------------
 
@@ -62,7 +56,7 @@ on:
 
 
 # ----------------------------------------------------------
-# Global Variables
+# Global Environment Variables
 # ----------------------------------------------------------
 
 env:
@@ -81,12 +75,12 @@ jobs:
   delete-stack:
 
     # ------------------------------------------------------
-    # GitHub Hosted Runner
+    # GitHub-hosted Linux runner
     # ------------------------------------------------------
 
     runs-on: ubuntu-latest
 
-    name: Delete CloudFormation Stack
+    name: Complete CloudFormation Cleanup
 
 
     # ======================================================
@@ -97,7 +91,7 @@ jobs:
 
 
     # ======================================================
-    # Step 1
+    # STEP 1
     # Checkout Repository
     # ======================================================
 
@@ -107,7 +101,7 @@ jobs:
 
 
     # ======================================================
-    # Step 2
+    # STEP 2
     # Configure AWS Credentials
     # ======================================================
 
@@ -125,7 +119,7 @@ jobs:
 
 
     # ======================================================
-    # Step 3
+    # STEP 3
     # Verify AWS CLI
     # ======================================================
 
@@ -135,32 +129,25 @@ jobs:
 
       run: |
 
-        echo "======================================"
-        echo "AWS CLI INFORMATION"
-        echo "======================================"
+        echo "=============================================="
+        echo "AWS CLI"
+        echo "=============================================="
 
         aws --version
 
         echo ""
 
-        echo "======================================"
-        echo "AWS ACCOUNT"
-        echo "======================================"
+        echo "AWS Account:"
 
         aws sts get-caller-identity
 
-        echo ""
-
-        echo "Region     : $AWS_REGION"
-        echo "Stack Name : $STACK_NAME"
-
 
     # ======================================================
-    # Step 4
-    # Check Whether Stack Exists
+    # STEP 4
+    # Check Whether Root Stack Exists
     # ======================================================
 
-    - name: Check Stack
+    - name: Check CloudFormation Stack
 
       id: stack
 
@@ -168,9 +155,9 @@ jobs:
 
       run: |
 
-        echo "======================================"
-        echo "CHECKING CLOUDFORMATION STACK"
-        echo "======================================"
+        echo "=============================================="
+        echo "Checking CloudFormation Stack"
+        echo "=============================================="
 
         if aws cloudformation describe-stacks \
           --stack-name "$STACK_NAME" \
@@ -182,54 +169,24 @@ jobs:
           echo "exists=true" >> "$GITHUB_OUTPUT"
 
           echo ""
-          echo "Stack exists."
+          echo "CloudFormation stack exists."
 
         else
 
           echo "exists=false" >> "$GITHUB_OUTPUT"
 
           echo ""
-          echo "Stack does not exist."
+          echo "CloudFormation stack does not exist."
 
         fi
 
 
     # ======================================================
-    # Step 5
-    # Get Current Stack Status
+    # STEP 5
+    # Display Current Stack Status
     # ======================================================
 
-    - name: Get Stack Status
-
-      if: steps.stack.outputs.exists == 'true'
-
-      id: status
-
-      shell: bash
-
-      run: |
-
-        echo "======================================"
-        echo "CLOUDFORMATION STACK STATUS"
-        echo "======================================"
-
-        STACK_STATUS=$(aws cloudformation describe-stacks \
-          --stack-name "$STACK_NAME" \
-          --region "$AWS_REGION" \
-          --query "Stacks[0].StackStatus" \
-          --output text)
-
-        echo "Stack Status: $STACK_STATUS"
-
-        echo "stack_status=$STACK_STATUS" >> "$GITHUB_OUTPUT"
-
-
-    # ======================================================
-    # Step 6
-    # Display Stack Information
-    # ======================================================
-
-    - name: Display Stack Information
+    - name: Display Stack Status
 
       if: steps.stack.outputs.exists == 'true'
 
@@ -237,22 +194,34 @@ jobs:
 
       run: |
 
-        echo "======================================"
-        echo "STACK INFORMATION"
-        echo "======================================"
+        echo "=============================================="
+        echo "Current CloudFormation Stack"
+        echo "=============================================="
 
         aws cloudformation describe-stacks \
           --stack-name "$STACK_NAME" \
           --region "$AWS_REGION" \
+          --query "Stacks[0].[StackName,StackStatus,EnableTerminationProtection]" \
           --output table
 
 
     # ======================================================
-    # Step 7
-    # Display Current Resources
+    # STEP 6
+    # Disable Termination Protection
+    # ======================================================
+    #
+    # If termination protection is enabled, CloudFormation
+    # will refuse to delete the stack.
+    #
+    # We therefore disable it before starting cleanup.
+    #
+    # AWS requires permission:
+    #
+    # cloudformation:UpdateTerminationProtection
+    #
     # ======================================================
 
-    - name: Display Stack Resources
+    - name: Disable Termination Protection
 
       if: steps.stack.outputs.exists == 'true'
 
@@ -260,154 +229,374 @@ jobs:
 
       run: |
 
-        echo "======================================"
-        echo "CURRENT STACK RESOURCES"
-        echo "======================================"
+        echo "=============================================="
+        echo "Checking Termination Protection"
+        echo "=============================================="
 
-        aws cloudformation list-stack-resources \
+        TERMINATION_PROTECTION=$(aws cloudformation describe-stacks \
           --stack-name "$STACK_NAME" \
           --region "$AWS_REGION" \
-          --query "StackResourceSummaries[].[LogicalResourceId,ResourceType,ResourceStatus,PhysicalResourceId]" \
-          --output table
+          --query "Stacks[0].EnableTerminationProtection" \
+          --output text)
 
+        echo "Termination Protection: $TERMINATION_PROTECTION"
 
-    # ======================================================
-    # Step 8
-    # Display Previous Failed Deletion Events
-    # ======================================================
-    #
-    # This is especially useful when the stack is already
-    # DELETE_FAILED.
-    #
-    # ======================================================
-
-    - name: Display Failed Resources
-
-      if: steps.stack.outputs.exists == 'true'
-
-      shell: bash
-
-      run: |
-
-        echo "======================================"
-        echo "FAILED RESOURCE INFORMATION"
-        echo "======================================"
-
-        aws cloudformation describe-stack-events \
-          --stack-name "$STACK_NAME" \
-          --region "$AWS_REGION" \
-          --query "StackEvents[?contains(ResourceStatus, 'FAILED')].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
-          --output table || true
-
-
-    # ======================================================
-    # Step 9
-    # Delete Stack
-    # ======================================================
-    #
-    # Behavior:
-    #
-    # If the stack is already DELETE_FAILED:
-    #
-    #     Use FORCE_DELETE_STACK immediately.
-    #
-    # Otherwise:
-    #
-    #     Try normal deletion first.
-    #
-    # ======================================================
-
-    - name: Start CloudFormation Deletion
-
-      if: steps.stack.outputs.exists == 'true'
-
-      id: delete
-
-      shell: bash
-
-      run: |
-
-        echo "======================================"
-        echo "STARTING CLOUDFORMATION DELETION"
-        echo "======================================"
-
-        echo ""
-        echo "Stack Name : $STACK_NAME"
-        echo "Region     : $AWS_REGION"
-        echo "Status     : ${{ steps.status.outputs.stack_status }}"
-        echo ""
-
-        CURRENT_STATUS="${{ steps.status.outputs.stack_status }}"
-
-
-        # --------------------------------------------------
-        # Case 1
-        # Stack is already DELETE_FAILED
-        #
-        # Use FORCE_DELETE_STACK.
-        # --------------------------------------------------
-
-        if [ "$CURRENT_STATUS" = "DELETE_FAILED" ]
+        if [ "$TERMINATION_PROTECTION" = "True" ]
 
         then
 
-          echo "Stack is already DELETE_FAILED."
-
           echo ""
-          echo "Using FORCE_DELETE_STACK..."
+          echo "Termination protection is ENABLED."
+          echo "Disabling termination protection..."
 
-          aws cloudformation delete-stack \
+          aws cloudformation update-termination-protection \
             --stack-name "$STACK_NAME" \
-            --region "$AWS_REGION" \
-            --deletion-mode FORCE_DELETE_STACK
-
-          echo ""
-
-          echo "Force deletion started."
-
-          echo "mode=force" >> "$GITHUB_OUTPUT"
-
-        else
-
-          # ------------------------------------------------
-          # Case 2
-          # Stack is in a normal state.
-          #
-          # Try standard deletion first.
-          # ------------------------------------------------
-
-          echo "Starting standard stack deletion..."
-
-          aws cloudformation delete-stack \
-            --stack-name "$STACK_NAME" \
+            --no-enable-termination-protection \
             --region "$AWS_REGION"
 
           echo ""
+          echo "Termination protection disabled."
 
-          echo "Standard deletion started."
+        else
 
-          echo "mode=standard" >> "$GITHUB_OUTPUT"
+          echo ""
+          echo "Termination protection is already disabled."
 
         fi
 
 
     # ======================================================
-    # Step 10
-    # Wait for Standard Deletion
-    # ======================================================
-    #
-    # If standard deletion fails, this step captures the
-    # failure instead of immediately terminating the job.
-    #
+    # STEP 7
+    # Find RDS Nested Stack
     # ======================================================
 
-    - name: Wait for Standard Deletion
+    - name: Find RDS Nested Stack
 
-      if: |
-        steps.stack.outputs.exists == 'true' &&
-        steps.delete.outputs.mode == 'standard'
+      if: steps.stack.outputs.exists == 'true'
 
-      id: standard_wait
+      id: rds_nested
+
+      shell: bash
+
+      run: |
+
+        echo "=============================================="
+        echo "Finding RDS Nested Stack"
+        echo "=============================================="
+
+        RDS_NESTED_STACK=$(aws cloudformation list-stack-resources \
+          --stack-name "$STACK_NAME" \
+          --region "$AWS_REGION" \
+          --query "StackResourceSummaries[?LogicalResourceId=='RDSNestedStack'].PhysicalResourceId | [0]" \
+          --output text)
+
+        echo "RDS Nested Stack:"
+        echo "$RDS_NESTED_STACK"
+
+        if [ "$RDS_NESTED_STACK" = "None" ] || [ -z "$RDS_NESTED_STACK" ]
+
+        then
+
+          echo "rds_nested_exists=false" >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "RDS nested stack was not found."
+
+        else
+
+          echo "rds_nested_exists=true" >> "$GITHUB_OUTPUT"
+
+          echo "rds_nested_stack=$RDS_NESTED_STACK" >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "RDS nested stack found."
+
+        fi
+
+
+    # ======================================================
+    # STEP 8
+    # Find RDS Database
+    # ======================================================
+    #
+    # The RDS database is inside the nested stack.
+    #
+    # We retrieve the physical DB identifier so that we can
+    # explicitly delete it before deleting the parent stack.
+    #
+    # ======================================================
+
+    - name: Find RDS Database
+
+      if: steps.rds_nested.outputs.rds_nested_exists == 'true'
+
+      id: rds
+
+      shell: bash
+
+      run: |
+
+        echo "=============================================="
+        echo "Finding RDS Database"
+        echo "=============================================="
+
+        RDS_STACK="${{ steps.rds_nested.outputs.rds_nested_stack }}"
+
+        RDS_DB_ID=$(aws cloudformation list-stack-resources \
+          --stack-name "$RDS_STACK" \
+          --region "$AWS_REGION" \
+          --query "StackResourceSummaries[?LogicalResourceId=='RDSDatabase'].PhysicalResourceId | [0]" \
+          --output text)
+
+        echo "RDS Database ID:"
+        echo "$RDS_DB_ID"
+
+        if [ "$RDS_DB_ID" = "None" ] || [ -z "$RDS_DB_ID" ]
+
+        then
+
+          echo "rds_exists=false" >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "RDS database was not found."
+
+        else
+
+          echo "rds_exists=true" >> "$GITHUB_OUTPUT"
+
+          echo "rds_db_id=$RDS_DB_ID" >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "RDS database found."
+
+        fi
+
+
+    # ======================================================
+    # STEP 9
+    # Display RDS Information
+    # ======================================================
+
+    - name: Display RDS Information
+
+      if: steps.rds.outputs.rds_exists == 'true'
+
+      shell: bash
+
+      run: |
+
+        echo "=============================================="
+        echo "RDS Database Information"
+        echo "=============================================="
+
+        RDS_DB_ID="${{ steps.rds.outputs.rds_db_id }}"
+
+        aws rds describe-db-instances \
+          --db-instance-identifier "$RDS_DB_ID" \
+          --region "$AWS_REGION" \
+          --query "DBInstances[0].[DBInstanceIdentifier,DBInstanceStatus,DeletionProtection,Engine]" \
+          --output table
+
+
+    # ======================================================
+    # STEP 10
+    # Disable RDS Deletion Protection
+    # ======================================================
+    #
+    # If deletion protection is enabled, RDS will refuse
+    # deletion.
+    #
+    # ======================================================
+
+    - name: Disable RDS Deletion Protection
+
+      if: steps.rds.outputs.rds_exists == 'true'
+
+      shell: bash
+
+      run: |
+
+        echo "=============================================="
+        echo "Disabling RDS Deletion Protection"
+        echo "=============================================="
+
+        RDS_DB_ID="${{ steps.rds.outputs.rds_db_id }}"
+
+        DELETION_PROTECTION=$(aws rds describe-db-instances \
+          --db-instance-identifier "$RDS_DB_ID" \
+          --region "$AWS_REGION" \
+          --query "DBInstances[0].DeletionProtection" \
+          --output text)
+
+        echo "Deletion Protection: $DELETION_PROTECTION"
+
+        if [ "$DELETION_PROTECTION" = "True" ]
+
+        then
+
+          echo ""
+          echo "RDS deletion protection is ENABLED."
+
+          aws rds modify-db-instance \
+            --db-instance-identifier "$RDS_DB_ID" \
+            --no-deletion-protection \
+            --apply-immediately \
+            --region "$AWS_REGION"
+
+          echo ""
+          echo "RDS deletion protection disable request sent."
+
+          echo ""
+          echo "Waiting for RDS modification..."
+
+          aws rds wait db-instance-available \
+            --db-instance-identifier "$RDS_DB_ID" \
+            --region "$AWS_REGION"
+
+          echo ""
+          echo "RDS modification completed."
+
+        else
+
+          echo ""
+          echo "RDS deletion protection is already disabled."
+
+        fi
+
+
+    # ======================================================
+    # STEP 11
+    # Delete RDS Database
+    # ======================================================
+    #
+    # IMPORTANT:
+    #
+    # --skip-final-snapshot
+    #
+    # means AWS will NOT create a final snapshot.
+    #
+    # --delete-automated-backups
+    #
+    # tells RDS to remove automated backups.
+    #
+    # This is intended for this disposable learning lab.
+    #
+    # ======================================================
+
+    - name: Delete RDS Database
+
+      if: steps.rds.outputs.rds_exists == 'true'
+
+      shell: bash
+
+      run: |
+
+        echo "=============================================="
+        echo "Deleting RDS Database"
+        echo "=============================================="
+
+        RDS_DB_ID="${{ steps.rds.outputs.rds_db_id }}"
+
+        echo ""
+        echo "Database:"
+        echo "$RDS_DB_ID"
+
+        echo ""
+        echo "Final Snapshot: SKIPPED"
+
+        echo "Automated Backups: DELETED"
+
+        echo ""
+
+        aws rds delete-db-instance \
+          --db-instance-identifier "$RDS_DB_ID" \
+          --skip-final-snapshot \
+          --delete-automated-backups \
+          --region "$AWS_REGION"
+
+        echo ""
+        echo "RDS deletion request submitted."
+
+
+    # ======================================================
+    # STEP 12
+    # Wait for RDS Deletion
+    # ======================================================
+    #
+    # RDS deletion can still take several minutes.
+    #
+    # This is the correct place to wait for RDS.
+    #
+    # ======================================================
+
+    - name: Wait for RDS Deletion
+
+      if: steps.rds.outputs.rds_exists == 'true'
+
+      shell: bash
+
+      run: |
+
+        echo "=============================================="
+        echo "Waiting for RDS Deletion"
+        echo "=============================================="
+
+        RDS_DB_ID="${{ steps.rds.outputs.rds_db_id }}"
+
+        aws rds wait db-instance-deleted \
+          --db-instance-identifier "$RDS_DB_ID" \
+          --region "$AWS_REGION"
+
+        echo ""
+        echo "RDS database has been deleted."
+
+
+    # ======================================================
+    # STEP 13
+    # Delete Root CloudFormation Stack
+    # ======================================================
+    #
+    # Now that RDS has already been removed, CloudFormation
+    # should be able to remove the nested RDS stack and then
+    # the root stack.
+    #
+    # ======================================================
+
+    - name: Delete Root CloudFormation Stack
+
+      if: steps.stack.outputs.exists == 'true'
+
+      shell: bash
+
+      run: |
+
+        echo "=============================================="
+        echo "Deleting Root CloudFormation Stack"
+        echo "=============================================="
+
+        echo "Stack Name : $STACK_NAME"
+        echo "Region     : $AWS_REGION"
+
+        echo ""
+
+        aws cloudformation delete-stack \
+          --stack-name "$STACK_NAME" \
+          --region "$AWS_REGION"
+
+        echo ""
+        echo "CloudFormation deletion request submitted."
+
+
+    # ======================================================
+    # STEP 14
+    # Wait for CloudFormation Deletion
+    # ======================================================
+
+    - name: Wait for CloudFormation Deletion
+
+      if: steps.stack.outputs.exists == 'true'
+
+      id: cfn_wait
 
       continue-on-error: true
 
@@ -415,55 +604,38 @@ jobs:
 
       run: |
 
-        echo "======================================"
-        echo "WAITING FOR STANDARD DELETION"
-        echo "======================================"
+        echo "=============================================="
+        echo "Waiting for CloudFormation Deletion"
+        echo "=============================================="
 
-        if aws cloudformation wait stack-delete-complete \
+        aws cloudformation wait stack-delete-complete \
           --stack-name "$STACK_NAME" \
           --region "$AWS_REGION"
 
-        then
-
-          echo "Standard deletion completed."
-
-          echo "deleted=true" >> "$GITHUB_OUTPUT"
-
-        else
-
-          echo "Standard deletion failed."
-
-          echo "deleted=false" >> "$GITHUB_OUTPUT"
-
-        fi
+        echo ""
+        echo "CloudFormation deletion completed."
 
 
     # ======================================================
-    # Step 11
-    # Show Standard Deletion Failure
+    # STEP 15
+    # Show CloudFormation Delete Failures
+    # ======================================================
+    #
+    # If normal deletion failed, display the exact reason.
+    #
     # ======================================================
 
-    - name: Show Deletion Failure
+    - name: Show Delete Failures
 
-      if: |
-        steps.stack.outputs.exists == 'true' &&
-        steps.delete.outputs.mode == 'standard' &&
-        steps.standard_wait.outputs.deleted == 'false'
+      if: steps.stack.outputs.exists == 'true' && steps.cfn_wait.outcome == 'failure'
 
       shell: bash
 
       run: |
 
-        echo "======================================"
-        echo "STANDARD DELETION FAILED"
-        echo "======================================"
-
-        echo ""
-        echo "The stack could not be deleted normally."
-        echo ""
-
-        echo "Failed resources:"
-        echo ""
+        echo "=============================================="
+        echo "CloudFormation Delete Failure Details"
+        echo "=============================================="
 
         aws cloudformation describe-stack-events \
           --stack-name "$STACK_NAME" \
@@ -473,102 +645,86 @@ jobs:
 
 
     # ======================================================
-    # Step 12
-    # Force Delete After Standard Failure
+    # STEP 16
+    # Force Delete Stuck CloudFormation Stack
     # ======================================================
     #
-    # If normal deletion failed:
+    # If the stack reaches DELETE_FAILED, retry deletion
+    # using CloudFormation's FORCE_DELETE_STACK mode.
     #
-    #     Retry using FORCE_DELETE_STACK.
-    #
-    # AWS will skip resources that failed deletion.
+    # This is useful when a resource could not be removed
+    # during the normal deletion process.
     #
     # ======================================================
 
-    - name: Force Delete Failed Stack
+    - name: Force Delete Failed CloudFormation Stack
 
-      if: |
-        steps.stack.outputs.exists == 'true' &&
-        steps.delete.outputs.mode == 'standard' &&
-        steps.standard_wait.outputs.deleted == 'false'
-
-      id: force
+      if: steps.stack.outputs.exists == 'true' && steps.cfn_wait.outcome == 'failure'
 
       shell: bash
 
       run: |
 
-        echo "======================================"
-        echo "FORCE DELETING CLOUDFORMATION STACK"
-        echo "======================================"
+        echo "=============================================="
+        echo "FORCE DELETING CloudFormation Stack"
+        echo "=============================================="
 
         echo ""
-        echo "Retrying with:"
+        echo "Normal CloudFormation deletion did not complete."
         echo ""
-        echo "DeletionMode = FORCE_DELETE_STACK"
+        echo "Attempting FORCE_DELETE_STACK..."
         echo ""
 
         aws cloudformation delete-stack \
           --stack-name "$STACK_NAME" \
-          --region "$AWS_REGION" \
-          --deletion-mode FORCE_DELETE_STACK
+          --deletion-mode FORCE_DELETE_STACK \
+          --region "$AWS_REGION"
 
         echo ""
-
-        echo "Force deletion started."
+        echo "Force deletion request submitted."
 
 
     # ======================================================
-    # Step 13
+    # STEP 17
     # Wait for Force Deletion
     # ======================================================
 
     - name: Wait for Force Deletion
 
-      if: |
-        steps.stack.outputs.exists == 'true' &&
-        (
-          steps.delete.outputs.mode == 'force' ||
-          steps.standard_wait.outputs.deleted == 'false'
-        )
-
-      id: force_wait
+      if: steps.stack.outputs.exists == 'true' && steps.cfn_wait.outcome == 'failure'
 
       shell: bash
 
       run: |
 
-        echo "======================================"
-        echo "WAITING FOR FORCE DELETION"
-        echo "======================================"
+        echo "=============================================="
+        echo "Waiting for Force Deletion"
+        echo "=============================================="
 
         aws cloudformation wait stack-delete-complete \
           --stack-name "$STACK_NAME" \
           --region "$AWS_REGION"
 
         echo ""
-
         echo "Force deletion completed."
 
 
     # ======================================================
-    # Step 14
-    # Verify Stack Is Gone
+    # STEP 18
+    # Verify Root Stack Is Deleted
     # ======================================================
 
-    - name: Verify Stack Deletion
+    - name: Verify CloudFormation Stack Deletion
 
       if: steps.stack.outputs.exists == 'true'
-
-      id: verify
 
       shell: bash
 
       run: |
 
-        echo "======================================"
-        echo "VERIFYING STACK DELETION"
-        echo "======================================"
+        echo "=============================================="
+        echo "Verifying CloudFormation Stack"
+        echo "=============================================="
 
         if aws cloudformation describe-stacks \
           --stack-name "$STACK_NAME" \
@@ -581,6 +737,15 @@ jobs:
           echo "ERROR:"
           echo "CloudFormation stack still exists."
 
+          echo ""
+          echo "Current stack status:"
+
+          aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query "Stacks[0].[StackName,StackStatus,StackStatusReason]" \
+            --output table
+
           exit 1
 
         else
@@ -592,93 +757,67 @@ jobs:
 
 
     # ======================================================
-    # Step 15
-    # Display Retained / Skipped Resources
-    # ======================================================
-    #
-    # FORCE_DELETE_STACK can leave resources behind.
-    #
-    # These resources appear as:
-    #
-    #     DELETE_SKIPPED
-    #
-    # We display them so you know exactly what remains.
-    #
+    # STEP 19
+    # Check Remaining RDS Instances
     # ======================================================
 
-    - name: Check Retained Resources
-
-      if: steps.stack.outputs.exists == 'true'
+    - name: Check Remaining RDS Instances
 
       shell: bash
 
       run: |
 
-        echo "======================================"
-        echo "CHECKING RETAINED RESOURCES"
-        echo "======================================"
+        echo "=============================================="
+        echo "Checking Remaining RDS Instances"
+        echo "=============================================="
 
-        echo ""
-
-        aws cloudformation list-stack-resources \
-          --stack-name "$STACK_NAME" \
+        REMAINING_RDS=$(aws rds describe-db-instances \
           --region "$AWS_REGION" \
-          --query "StackResourceSummaries[?ResourceStatus=='DELETE_SKIPPED'].[LogicalResourceId,ResourceType,PhysicalResourceId,ResourceStatus]" \
-          --output table || true
+          --query "DBInstances[*].[DBInstanceIdentifier,DBInstanceStatus]" \
+          --output text)
 
-        echo ""
+        if [ -z "$REMAINING_RDS" ]
 
-        echo "If DELETE_SKIPPED resources are shown,"
-        echo "those resources still exist in AWS."
+        then
 
+          echo ""
+          echo "No RDS DB instances remain."
 
-    # ======================================================
-    # Step 16
-    # Stack Not Found
-    # ======================================================
+        else
 
-    - name: Stack Not Found
+          echo ""
+          echo "RDS instances currently present:"
+          echo "$REMAINING_RDS"
 
-      if: steps.stack.outputs.exists == 'false'
-
-      shell: bash
-
-      run: |
-
-        echo "======================================"
-        echo "STACK NOT FOUND"
-        echo "======================================"
-
-        echo ""
-        echo "Stack Name : $STACK_NAME"
-        echo "Region     : $AWS_REGION"
-        echo ""
-
-        echo "There is nothing to delete."
+        fi
 
 
     # ======================================================
-    # Step 17
-    # Workflow Complete
+    # STEP 20
+    Final Success Message
     # ======================================================
 
-    - name: Workflow Complete
+    - name: Cleanup Complete
 
       shell: bash
 
       run: |
 
         echo ""
-        echo "======================================"
-        echo "DELETE WORKFLOW COMPLETED"
-        echo "======================================"
-
+        echo "=================================================="
+        echo "AWS CLOUDFORMATION LAB CLEANUP COMPLETE"
+        echo "=================================================="
         echo ""
-        echo "Stack Name : $STACK_NAME"
-        echo "Region     : $AWS_REGION"
+        echo "Root Stack:"
+        echo "  $STACK_NAME"
         echo ""
-
-        echo "CloudFormation cleanup operation finished."
-
+        echo "Region:"
+        echo "  $AWS_REGION"
         echo ""
-        echo "======================================"
+        echo "RDS:"
+        echo "  Deleted without final snapshot"
+        echo ""
+        echo "CloudFormation:"
+        echo "  Root stack deleted"
+        echo ""
+        echo "=================================================="
