@@ -25,10 +25,4 @@ Desktop.ini
 # Documentation
 doc/*
 
-# Documentation files
-*.pdf
-*.doc
-*.docx
-*.md
-*.jpg
-*.png
+
