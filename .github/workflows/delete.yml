@@ -1021,3 +1021,195 @@ jobs:
 
         echo ""
         echo "======================================"
+
+      # ======================================================
+      # Delete Template Bucket CloudFormation Stack
+      # ======================================================
+      #
+      # IMPORTANT:
+      #
+      # Lab01-CloudFormation-TemplateBucket is NOT a nested
+      # stack of Lab01-CloudFormation.
+      #
+      # It is a separate CloudFormation stack.
+      #
+      # Therefore deleting:
+      #
+      #     Lab01-CloudFormation
+      #
+      # does NOT automatically delete:
+      #
+      #     Lab01-CloudFormation-TemplateBucket
+      #
+      # This step explicitly deletes the template bucket stack
+      # after the main CloudFormation stack has been deleted.
+      #
+      # The template bucket contains the nested CloudFormation
+      # templates used during deployment.
+      #
+      # ======================================================
+
+      - name: Delete Template Bucket Stack
+
+        shell: bash
+
+        run: |
+
+          echo "======================================"
+          echo "Deleting Template Bucket Stack"
+          echo "======================================"
+
+          echo "Stack Name:"
+          echo "$TEMPLATE_BUCKET_STACK"
+
+          echo "Region:"
+          echo "$AWS_REGION"
+
+          echo ""
+
+
+          # --------------------------------------------------
+          # Check whether the template bucket stack exists
+          # --------------------------------------------------
+
+          if ! aws cloudformation describe-stacks \
+            --stack-name "$TEMPLATE_BUCKET_STACK" \
+            --region "$AWS_REGION" \
+            --no-cli-pager \
+            > /dev/null 2>&1
+          then
+
+            echo "Template bucket stack does not exist."
+
+            echo ""
+            echo "Nothing to delete."
+
+            exit 0
+
+          fi
+
+
+          # --------------------------------------------------
+          # Get current CloudFormation stack status
+          # --------------------------------------------------
+
+          TEMPLATE_BUCKET_STATUS=$(aws cloudformation describe-stacks \
+            --stack-name "$TEMPLATE_BUCKET_STACK" \
+            --region "$AWS_REGION" \
+            --query "Stacks[0].StackStatus" \
+            --output text \
+            --no-cli-pager)
+
+
+          echo "Current Template Bucket Stack Status:"
+          echo "$TEMPLATE_BUCKET_STATUS"
+
+          echo ""
+
+
+          # --------------------------------------------------
+          # Prevent deletion while the stack is busy
+          # --------------------------------------------------
+
+          case "$TEMPLATE_BUCKET_STATUS" in
+
+            CREATE_IN_PROGRESS|UPDATE_IN_PROGRESS|UPDATE_COMPLETE_CLEANUP_IN_PROGRESS|DELETE_IN_PROGRESS)
+
+              echo "ERROR: Template bucket stack is currently busy."
+
+              echo "Current status:"
+              echo "$TEMPLATE_BUCKET_STATUS"
+
+              echo ""
+
+              echo "Wait for the current CloudFormation operation"
+              echo "to finish before running the delete workflow again."
+
+              exit 1
+
+              ;;
+
+          esac
+
+
+          # --------------------------------------------------
+          # If the stack is already in DELETE_COMPLETE,
+          # CloudFormation normally no longer returns it from
+          # describe-stacks.
+          # --------------------------------------------------
+
+          if [ "$TEMPLATE_BUCKET_STATUS" = "DELETE_COMPLETE" ]; then
+
+            echo "Template bucket stack is already deleted."
+
+            exit 0
+
+          fi
+
+
+          # --------------------------------------------------
+          # Delete the template bucket CloudFormation stack
+          # --------------------------------------------------
+
+          echo "Deleting template bucket CloudFormation stack..."
+
+          aws cloudformation delete-stack \
+            --stack-name "$TEMPLATE_BUCKET_STACK" \
+            --region "$AWS_REGION" \
+            --no-cli-pager
+
+
+          echo ""
+
+          echo "Template bucket stack deletion started."
+
+
+          # --------------------------------------------------
+          # Wait until CloudFormation confirms deletion
+          # --------------------------------------------------
+
+          echo ""
+          echo "Waiting for template bucket stack deletion..."
+
+          aws cloudformation wait stack-delete-complete \
+            --stack-name "$TEMPLATE_BUCKET_STACK" \
+            --region "$AWS_REGION"
+
+
+          echo ""
+          echo "Template bucket stack deletion completed successfully."
+
+
+          # --------------------------------------------------
+          # Final verification
+          # --------------------------------------------------
+
+          echo ""
+          echo "Verifying template bucket stack deletion..."
+
+          if aws cloudformation describe-stacks \
+            --stack-name "$TEMPLATE_BUCKET_STACK" \
+            --region "$AWS_REGION" \
+            --no-cli-pager \
+            > /dev/null 2>&1
+          then
+
+            echo ""
+            echo "ERROR: Template bucket stack still exists."
+
+            exit 1
+
+          else
+
+            echo ""
+            echo "Template bucket stack no longer exists."
+
+          fi
+
+
+          echo ""
+          echo "======================================"
+          echo "Template Bucket Stack Deleted"
+          echo "======================================"
+
+    
