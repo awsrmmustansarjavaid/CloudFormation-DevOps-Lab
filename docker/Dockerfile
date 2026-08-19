@@ -1,135 +1,211 @@
 # ==========================================================
-# AWS CloudFormation DevOps Lab
-# Dockerfile
+# Charlie Cafe Docker Image
 # ==========================================================
 #
-# Author : IT Charlie
+# Purpose:
+# This Dockerfile creates the Docker image used to run
+# the Charlie Cafe application.
 #
-# Purpose
-# ----------------------------------------------------------
-# Creates a complete Linux development environment for
-# AWS CloudFormation practice.
+# Current lab objective:
 #
-# Installed Software
+# Application
+#      ↓
+# Dockerfile
+#      ↓
+# Docker Image
+#      ↓
+# Docker Container
 #
-# • AWS CLI v2
-# • Git
-# • Bash
-# • Python 3
-# • Pip
-# • curl
-# • wget
-# • unzip
-# • zip
-# • jq
-# • tree
-# • vim
-# • nano
-# • OpenSSH Client
-# • less
-# • groff
+# At this stage we are NOT deploying the image to:
 #
+# - Amazon ECR
+# - Amazon ECS
+# - Application Load Balancer
+#
+# Those services will be introduced later.
 # ==========================================================
 
-# ----------------------------------------------------------
-# Base Image
-# ----------------------------------------------------------
+
+# ==========================================================
+# 1. Base Image
+# ==========================================================
+#
+# Ubuntu 24.04 provides the base operating system
+# environment for the container.
+#
+# The application dependencies will be installed
+# on top of this image.
+# ==========================================================
 
 FROM ubuntu:24.04
 
-# ----------------------------------------------------------
-# Image Metadata
-# ----------------------------------------------------------
 
-LABEL maintainer="IT Charlie"
-
-LABEL project="AWS CloudFormation DevOps Lab"
-
-LABEL description="Docker development environment for AWS CloudFormation"
-
-# ----------------------------------------------------------
-# Prevent Interactive Installation
-# ----------------------------------------------------------
+# ==========================================================
+# 2. Prevent Interactive Package Installation
+# ==========================================================
+#
+# Some Ubuntu packages ask questions during installation.
+#
+# Setting DEBIAN_FRONTEND to noninteractive prevents
+# interactive prompts during Docker image creation.
+# ==========================================================
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# ----------------------------------------------------------
-# Update Ubuntu
-# ----------------------------------------------------------
+
+# ==========================================================
+# 3. Install Required Packages
+# ==========================================================
+#
+# Install the basic tools required by the lab.
+#
+# bash      -> shell environment
+# curl      -> download/test HTTP resources
+# wget      -> download files
+# git       -> Git repository operations
+# unzip     -> extract ZIP files
+# ca-certificates -> HTTPS certificate support
+#
+# nginx     -> web server
+# php       -> PHP runtime
+# php-fpm   -> PHP FastCGI process manager
+#
+# The exact PHP packages can be expanded later depending
+# on the Charlie Cafe application requirements.
+# ==========================================================
 
 RUN apt-get update && \
     apt-get install -y \
-    bash \
-    git \
-    curl \
-    wget \
-    unzip \
-    zip \
-    less \
-    groff \
-    jq \
-    tree \
-    nano \
-    vim \
-    make \
-    python3 \
-    python3-pip \
-    openssh-client \
-    ca-certificates \
-    mariadb-server \
-    mariadb-client && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+        bash \
+        curl \
+        wget \
+        git \
+        unzip \
+        ca-certificates \
+        nginx \
+        php \
+        php-fpm \
+        php-mysql \
+        php-curl \
+        php-json \
+        php-mbstring \
+        php-xml \
+        php-zip \
+    && rm -rf /var/lib/apt/lists/*
 
-# ----------------------------------------------------------
-# Install AWS CLI Version 2
-# ----------------------------------------------------------
 
-RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o awscliv2.zip && \
-    unzip awscliv2.zip && \
-    ./aws/install && \
-    rm -rf aws awscliv2.zip
+# ==========================================================
+# 4. Set Working Directory
+# ==========================================================
+#
+# All application-related commands will run from:
+#
+# /var/www/html
+#
+# This is a common directory for web applications.
+# ==========================================================
 
-# ----------------------------------------------------------
-# Verify Installation
-# ----------------------------------------------------------
+WORKDIR /var/www/html
 
-RUN echo "=====================================" && \
-    echo "Installed Versions" && \
-    echo "=====================================" && \
-    aws --version && \
-    git --version && \
-    python3 --version && \
-    bash --version | head -n 1
 
-# ----------------------------------------------------------
-# Working Directory
-# ----------------------------------------------------------
+# ==========================================================
+# 5. Copy Application Files
+# ==========================================================
+#
+# Copy the Charlie Cafe application into the container.
+#
+# IMPORTANT:
+#
+# This assumes your Docker build context contains the
+# application files.
+#
+# If your application is located in another directory,
+# adjust the Docker build context or COPY instruction.
+# ==========================================================
 
-WORKDIR /workspace
+COPY application/ /var/www/html/
 
-# ----------------------------------------------------------
-# MariaDB Port
-# ----------------------------------------------------------
 
-EXPOSE 3306
+# ==========================================================
+# 6. Configure Nginx
+# ==========================================================
+#
+# Remove the default Nginx configuration.
+# ==========================================================
 
-# ----------------------------------------------------------
+RUN rm -f /etc/nginx/sites-enabled/default
 
-# Default Shell / Container Startup Command
 
-# ----------------------------------------------------------
+# ==========================================================
+# 7. Create Charlie Cafe Nginx Configuration
+# ==========================================================
+#
+# Nginx listens on port 80 inside the container.
+#
+# PHP requests are forwarded to PHP-FPM.
+# ==========================================================
 
-# Original command:
+RUN printf '%s\n' \
+'server {' \
+'    listen 80;' \
+'    listen [::]:80;' \
+'' \
+'    root /var/www/html;' \
+'    index index.php index.html;' \
+'' \
+'    server_name _;' \
+'' \
+'    location / {' \
+'        try_files $uri $uri/ /index.php?$query_string;' \
+'    }' \
+'' \
+'    location ~ \.php$ {' \
+'        include snippets/fastcgi-php.conf;' \
+'        fastcgi_pass unix:/run/php/php8.3-fpm.sock;' \
+'    }' \
+'}' \
+> /etc/nginx/sites-available/charlie-cafe
 
-# Keeps the Docker container running without starting MariaDB.
 
-# This command is not used because MariaDB must start
+# ==========================================================
+# 8. Enable Charlie Cafe Nginx Configuration
+# ==========================================================
 
-# automatically when the container starts.
+RUN ln -s \
+    /etc/nginx/sites-available/charlie-cafe \
+    /etc/nginx/sites-enabled/charlie-cafe
 
-# CMD ["tail","-f","/dev/null"]
 
-# Starts the MariaDB service and keeps the container running.
+# ==========================================================
+# 9. Expose Container Port
+# ==========================================================
+#
+# EXPOSE does NOT publish the port to the host.
+#
+# It documents that the application listens on port 80.
+#
+# The actual host-to-container port mapping is configured
+# when the container is started.
+# ==========================================================
 
-CMD ["bash", "-c", "service mariadb start && tail -f /dev/null"]
+EXPOSE 80
+
+
+# ==========================================================
+# 10. Container Startup Command
+# ==========================================================
+#
+# The container needs both:
+#
+# 1. PHP-FPM
+# 2. Nginx
+#
+# PHP-FPM handles PHP execution.
+#
+# Nginx handles HTTP requests.
+#
+# Nginx runs in the foreground so that Docker can monitor
+# the main container process.
+# ==========================================================
+
+CMD ["bash", "-c", "php-fpm8.3 -D && nginx -g 'daemon off;'"]

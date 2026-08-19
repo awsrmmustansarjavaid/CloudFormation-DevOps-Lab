@@ -1,0 +1,108 @@
+# ==========================================================
+# Charlie Cafe Docker Compose
+# ==========================================================
+#
+# Purpose:
+# Run the Charlie Cafe Docker container locally.
+#
+# Current lab:
+#
+# Docker only
+#
+# NOT using:
+#
+# - ECS
+# - ECR
+# - ALB
+# - NAT Gateway
+# - API Gateway
+#
+# Those services can be introduced later.
+# ==========================================================
+
+
+services:
+
+  # ========================================================
+  # Charlie Cafe Application
+  # ========================================================
+
+  charlie-cafe:
+
+    # ------------------------------------------------------
+    # Container name
+    # ------------------------------------------------------
+
+    container_name: charlie-cafe-container
+
+
+    # ------------------------------------------------------
+    # Build Docker image
+    # ------------------------------------------------------
+    #
+    # The build context is the project root.
+    #
+    # Docker will use:
+    #
+    # docker/Dockerfile
+    #
+    # ------------------------------------------------------
+
+    build:
+
+      context: .
+
+      dockerfile: docker/Dockerfile
+
+
+    # ------------------------------------------------------
+    # Image name
+    # ------------------------------------------------------
+    #
+    # After building, the image will be available as:
+    #
+    # charlie-cafe:latest
+    # ------------------------------------------------------
+
+    image: charlie-cafe:latest
+
+
+    # ------------------------------------------------------
+    # Port Mapping
+    # ------------------------------------------------------
+    #
+    # Host:
+    #
+    # localhost:8080
+    #
+    # Container:
+    #
+    # port 80
+    #
+    # Therefore:
+    #
+    # Browser
+    #    ↓
+    # localhost:8080
+    #    ↓
+    # Docker
+    #    ↓
+    # Container port 80
+    #    ↓
+    # Nginx
+    # ------------------------------------------------------
+
+    ports:
+
+      - "8080:80"
+
+
+    # ------------------------------------------------------
+    # Restart Policy
+    # ------------------------------------------------------
+    #
+    # Automatically restart the container if it stops
+    # unexpectedly.
+    # ------------------------------------------------------
+
+    restart: unless-stopped
