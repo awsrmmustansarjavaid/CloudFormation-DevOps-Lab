@@ -260,10 +260,8 @@ Resources:
       #
       # For a lab, we don't want an old database snapshot
       # left behind after stack deletion.
-      # DeletionProtection: false
       # -------------------------------------------------
-      DeletionPolicy: Delete
-      UpdateReplacePolicy: Delete
+      DeletionProtection: false
 
       # -------------------------------------------------
       # Tags
