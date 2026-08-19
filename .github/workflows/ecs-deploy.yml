@@ -1,0 +1,419 @@
+name: Charlie Cafe - ECS ECR CI/CD
+
+# ============================================================
+# GitHub Actions Workflow
+# ============================================================
+#
+# This workflow demonstrates:
+#
+# GitHub
+#   |
+#   +--> CloudFormation
+#   |
+#   +--> Docker
+#          |
+#          v
+#         ECR
+#          |
+#          v
+#         ECS
+#
+# ============================================================
+
+
+on:
+
+  # ----------------------------------------------------------
+  # Run whenever code is pushed to main.
+  # ----------------------------------------------------------
+
+  push:
+
+    branches:
+      - main
+
+
+  # ----------------------------------------------------------
+  # Also allow manual execution from GitHub Actions.
+  # ----------------------------------------------------------
+
+  workflow_dispatch:
+
+
+# ============================================================
+# ENVIRONMENT VARIABLES
+# ============================================================
+
+env:
+
+  # ----------------------------------------------------------
+  # AWS region
+  # ----------------------------------------------------------
+
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+
+
+  # ----------------------------------------------------------
+  # ECR repository
+  # ----------------------------------------------------------
+  #
+  # This MUST match:
+  #
+  # RepositoryName: charlie-cafe
+  #
+  # in CloudFormation.
+  # ----------------------------------------------------------
+
+  ECR_REPOSITORY: charlie-cafe
+
+
+  # ----------------------------------------------------------
+  # ECS cluster created by CloudFormation.
+  # ----------------------------------------------------------
+
+  ECS_CLUSTER: CharlieCafe-Cluster
+
+
+  # ----------------------------------------------------------
+  # ECS service created by CloudFormation.
+  # ----------------------------------------------------------
+
+  ECS_SERVICE: CharlieCafe-Service
+
+
+# ============================================================
+# JOB 1
+# BUILD DOCKER IMAGE AND PUSH TO ECR
+# ============================================================
+
+jobs:
+
+  docker:
+
+    name: Build and Push Docker Image
+
+    runs-on: ubuntu-latest
+
+
+    steps:
+
+
+      # ======================================================
+      # STEP 1
+      # CHECKOUT SOURCE CODE
+      # ======================================================
+
+      - name: Checkout source code
+
+        uses: actions/checkout@v4
+
+
+      # ======================================================
+      # STEP 2
+      # CONFIGURE AWS CREDENTIALS
+      # ======================================================
+      #
+      # For your beginner lab we can use the AWS credentials
+      # you already configured in GitHub Secrets.
+      #
+      # Later I strongly recommend moving this to GitHub OIDC.
+      #
+      # ======================================================
+
+      - name: Configure AWS credentials
+
+        uses: aws-actions/configure-aws-credentials@v4
+
+        with:
+
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+          aws-region: ${{ env.AWS_REGION }}
+
+
+      # ======================================================
+      # STEP 3
+      # LOGIN TO AMAZON ECR
+      # ======================================================
+      #
+      # GitHub runner must authenticate with ECR before it
+      # can push a Docker image.
+      #
+      # ======================================================
+
+      - name: Login to Amazon ECR
+
+        id: login-ecr
+
+        uses: aws-actions/amazon-ecr-login@v2
+
+
+      # ======================================================
+      # STEP 4
+      # GET AWS ACCOUNT ID
+      # ======================================================
+
+      - name: Get AWS account ID
+
+        id: aws-account
+
+        shell: bash
+
+        run: |
+
+          ACCOUNT_ID=$(aws sts get-caller-identity \
+            --query Account \
+            --output text)
+
+          echo "ACCOUNT_ID=$ACCOUNT_ID" >> "$GITHUB_ENV"
+
+
+      # ======================================================
+      # STEP 5
+      # CREATE IMAGE TAG
+      # ======================================================
+      #
+      # We use the GitHub commit SHA as the image tag.
+      #
+      # Example:
+      #
+      # charlie-cafe:8f3a2c1...
+      #
+      # This is better than relying only on "latest" because
+      # every deployment can be traced to a specific commit.
+      #
+      # ======================================================
+
+      - name: Create Docker image tag
+
+        shell: bash
+
+        run: |
+
+          IMAGE_TAG=${GITHUB_SHA::7}
+
+          echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
+
+          echo "Docker image tag: $IMAGE_TAG"
+
+
+      # ======================================================
+      # STEP 6
+      # BUILD DOCKER IMAGE
+      # ======================================================
+      #
+      # GitHub looks for:
+      #
+      # Dockerfile
+      #
+      # in the repository root.
+      #
+      # Example:
+      #
+      # repository/
+      #
+      # ├── Dockerfile
+      # ├── index.php
+      # ├── ...
+      # └── .github/
+      #
+      # ======================================================
+
+      - name: Build Docker image
+
+        run: |
+
+          docker build \
+            -t $ECR_REPOSITORY:$IMAGE_TAG \
+            .
+
+
+      # ======================================================
+      # STEP 7
+      # TAG IMAGE FOR ECR
+      # ======================================================
+      #
+      # Docker needs the complete ECR repository URI.
+      #
+      # ======================================================
+
+      - name: Tag Docker image for ECR
+
+        run: |
+
+          ECR_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}"
+
+          echo "ECR_URI=$ECR_URI" >> "$GITHUB_ENV"
+
+          docker tag \
+            $ECR_REPOSITORY:$IMAGE_TAG \
+            $ECR_URI:$IMAGE_TAG
+
+          docker tag \
+            $ECR_REPOSITORY:$IMAGE_TAG \
+            $ECR_URI:latest
+
+
+      # ======================================================
+      # STEP 8
+      # PUSH IMAGE TO ECR
+      # ======================================================
+      #
+      # Two tags are pushed:
+      #
+      #   <commit-sha>
+      #   latest
+      #
+      # Example:
+      #
+      # charlie-cafe:a1b2c3d
+      #
+      # charlie-cafe:latest
+      #
+      # ======================================================
+
+      - name: Push Docker image to ECR
+
+        run: |
+
+          docker push \
+            $ECR_URI:$IMAGE_TAG
+
+          docker push \
+            $ECR_URI:latest
+
+
+      # ======================================================
+      # STEP 9
+      # DISPLAY IMAGE INFORMATION
+      # ======================================================
+
+      - name: Display image information
+
+        run: |
+
+          echo "=========================================="
+
+          echo "Docker image pushed successfully"
+
+          echo "ECR URI:"
+          echo "$ECR_URI"
+
+          echo "Image tag:"
+          echo "$IMAGE_TAG"
+
+          echo "=========================================="
+
+
+# ============================================================
+# JOB 2
+# DEPLOY IMAGE TO ECS
+# ============================================================
+
+  deploy:
+
+    name: Deploy to ECS
+
+    runs-on: ubuntu-latest
+
+
+    # --------------------------------------------------------
+    # This job waits for the Docker job.
+    #
+    # Therefore:
+    #
+    # Docker build
+    #      |
+    #      v
+    # ECR push
+    #      |
+    #      v
+    # ECS deployment
+    #
+    # --------------------------------------------------------
+
+    needs:
+      - docker
+
+
+    steps:
+
+
+      # ======================================================
+      # STEP 1
+      # CONFIGURE AWS
+      # ======================================================
+
+      - name: Configure AWS credentials
+
+        uses: aws-actions/configure-aws-credentials@v4
+
+        with:
+
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+          aws-region: ${{ env.AWS_REGION }}
+
+
+      # ======================================================
+      # STEP 2
+      # FORCE ECS TO START A NEW DEPLOYMENT
+      # ======================================================
+      #
+      # CloudFormation's Task Definition contains:
+      #
+      # ECR_REPOSITORY:latest
+      #
+      # When GitHub pushes a new "latest" image, ECS may still
+      # have an existing task running the old image.
+      #
+      # force-new-deployment tells ECS:
+      #
+      # "Start a fresh deployment and pull the current image."
+      #
+      # ======================================================
+
+      - name: Deploy new Docker image to ECS
+
+        run: |
+
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE" \
+            --force-new-deployment
+
+
+      # ======================================================
+      # STEP 3
+      # WAIT FOR ECS SERVICE
+      # ======================================================
+      #
+      # GitHub waits until ECS reports the service is stable.
+      #
+      # ======================================================
+
+      - name: Wait for ECS service to stabilize
+
+        run: |
+
+          aws ecs wait services-stable \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE"
+
+
+      # ======================================================
+      # STEP 4
+      # SHOW ECS SERVICE
+      # ======================================================
+
+      - name: Show ECS service status
+
+        run: |
+
+          aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE"
