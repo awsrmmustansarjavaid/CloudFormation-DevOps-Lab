@@ -4,7 +4,7 @@
 # Creates:
 #   - VPC
 #   - Internet Gateway
-#   - 2 Public Subnets
+#   - 1 Public Subnet
 #   - 2 Private Subnets
 #   - Public Route Table
 #   - Private Route Table
@@ -12,10 +12,6 @@
 #   - EC2 Instance through Nested Stack
 #   - S3 Bucket through Nested Stack
 #   - RDS MySQL through Nested Stack
-#
-# Description: >
-#  Beginner AWS CloudFormation Lab - VPC, EC2, S3, RDS MySQL,
-#  ECS Fargate, ECR, and Application Load Balancer
 # ---------------------------------------------------------
 
 AWSTemplateFormatVersion: '2010-09-09'
@@ -170,57 +166,23 @@ Resources:
       VpcId: !Ref MyVPC
 
   # -------------------------------------------------------
-  # Public Subnets Route Association
-  # 
-  # -------------------------------------------------------
-  # Public Subnet 1
+  # Public Subnet
   # -------------------------------------------------------
 
-  PublicSubnet1:
+  PublicSubnet:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref MyVPC
-
-      # First public subnet
       CidrBlock: 10.0.1.0/24
-
-      # Automatically assign public IPv4 addresses
       MapPublicIpOnLaunch: true
 
-      # Availability Zone 1
       AvailabilityZone: !Select
         - 0
         - !GetAZs ''
 
       Tags:
         - Key: Name
-          Value: Public-Subnet-1
-
-
-  # -------------------------------------------------------
-  # Public Subnet 2
-  # -------------------------------------------------------
-
-  PublicSubnet2:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref MyVPC
-
-      # Second public subnet
-      # Must use a different CIDR block
-      CidrBlock: 10.0.4.0/24
-
-      # Automatically assign public IPv4 addresses
-      MapPublicIpOnLaunch: true
-
-      # Availability Zone 2
-      AvailabilityZone: !Select
-        - 1
-        - !GetAZs ''
-
-      Tags:
-        - Key: Name
-          Value: Public-Subnet-2
+          Value: Public-Subnet
 
   # -------------------------------------------------------
   # Private Subnet 1
@@ -286,28 +248,14 @@ Resources:
       GatewayId: !Ref MyInternetGateway
 
   # -------------------------------------------------------
-  # Public Subnets Route Association
-  # 
-  # -------------------------------------------------------
-  # Public Subnet 1 Route Association
+  # Public Subnet Route Association
   # -------------------------------------------------------
 
-  PublicSubnet1RouteAssociation:
+  PublicSubnetRouteAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       RouteTableId: !Ref PublicRouteTable
-      SubnetId: !Ref PublicSubnet1
-
-
-  # -------------------------------------------------------
-  # Public Subnet 2 Route Association
-  # -------------------------------------------------------
-
-  PublicSubnet2RouteAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref PublicRouteTable
-      SubnetId: !Ref PublicSubnet2
+      SubnetId: !Ref PublicSubnet
 
   # -------------------------------------------------------
   # Private Route Table
@@ -393,136 +341,6 @@ Resources:
           Value: Lab-Web-SG
 
   # -------------------------------------------------------
-  # VPC Endpoint Security Group
-  #
-  # Allows HTTPS traffic from the private subnets
-  # to the interface VPC endpoints.
-  # -------------------------------------------------------
-
-  VPCEndpointSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-
-      GroupDescription: Allow HTTPS from private subnets to VPC endpoints
-
-      VpcId: !Ref MyVPC
-
-      SecurityGroupIngress:
-
-        # -------------------------------------------------
-        # HTTPS from Private Subnet 1
-        # -------------------------------------------------
-
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: 10.0.2.0/24
-          Description: HTTPS from Private Subnet 1
-
-        # -------------------------------------------------
-        # HTTPS from Private Subnet 2
-        # -------------------------------------------------
-
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: 10.0.3.0/24
-          Description: HTTPS from Private Subnet 2
-
-      Tags:
-        - Key: Name
-          Value: Lab-VPC-Endpoint-SG
-  
-  # -------------------------------------------------------
-  # ECR API VPC Endpoint
-  #
-  # Allows private ECS tasks to communicate with
-  # Amazon ECR APIs without using NAT Gateway.
-  # -------------------------------------------------------
-
-  ECRApiVPCEndpoint:
-    Type: AWS::EC2::VPCEndpoint
-    Properties:
-
-      VpcId: !Ref MyVPC
-
-      ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.api
-
-      VpcEndpointType: Interface
-
-      PrivateDnsEnabled: true
-
-      SubnetIds:
-        - !Ref PrivateSubnet1
-        - !Ref PrivateSubnet2
-
-      SecurityGroupIds:
-        - !Ref VPCEndpointSecurityGroup
-
-      Tags:
-        - Key: Name
-          Value: ECR-API-VPC-Endpoint
-  
-  # -------------------------------------------------------
-  # ECR Docker Registry VPC Endpoint
-  #
-  # Allows ECS tasks to communicate with the ECR
-  # Docker registry privately.
-  # -------------------------------------------------------
-
-  ECRDkrVPCEndpoint:
-    Type: AWS::EC2::VPCEndpoint
-    Properties:
-
-      VpcId: !Ref MyVPC
-
-      ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.dkr
-
-      VpcEndpointType: Interface
-
-      PrivateDnsEnabled: true
-
-      SubnetIds:
-        - !Ref PrivateSubnet1
-        - !Ref PrivateSubnet2
-
-      SecurityGroupIds:
-        - !Ref VPCEndpointSecurityGroup
-
-      Tags:
-        - Key: Name
-          Value: ECR-DKR-VPC-Endpoint
-
-  # -------------------------------------------------------
-  # S3 Gateway VPC Endpoint
-  #
-  # ECR uses Amazon S3 for image layers.
-  #
-  # This allows private ECS tasks to access S3
-  # without using NAT Gateway.
-  # -------------------------------------------------------
-
-  S3VPCEndpoint:
-    Type: AWS::EC2::VPCEndpoint
-    Properties:
-
-      VpcId: !Ref MyVPC
-
-      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
-
-      VpcEndpointType: Gateway
-
-      RouteTableIds:
-        - !Ref PrivateRouteTable
-
-      Tags:
-        - Key: Name
-          Value: S3-Gateway-VPC-Endpoint
-
-
-
-
-  # -------------------------------------------------------
   # Nested Stack - EC2 Web Server
   # -------------------------------------------------------
 
@@ -546,8 +364,7 @@ Resources:
 
         KeyPair: !Ref KeyPairName
 
-        # Put EC2 in Public Subnet 1
-        PublicSubnetId: !Ref PublicSubnet1
+        PublicSubnetId: !Ref PublicSubnet
 
         SecurityGroupId: !Ref WebSecurityGroup
 
@@ -603,85 +420,7 @@ Resources:
 
         # Database password
         # DBPassword: !Ref DBMasterPassword
-
-    # ==========================================================
-  # ECS + ECR NESTED STACK
-  # ==========================================================
-  #
-  # This creates the container infrastructure for Charlie Cafe:
-  #
-  # ECR
-  # ECS Fargate
-  # Application Load Balancer
-  # CloudWatch Logs
-  # IAM roles
-  #
-  # ==========================================================
-
-  ECSStack:
-    Type: AWS::CloudFormation::Stack
-
-    Properties:
-
-      # --------------------------------------------------------
-      # Nested CloudFormation template
-      # --------------------------------------------------------
-      # The template is uploaded to the same S3 bucket used
-      # by the other nested CloudFormation templates.
-      # --------------------------------------------------------
-      TemplateURL: !Sub
-        - 'https://${Bucket}.s3.${AWS::Region}.amazonaws.com/templates/aws-ecs-ecr.yaml'
-        - Bucket: !Ref TemplateBucketName
-
-      Parameters:
-
-        # ------------------------------------------------------
-        # Existing VPC
-        # ------------------------------------------------------
-        VpcId: !Ref MyVPC
-
-        # ------------------------------------------------------
-        # Existing public subnets
-        # ------------------------------------------------------
-        # These subnets will be used by the internet-facing ALB.
-        # The two subnets should be in different Availability Zones.
-        # ------------------------------------------------------
-        PublicSubnet1: !Ref PublicSubnet1
-        PublicSubnet2: !Ref PublicSubnet2
-
-        # ------------------------------------------------------
-        # Existing private subnets
-        # ------------------------------------------------------
-        # ECS Fargate tasks will run in these private subnets.
-        # ------------------------------------------------------
-        PrivateSubnet1: !Ref PrivateSubnet1
-        PrivateSubnet2: !Ref PrivateSubnet2
-
-        # ------------------------------------------------------
-        # Initial container image
-        # ------------------------------------------------------
-        # nginx is being used only for the first infrastructure
-        # test.
-        #
-        # Later GitHub Actions will build the Charlie Cafe
-        # Docker image and push it to ECR.
-        # ------------------------------------------------------
-        # ContainerImage: nginx:latest
-
-        # Container port exposed by the Docker container.
-        ContainerPort: '80'
-
-        # Fargate task CPU.
-        TaskCpu: '256'
-
-        # Fargate task memory in MB.
-        TaskMemory: '512'
-
-        # Number of ECS tasks to keep running.
-        DesiredCount: '1'
-
-        # Application/resource naming prefix.
-        ApplicationName: CharlieCafe 
+        
 
 # -------------------------------------------------------
 # Outputs
@@ -697,66 +436,13 @@ Outputs:
     Description: VPC ID
     Value: !Ref MyVPC
 
-
   # -------------------------------------------------------
-  # Internet Gateway
-  # -------------------------------------------------------
-  #
-  # Shows the ID of the Internet Gateway attached to the VPC.
-  # Useful for learning and troubleshooting network connectivity.
+  # Public Subnet
   # -------------------------------------------------------
 
-  InternetGatewayId:
-    Description: Internet Gateway ID
-    Value: !Ref MyInternetGateway
-
-
-  # -------------------------------------------------------
-  # Route Tables
-  # -------------------------------------------------------
-  #
-  # These outputs show the route tables associated with
-  # the public and private subnets.
-  #
-  # Public Route Table:
-  # Provides the route from the public subnet to the Internet
-  # through the Internet Gateway.
-  #
-  # Private Route Table:
-  # Used by private subnets and does not provide direct
-  # Internet access through the Internet Gateway.
-  # -------------------------------------------------------
-
-  PublicRouteTableId:
-    Description: Public Route Table ID
-    Value: !Ref PublicRouteTable
-
-  PrivateRouteTableId:
-    Description: Private Route Table ID
-    Value: !Ref PrivateRouteTable
-
-
-  # -------------------------------------------------------
-  # Public Subnets
-  # -------------------------------------------------------
-
-  # -------------------------------------------------------
-  # Public Subnet 1
-  # -------------------------------------------------------
-
-  PublicSubnet1Id:
-    Description: Public Subnet 1 ID
-    Value: !Ref PublicSubnet1
-
-
-  # -------------------------------------------------------
-  # Public Subnet 2
-  # -------------------------------------------------------
-
-  PublicSubnet2Id:
-    Description: Public Subnet 2 ID
-    Value: !Ref PublicSubnet2
-
+  PublicSubnetId:
+    Description: Public Subnet ID
+    Value: !Ref PublicSubnet
 
   # -------------------------------------------------------
   # Private Subnet 1
@@ -766,7 +452,6 @@ Outputs:
     Description: Private Subnet 1 ID
     Value: !Ref PrivateSubnet1
 
-
   # -------------------------------------------------------
   # Private Subnet 2
   # -------------------------------------------------------
@@ -775,7 +460,6 @@ Outputs:
     Description: Private Subnet 2 ID
     Value: !Ref PrivateSubnet2
 
-
   # -------------------------------------------------------
   # Web Security Group
   # -------------------------------------------------------
@@ -783,7 +467,6 @@ Outputs:
   SecurityGroupId:
     Description: Web Security Group ID
     Value: !Ref WebSecurityGroup
-
 
   # -------------------------------------------------------
   # EC2 Outputs
@@ -797,7 +480,6 @@ Outputs:
     Description: EC2 Instance Public IP
     Value: !GetAtt EC2WebServerStack.Outputs.PublicIP
 
-
   # -------------------------------------------------------
   # S3 Output
   # -------------------------------------------------------
@@ -805,7 +487,6 @@ Outputs:
   S3BucketName:
     Description: S3 Bucket Name
     Value: !GetAtt S3NestedStack.Outputs.BucketName
-
 
   # -------------------------------------------------------
   # RDS Outputs
