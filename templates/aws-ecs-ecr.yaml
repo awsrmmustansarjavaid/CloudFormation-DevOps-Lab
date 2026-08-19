@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 AWSTemplateFormatVersion: '2010-09-09'
 
 # ============================================================
@@ -1282,4 +1283,1290 @@ Outputs:
       Security group ID used by ECS Fargate tasks.
 
     Value:
+=======
+AWSTemplateFormatVersion: '2010-09-09'
+
+# ============================================================
+# Charlie Cafe
+# Standalone ECS Fargate + ECR CloudFormation Stack
+# ============================================================
+#
+# IMPORTANT:
+# This is a COMPLETELY INDEPENDENT CloudFormation stack.
+#
+# It is NOT a nested stack.
+#
+# This stack creates:
+#
+#   1. ECR Repository
+#   2. ECS Cluster
+#   3. CloudWatch Log Group
+#   4. ECS Task Execution IAM Role
+#   5. ECS Task IAM Role
+#   6. ALB Security Group
+#   7. ECS Task Security Group
+#   8. Application Load Balancer
+#   9. ALB Target Group
+#  10. ALB Listener
+#  11. ECS Task Definition
+#  12. ECS Fargate Service
+#
+#
+# HIGH-LEVEL ARCHITECTURE
+#
+#
+#                       INTERNET
+#                           |
+#                           |
+#                           v
+#                +---------------------+
+#                | Application Load    |
+#                | Balancer            |
+#                | Public Subnets      |
+#                +---------------------+
+#                           |
+#                           |
+#                           | HTTP :80
+#                           |
+#                           v
+#                +---------------------+
+#                | ECS Fargate Service |
+#                +---------------------+
+#                           |
+#                           |
+#                           v
+#                +---------------------+
+#                | ECS Fargate Task    |
+#                | Docker Container     |
+#                +---------------------+
+#                           |
+#                           |
+#                           v
+#                +---------------------+
+#                | Amazon ECR          |
+#                | Docker Image        |
+#                +---------------------+
+#
+#
+# The ECS tasks run in PRIVATE SUBNETS.
+#
+# The ALB runs in PUBLIC SUBNETS.
+#
+# Internet users never connect directly to the ECS tasks.
+#
+#
+# ============================================================
+# IMPORTANT LEARNING NOTE
+# ============================================================
+#
+# CloudFormation creates the ECR repository first.
+#
+# GitHub Actions will later:
+#
+#   Dockerfile
+#       |
+#       v
+#   docker build
+#       |
+#       v
+#   Docker image
+#       |
+#       v
+#   Amazon ECR
+#       |
+#       v
+#   ECS Fargate
+#
+# Therefore, the normal workflow is:
+#
+#   CloudFormation
+#          |
+#          v
+#   Infrastructure
+#          |
+#          v
+#   ECR repository exists
+#          |
+#          v
+#   GitHub Actions builds image
+#          |
+#          v
+#   Push image to ECR
+#          |
+#          v
+#   Update ECS service
+#
+# ============================================================
+
+
+# ============================================================
+# PARAMETERS
+# ============================================================
+
+Parameters:
+
+  # ----------------------------------------------------------
+  # EXISTING VPC
+  # ----------------------------------------------------------
+  #
+  # This stack does NOT create the VPC.
+  #
+  # You already have a VPC from your main CloudFormation lab.
+  #
+  # Enter the VPC ID when creating this standalone stack.
+  #
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+
+    Description:
+      Existing VPC where ECS and ALB resources will be deployed.
+
+
+  # ----------------------------------------------------------
+  # PUBLIC SUBNET 1
+  # ----------------------------------------------------------
+  #
+  # The Application Load Balancer requires at least two
+  # subnets in different Availability Zones.
+  #
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet::Id
+
+    Description:
+      First public subnet for the Application Load Balancer.
+
+
+  # ----------------------------------------------------------
+  # PUBLIC SUBNET 2
+  # ----------------------------------------------------------
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet::Id
+
+    Description:
+      Second public subnet for the Application Load Balancer.
+
+
+  # ----------------------------------------------------------
+  # PRIVATE SUBNET 1
+  # ----------------------------------------------------------
+  #
+  # ECS Fargate tasks will run here.
+  #
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet::Id
+
+    Description:
+      First private subnet for ECS Fargate tasks.
+
+
+  # ----------------------------------------------------------
+  # PRIVATE SUBNET 2
+  # ----------------------------------------------------------
+  #
+  # ECS Fargate tasks will run here.
+  #
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet::Id
+
+    Description:
+      Second private subnet for ECS Fargate tasks.
+
+
+  # ----------------------------------------------------------
+  # APPLICATION NAME
+  # ----------------------------------------------------------
+  #
+  # This value is used when naming AWS resources.
+  #
+  ApplicationName:
+    Type: String
+
+    Default: CharlieCafe
+
+    Description:
+      Application name used for ECS, ECR and ALB resources.
+
+
+  # ----------------------------------------------------------
+  # CONTAINER PORT
+  # ----------------------------------------------------------
+  #
+  # Your Docker application must listen on this port.
+  #
+  # For example:
+  #
+  #   Nginx        -> 80
+  #   Apache       -> 80
+  #   Node.js      -> 3000
+  #   Python       -> 5000
+  #
+  ContainerPort:
+    Type: Number
+
+    Default: 80
+
+    Description:
+      Port exposed by the Docker container.
+
+
+  # ----------------------------------------------------------
+  # ECS TASK CPU
+  # ----------------------------------------------------------
+  #
+  # 256 CPU units = 0.25 vCPU
+  #
+  TaskCpu:
+    Type: String
+
+    Default: '256'
+
+    Description:
+      Fargate task CPU units.
+
+
+  # ----------------------------------------------------------
+  # ECS TASK MEMORY
+  # ----------------------------------------------------------
+  #
+  # 512 MB is suitable for a small beginner lab.
+  #
+  TaskMemory:
+    Type: String
+
+    Default: '512'
+
+    Description:
+      Fargate task memory in MB.
+
+
+  # ----------------------------------------------------------
+  # DESIRED TASK COUNT
+  # ----------------------------------------------------------
+  #
+  # Number of containers ECS should keep running.
+  #
+  DesiredCount:
+    Type: Number
+
+    Default: 1
+
+    Description:
+      Number of ECS Fargate tasks.
+
+
+# ============================================================
+# RESOURCES
+# ============================================================
+
+Resources:
+
+
+  # ==========================================================
+  # 1. ECR REPOSITORY
+  # ==========================================================
+  #
+  # Amazon ECR is the Docker image registry.
+  #
+  # GitHub Actions will eventually push:
+  #
+  #   charlie-cafe:<tag>
+  #
+  # into this repository.
+  #
+  # Example:
+  #
+  #   123456789012.dkr.ecr.us-east-1.amazonaws.com/charlie-cafe
+  #
+  # ==========================================================
+
+  ECRRepository:
+    Type: AWS::ECR::Repository
+
+    Properties:
+
+      # ------------------------------------------------------
+      # Repository name
+      # ------------------------------------------------------
+
+      RepositoryName: charlie-cafe
+
+
+      # ------------------------------------------------------
+      # Scan images when they are pushed.
+      #
+      # This is useful for finding vulnerabilities in images.
+      # ------------------------------------------------------
+
+      ImageScanningConfiguration:
+
+        ScanOnPush: true
+
+
+      # ------------------------------------------------------
+      # Encryption
+      #
+      # AES256 provides server-side encryption for images.
+      # ------------------------------------------------------
+
+      EncryptionConfiguration:
+
+        EncryptionType: AES256
+
+
+      # ------------------------------------------------------
+      # Image tag mutability
+      #
+      # MUTABLE means a tag such as "latest" can point to
+      # a newer image.
+      #
+      # For learning this is simple.
+      #
+      # Later you can use immutable version tags such as:
+      #
+      #   v1
+      #   v2
+      #   v3
+      #
+      # ------------------------------------------------------
+
+      ImageTagMutability: MUTABLE
+
+
+      Tags:
+
+        - Key: Name
+          Value: CharlieCafe-ECR
+
+        - Key: Project
+          Value: CharlieCafe
+
+
+  # ==========================================================
+  # 2. ECS CLUSTER
+  # ==========================================================
+  #
+  # An ECS cluster is a logical grouping of ECS services
+  # and tasks.
+  #
+  # Because we use Fargate:
+  #
+  # We DO NOT create EC2 instances for ECS.
+  #
+  # AWS manages the underlying infrastructure.
+  #
+  # ==========================================================
+
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+
+    Properties:
+
+      ClusterName: CharlieCafe-Cluster
+
+
+      # ------------------------------------------------------
+      # Container Insights
+      #
+      # Enables additional monitoring information in
+      # CloudWatch.
+      # ------------------------------------------------------
+
+      ClusterSettings:
+
+        - Name: containerInsights
+          Value: enabled
+
+
+      Tags:
+
+        - Key: Name
+          Value: CharlieCafe-Cluster
+
+        - Key: Project
+          Value: CharlieCafe
+
+
+  # ==========================================================
+  # 3. CLOUDWATCH LOG GROUP
+  # ==========================================================
+  #
+  # Docker containers normally write application output to:
+  #
+  # stdout
+  # stderr
+  #
+  # ECS can send these logs to CloudWatch.
+  #
+  # ==========================================================
+
+  ECSLogGroup:
+    Type: AWS::Logs::LogGroup
+
+    Properties:
+
+      LogGroupName: /ecs/charlie-cafe
+
+
+      # ------------------------------------------------------
+      # Keep logs for 30 days.
+      # ------------------------------------------------------
+
+      RetentionInDays: 30
+
+
+      Tags:
+
+        - Key: Project
+          Value: CharlieCafe
+
+
+  # ==========================================================
+  # 4. ECS TASK EXECUTION ROLE
+  # ==========================================================
+  #
+  # IMPORTANT:
+  #
+  # This role is used by ECS/Fargate itself.
+  #
+  # It allows ECS to:
+  #
+  #   - Pull Docker images from ECR
+  #   - Send logs to CloudWatch
+  #
+  # This is DIFFERENT from the ECS Task Role below.
+  #
+  # ==========================================================
+
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+
+    Properties:
+
+      RoleName: !Sub '${ApplicationName}-ECSTaskExecutionRole'
+
+
+      # ------------------------------------------------------
+      # Trust policy
+      #
+      # This says:
+      #
+      # ECS tasks are allowed to assume this role.
+      # ------------------------------------------------------
+
+      AssumeRolePolicyDocument:
+
+        Version: '2012-10-17'
+
+        Statement:
+
+          - Effect: Allow
+
+            Principal:
+
+              Service:
+                - ecs-tasks.amazonaws.com
+
+            Action:
+              - sts:AssumeRole
+
+
+      # ------------------------------------------------------
+      # AWS managed policy.
+      #
+      # Provides standard permissions needed by ECS to:
+      #
+      #   - Pull ECR images
+      #   - Send CloudWatch logs
+      #
+      # ------------------------------------------------------
+
+      ManagedPolicyArns:
+
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+
+      Tags:
+
+        - Key: Name
+          Value: CharlieCafe-ECSTaskExecutionRole
+
+        - Key: Project
+          Value: CharlieCafe
+
+
+  # ==========================================================
+  # 5. ECS TASK ROLE
+  # ==========================================================
+  #
+  # This role is for YOUR APPLICATION.
+  #
+  # Example:
+  #
+  # Your PHP application inside Docker might eventually need:
+  #
+  #   S3
+  #   DynamoDB
+  #   Secrets Manager
+  #   KMS
+  #
+  # Permissions for those services belong here.
+  #
+  # We intentionally start with no extra permissions.
+  #
+  # This follows least privilege.
+  #
+  # ==========================================================
+
+  ECSTaskRole:
+    Type: AWS::IAM::Role
+
+    Properties:
+
+      RoleName: !Sub '${ApplicationName}-ECSTaskRole'
+
+
+      AssumeRolePolicyDocument:
+
+        Version: '2012-10-17'
+
+        Statement:
+
+          - Effect: Allow
+
+            Principal:
+
+              Service:
+                - ecs-tasks.amazonaws.com
+
+            Action:
+              - sts:AssumeRole
+
+
+      Tags:
+
+        - Key: Name
+          Value: CharlieCafe-ECSTaskRole
+
+        - Key: Project
+          Value: CharlieCafe
+
+
+  # ==========================================================
+  # 6. ALB SECURITY GROUP
+  # ==========================================================
+  #
+  # The ALB is public.
+  #
+  # Therefore:
+  #
+  # Internet
+  #    |
+  #    | TCP 80
+  #    v
+  # ALB
+  #
+  # ==========================================================
+
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+
+    Properties:
+
+      GroupDescription:
+        Allow HTTP traffic to Charlie Cafe Application Load Balancer
+
+      VpcId: !Ref VpcId
+
+
+      SecurityGroupIngress:
+
+        # ----------------------------------------------------
+        # Allow HTTP from the Internet.
+        #
+        # For production:
+        #
+        # HTTPS 443 should be used instead.
+        # ----------------------------------------------------
+
+        - IpProtocol: tcp
+
+          FromPort: 80
+
+          ToPort: 80
+
+          CidrIp: 0.0.0.0/0
+
+          Description: Allow HTTP from Internet
+
+
+      SecurityGroupEgress:
+
+        # ----------------------------------------------------
+        # Allow outbound traffic from ALB.
+        # ----------------------------------------------------
+
+        - IpProtocol: -1
+
+          CidrIp: 0.0.0.0/0
+
+
+      Tags:
+
+        - Key: Name
+          Value: CharlieCafe-ALB-SG
+
+        - Key: Project
+          Value: CharlieCafe
+
+
+  # ==========================================================
+  # 7. ECS TASK SECURITY GROUP
+  # ==========================================================
+  #
+  # VERY IMPORTANT SECURITY CONCEPT:
+  #
+  # ECS tasks are private.
+  #
+  # We do NOT allow:
+  #
+  #   0.0.0.0/0 -> ECS container
+  #
+  # Instead:
+  #
+  #   Internet
+  #      |
+  #      v
+  #     ALB
+  #      |
+  #      | Container port
+  #      v
+  #     ECS
+  #
+  # Only the ALB security group is allowed to reach the ECS
+  # task.
+  #
+  # ==========================================================
+
+  ECSTaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+
+    Properties:
+
+      GroupDescription:
+        Allow application traffic only from the ALB
+
+      VpcId: !Ref VpcId
+
+
+      SecurityGroupIngress:
+
+        # ----------------------------------------------------
+        # Allow the ALB to communicate with the ECS container.
+        #
+        # SourceSecurityGroupId means:
+        #
+        # ONLY resources using the ALB security group can
+        # initiate this traffic.
+        # ----------------------------------------------------
+
+        - IpProtocol: tcp
+
+          FromPort: !Ref ContainerPort
+
+          ToPort: !Ref ContainerPort
+
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+
+          Description: Allow application traffic from ALB
+
+
+      SecurityGroupEgress:
+
+        # ----------------------------------------------------
+        # ECS tasks need outbound access to AWS services.
+        #
+        # Your VPC endpoints provide private access to services
+        # such as ECR/S3.
+        #
+        # ----------------------------------------------------
+
+        - IpProtocol: -1
+
+          CidrIp: 0.0.0.0/0
+
+
+      Tags:
+
+        - Key: Name
+          Value: CharlieCafe-ECS-Task-SG
+
+        - Key: Project
+          Value: CharlieCafe
+
+
+  # ==========================================================
+  # 8. APPLICATION LOAD BALANCER
+  # ==========================================================
+  #
+  # The ALB is deployed in PUBLIC subnets.
+  #
+  # It receives traffic from the Internet and forwards it to
+  # ECS tasks in private subnets.
+  #
+  # ==========================================================
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+
+    Properties:
+
+      Name: CharlieCafe-ALB
+
+
+      # ------------------------------------------------------
+      # Internet-facing means the ALB receives a public IP.
+      # ------------------------------------------------------
+
+      Scheme: internet-facing
+
+
+      Type: application
+
+
+      SecurityGroups:
+
+        - !Ref ALBSecurityGroup
+
+
+      # ------------------------------------------------------
+      # ALB needs two subnets in different Availability Zones.
+      # ------------------------------------------------------
+
+      Subnets:
+
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+
+
+      Tags:
+
+        - Key: Name
+          Value: CharlieCafe-ALB
+
+        - Key: Project
+          Value: CharlieCafe
+
+
+  # ==========================================================
+  # 9. ALB TARGET GROUP
+  # ==========================================================
+  #
+  # The Target Group tells the ALB where to send traffic.
+  #
+  # Because ECS Fargate uses awsvpc networking:
+  #
+  # TargetType must be:
+  #
+  #     ip
+  #
+  # ECS automatically registers task IP addresses here.
+  #
+  # ==========================================================
+
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+
+    Properties:
+
+      Name: CharlieCafe-TG
+
+
+      VpcId: !Ref VpcId
+
+
+      Protocol: HTTP
+
+
+      Port: !Ref ContainerPort
+
+
+      TargetType: ip
+
+
+      # ------------------------------------------------------
+      # Health checks
+      # ------------------------------------------------------
+      #
+      # ALB periodically asks the container:
+      #
+      #     GET /
+      #
+      # If the container responds successfully, it is healthy.
+      #
+      # ------------------------------------------------------
+
+      HealthCheckEnabled: true
+
+      HealthCheckProtocol: HTTP
+
+      HealthCheckPath: /
+
+      HealthCheckPort: traffic-port
+
+      HealthCheckIntervalSeconds: 30
+
+      HealthCheckTimeoutSeconds: 5
+
+      HealthyThresholdCount: 2
+
+      UnhealthyThresholdCount: 3
+
+
+      Tags:
+
+        - Key: Name
+          Value: CharlieCafe-TG
+
+        - Key: Project
+          Value: CharlieCafe
+
+
+  # ==========================================================
+  # 10. ALB LISTENER
+  # ==========================================================
+  #
+  # The listener waits for incoming HTTP requests on port 80.
+  #
+  # Example:
+  #
+  # http://ALB-DNS-NAME/
+  #
+  # The ALB forwards the request to the Target Group.
+  #
+  # ==========================================================
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+
+    Properties:
+
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+
+      Port: 80
+
+      Protocol: HTTP
+
+
+      DefaultActions:
+
+        - Type: forward
+
+          TargetGroupArn: !Ref ALBTargetGroup
+
+
+  # ==========================================================
+  # 11. ECS TASK DEFINITION
+  # ==========================================================
+  #
+  # The Task Definition is the blueprint for the Docker
+  # container.
+  #
+  # It defines:
+  #
+  #   CPU
+  #   Memory
+  #   Docker image
+  #   Container port
+  #   IAM roles
+  #   CloudWatch logging
+  #
+  # ==========================================================
+
+  ECSTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+
+    Properties:
+
+      Family: CharlieCafe
+
+
+      # ------------------------------------------------------
+      # Fargate requires awsvpc networking.
+      # ------------------------------------------------------
+
+      NetworkMode: awsvpc
+
+
+      RequiresCompatibilities:
+
+        - FARGATE
+
+
+      Cpu: !Ref TaskCpu
+
+
+      Memory: !Ref TaskMemory
+
+
+      # ------------------------------------------------------
+      # ECS uses this role to pull the image from ECR and
+      # send logs to CloudWatch.
+      # ------------------------------------------------------
+
+      ExecutionRoleArn:
+        !GetAtt ECSTaskExecutionRole.Arn
+
+
+      # ------------------------------------------------------
+      # Application permissions.
+      # ------------------------------------------------------
+
+      TaskRoleArn:
+        !GetAtt ECSTaskRole.Arn
+
+
+      # ------------------------------------------------------
+      # Container definitions.
+      # ------------------------------------------------------
+
+      ContainerDefinitions:
+
+        - Name: charlie-cafe
+
+
+          # --------------------------------------------------
+          # IMPORTANT
+          # --------------------------------------------------
+          #
+          # The image comes from OUR ECR repository.
+          #
+          # CloudFormation creates the repository.
+          #
+          # GitHub Actions pushes the Docker image.
+          #
+          # ECS then pulls:
+          #
+          #     charlie-cafe:latest
+          #
+          # --------------------------------------------------
+
+          Image: !Sub '${ECRRepository.RepositoryUri}:latest'
+
+
+          Essential: true
+
+
+          # --------------------------------------------------
+          # Container port.
+          #
+          # This must match the port your Docker application
+          # actually listens on.
+          # --------------------------------------------------
+
+          PortMappings:
+
+            - ContainerPort: !Ref ContainerPort
+
+              Protocol: tcp
+
+
+          # --------------------------------------------------
+          # CloudWatch logging.
+          #
+          # Docker stdout/stderr will be sent to:
+          #
+          # /ecs/charlie-cafe
+          #
+          # --------------------------------------------------
+
+          LogConfiguration:
+
+            LogDriver: awslogs
+
+            Options:
+
+              awslogs-group:
+                !Ref ECSLogGroup
+
+              awslogs-region:
+                !Ref AWS::Region
+
+              awslogs-stream-prefix: ecs
+
+
+  # ==========================================================
+  # 12. ECS FARGATE SERVICE
+  # ==========================================================
+  #
+  # The ECS Service keeps the desired number of tasks running.
+  #
+  # DesiredCount = 1
+  #
+  # means ECS tries to keep one task running.
+  #
+  # If the task crashes:
+  #
+  # ECS starts another one.
+  #
+  # ==========================================================
+
+  ECSService:
+    Type: AWS::ECS::Service
+
+
+    # --------------------------------------------------------
+    # Make sure the ALB listener exists before ECS starts
+    # registering tasks with the Target Group.
+    # --------------------------------------------------------
+
+    DependsOn:
+
+      - ALBListener
+
+
+    Properties:
+
+      ServiceName: CharlieCafe-Service
+
+
+      Cluster:
+        !Ref ECSCluster
+
+
+      LaunchType: FARGATE
+
+
+      DesiredCount:
+        !Ref DesiredCount
+
+
+      TaskDefinition:
+        !Ref ECSTaskDefinition
+
+
+      # ======================================================
+      # NETWORK CONFIGURATION
+      # ======================================================
+      #
+      # ECS tasks run in PRIVATE subnets.
+      #
+      # No public IP is assigned.
+      #
+      # ======================================================
+
+      NetworkConfiguration:
+
+        AwsvpcConfiguration:
+
+          AssignPublicIp: DISABLED
+
+
+          SecurityGroups:
+
+            - !Ref ECSTaskSecurityGroup
+
+
+          Subnets:
+
+            - !Ref PrivateSubnet1
+            - !Ref PrivateSubnet2
+
+
+      # ======================================================
+      # LOAD BALANCER CONFIGURATION
+      # ======================================================
+      #
+      # Connect:
+      #
+      # ECS container
+      #      |
+      #      v
+      # Target Group
+      #
+      # ======================================================
+
+      LoadBalancers:
+
+        - ContainerName: charlie-cafe
+
+          ContainerPort: !Ref ContainerPort
+
+          TargetGroupArn:
+            !Ref ALBTargetGroup
+
+
+      # ======================================================
+      # DEPLOYMENT CONFIGURATION
+      # ======================================================
+      #
+      # During an update ECS can temporarily run more tasks.
+      #
+      # MaximumPercent: 200
+      #
+      # allows ECS to run up to 200% of desired count during
+      # deployment.
+      #
+      # ======================================================
+
+      DeploymentConfiguration:
+
+        MaximumPercent: 200
+
+        MinimumHealthyPercent: 50
+
+
+      Tags:
+
+        - Key: Name
+          Value: CharlieCafe-Service
+
+        - Key: Project
+          Value: CharlieCafe
+
+
+# ============================================================
+# OUTPUTS
+# ============================================================
+#
+# Outputs are extremely useful for learning.
+#
+# After CloudFormation finishes, you can see:
+#
+#   ECR URI
+#   ECS Cluster
+#   ECS Service
+#   ALB DNS
+#
+# ============================================================
+
+Outputs:
+
+
+  # ==========================================================
+  # ECR REPOSITORY NAME
+  # ==========================================================
+
+  ECRRepositoryName:
+
+    Description:
+      Name of the Charlie Cafe ECR repository.
+
+    Value:
+      !Ref ECRRepository
+
+
+  # ==========================================================
+  # ECR REPOSITORY URI
+  # ==========================================================
+  #
+  # This is the address used by Docker.
+  #
+  # Example:
+  #
+  # 123456789012.dkr.ecr.us-east-1.amazonaws.com/charlie-cafe
+  #
+  # ==========================================================
+
+  ECRRepositoryUri:
+
+    Description:
+      URI of the Charlie Cafe ECR repository.
+
+    Value:
+      !GetAtt ECRRepository.RepositoryUri
+
+
+  # ==========================================================
+  # ECS CLUSTER
+  # ==========================================================
+
+  ECSClusterName:
+
+    Description:
+      Name of the ECS cluster.
+
+    Value:
+      !Ref ECSCluster
+
+
+  # ==========================================================
+  # ECS SERVICE
+  # ==========================================================
+
+  ECSServiceName:
+
+    Description:
+      Name of the ECS service.
+
+    Value:
+      !Ref ECSService
+
+
+  # ==========================================================
+  # ECS TASK DEFINITION
+  # ==========================================================
+
+  ECSTaskDefinitionArn:
+
+    Description:
+      ARN of the ECS task definition.
+
+    Value:
+      !Ref ECSTaskDefinition
+
+
+  # ==========================================================
+  # ALB DNS NAME
+  # ==========================================================
+  #
+  # Open this address in your browser after deployment.
+  #
+  # ==========================================================
+
+  ALBDNSName:
+
+    Description:
+      DNS name of the Charlie Cafe Application Load Balancer.
+
+    Value:
+      !GetAtt ApplicationLoadBalancer.DNSName
+
+
+  # ==========================================================
+  # APPLICATION URL
+  # ==========================================================
+
+  ApplicationURL:
+
+    Description:
+      Public URL for the Charlie Cafe ECS application.
+
+    Value:
+      !Sub 'http://${ApplicationLoadBalancer.DNSName}'
+
+
+  # ==========================================================
+  # ALB SECURITY GROUP
+  # ==========================================================
+
+  ALBSecurityGroupId:
+
+    Description:
+      Security group ID used by the Application Load Balancer.
+
+    Value:
+      !Ref ALBSecurityGroup
+
+
+  # ==========================================================
+  # ECS TASK SECURITY GROUP
+  # ==========================================================
+
+  ECSTaskSecurityGroupId:
+
+    Description:
+      Security group ID used by ECS Fargate tasks.
+
+    Value:
+>>>>>>> 1362aa63ac6311b782dc6909582c1e94c853235e
       !Ref ECSTaskSecurityGroup
