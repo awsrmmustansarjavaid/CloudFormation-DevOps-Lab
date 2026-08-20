@@ -4,7 +4,7 @@
 # Creates:
 #   - VPC
 #   - Internet Gateway
-#   - 1 Public Subnet
+#   - 2 Public Subnets
 #   - 2 Private Subnets
 #   - Public Route Table
 #   - Private Route Table
@@ -166,23 +166,57 @@ Resources:
       VpcId: !Ref MyVPC
 
   # -------------------------------------------------------
-  # Public Subnet
+  # Public Subnets Route Association
+  # -------------------------------------------------------
+  # -------------------------------------------------------
+  # Public Subnet 1
   # -------------------------------------------------------
 
-  PublicSubnet:
+  PublicSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref MyVPC
+
+      # First public subnet
       CidrBlock: 10.0.1.0/24
+
+      # Automatically assign public IPv4 addresses
       MapPublicIpOnLaunch: true
 
+      # Availability Zone 1
       AvailabilityZone: !Select
         - 0
         - !GetAZs ''
 
       Tags:
         - Key: Name
-          Value: Public-Subnet
+          Value: Public-Subnet-1
+
+
+  # -------------------------------------------------------
+  # Public Subnet 2
+  # -------------------------------------------------------
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+
+      # Second public subnet
+      # Must use a different CIDR block
+      CidrBlock: 10.0.4.0/24
+
+      # Automatically assign public IPv4 addresses
+      MapPublicIpOnLaunch: true
+
+      # Availability Zone 2
+      AvailabilityZone: !Select
+        - 1
+        - !GetAZs ''
+
+      Tags:
+        - Key: Name
+          Value: Public-Subnet-2
 
   # -------------------------------------------------------
   # Private Subnet 1
@@ -248,14 +282,28 @@ Resources:
       GatewayId: !Ref MyInternetGateway
 
   # -------------------------------------------------------
-  # Public Subnet Route Association
+  # Public Subnets Route Association
+  # -------------------------------------------------------
+  # -------------------------------------------------------
+  # Public Subnet 1 Route Association
   # -------------------------------------------------------
 
-  PublicSubnetRouteAssociation:
+  PublicSubnet1RouteAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       RouteTableId: !Ref PublicRouteTable
-      SubnetId: !Ref PublicSubnet
+      SubnetId: !Ref PublicSubnet1
+
+
+  # -------------------------------------------------------
+  # Public Subnet 2 Route Association
+  # -------------------------------------------------------
+
+  PublicSubnet2RouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
 
   # -------------------------------------------------------
   # Private Route Table
@@ -364,7 +412,7 @@ Resources:
 
         KeyPair: !Ref KeyPairName
 
-        PublicSubnetId: !Ref PublicSubnet
+        PublicSubnetId: !Ref PublicSubnet1
 
         SecurityGroupId: !Ref WebSecurityGroup
 
@@ -437,12 +485,64 @@ Outputs:
     Value: !Ref MyVPC
 
   # -------------------------------------------------------
-  # Public Subnet
+  # Internet Gateway
+  # -------------------------------------------------------
+  #
+  # Shows the ID of the Internet Gateway attached to the VPC.
+  # Useful for learning and troubleshooting network connectivity.
   # -------------------------------------------------------
 
-  PublicSubnetId:
-    Description: Public Subnet ID
-    Value: !Ref PublicSubnet
+  InternetGatewayId:
+    Description: Internet Gateway ID
+    Value: !Ref MyInternetGateway
+
+
+  # -------------------------------------------------------
+  # Route Tables
+  # -------------------------------------------------------
+  #
+  # These outputs show the route tables associated with
+  # the public and private subnets.
+  #
+  # Public Route Table:
+  # Provides the route from the public subnet to the Internet
+  # through the Internet Gateway.
+  #
+  # Private Route Table:
+  # Used by private subnets and does not provide direct
+  # Internet access through the Internet Gateway.
+  # -------------------------------------------------------
+
+  PublicRouteTableId:
+    Description: Public Route Table ID
+    Value: !Ref PublicRouteTable
+
+  PrivateRouteTableId:
+    Description: Private Route Table ID
+    Value: !Ref PrivateRouteTable
+
+
+  # -------------------------------------------------------
+  # Public Subnets
+  # -------------------------------------------------------
+
+  # -------------------------------------------------------
+  # Public Subnet 1
+  # -------------------------------------------------------
+
+  PublicSubnet1Id:
+    Description: Public Subnet 1 ID
+    Value: !Ref PublicSubnet1
+
+
+  # -------------------------------------------------------
+  # Public Subnet 2
+  # -------------------------------------------------------
+
+  PublicSubnet2Id:
+    Description: Public Subnet 2 ID
+    Value: !Ref PublicSubnet2
+
 
   # -------------------------------------------------------
   # Private Subnet 1
