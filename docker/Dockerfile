@@ -177,7 +177,37 @@ RUN ln -s \
 
 
 # ==========================================================
-# 9. Expose Container Port
+# 9. Verify PHP Installation
+# ==========================================================
+#
+# Confirm that Ubuntu installed the expected PHP version.
+#
+# Ubuntu 24.04 should provide PHP 8.3.
+#
+# ==========================================================
+
+RUN php --version && \
+    php-fpm8.3 --version
+
+# ==========================================================
+# 10. Validate Nginx Configuration
+# ==========================================================
+#
+# nginx -t checks the configuration before the container
+# is started.
+#
+# If the configuration contains an error, Docker image
+# building will fail instead of discovering the problem
+# later when the container starts.
+#
+# ==========================================================
+
+RUN nginx -t    
+
+
+
+# ==========================================================
+# 11. Expose Container Port
 # ==========================================================
 #
 # EXPOSE does NOT publish the port to the host.
@@ -192,20 +222,38 @@ EXPOSE 80
 
 
 # ==========================================================
-# 10. Container Startup Command
+# 12. Start PHP-FPM + Nginx
 # ==========================================================
 #
-# The container needs both:
+# The container needs two processes:
 #
 # 1. PHP-FPM
+#    Handles PHP execution.
+#
 # 2. Nginx
+#    Handles HTTP requests.
 #
-# PHP-FPM handles PHP execution.
+# PHP-FPM runs in the background.
 #
-# Nginx handles HTTP requests.
+# Nginx runs in the foreground.
 #
-# Nginx runs in the foreground so that Docker can monitor
-# the main container process.
+# Nginx must remain in the foreground because Docker
+# considers the main process as the life of the container.
+#
+# If Nginx exits, the container exits.
+#
+# CMD ["bash", "-c", "php-fpm8.3 -D && nginx -g 'daemon off;'"]
 # ==========================================================
 
-CMD ["bash", "-c", "php-fpm8.3 -D && nginx -g 'daemon off;'"]
+CMD ["bash", "-c", "\
+    echo '======================================'; \
+    echo 'Starting PHP-FPM'; \
+    echo '======================================'; \
+    php-fpm8.3 -D; \
+    echo 'PHP-FPM started'; \
+    echo ''; \
+    echo '======================================'; \
+    echo 'Starting Nginx'; \
+    echo '======================================'; \
+    exec nginx -g 'daemon off;' \
+"]
