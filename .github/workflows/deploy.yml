@@ -1515,62 +1515,53 @@ jobs:
 
           echo "======================================"
 
-  # ==========================================================
-  # DOCKER JOB
-  # ==========================================================
-  #
-  # This is a separate job from the CloudFormation deployment.
-  #
-  # Purpose:
-  #
-  # 1. Checkout the repository
-  # 2. Verify Docker
-  # 3. Verify Dockerfile
-  # 4. Build Docker image
-  # 5. Verify Docker image
-  # 6. Start Docker container
-  # 7. Test the container
-  # 8. Display container logs
-  # 9. Stop and remove the container
-  #
-  # IMPORTANT:
-  #
-  # This stage does NOT use:
-  #
-  # - Amazon ECR
-  # - Amazon ECS
-  # - ECS Fargate
-  # - ALB
-  #
-  # We are only learning Docker at this stage.
-  #
-  # ==========================================================
+# ==========================================================
+# DOCKER JOB
+# ==========================================================
+#
+# This is a separate job from the CloudFormation deployment.
+#
+# Purpose:
+#
+# 1. Checkout the repository
+# 2. Verify Docker
+# 3. Verify Dockerfile
+# 4. Verify docker-compose.yml
+# 5. Build Docker image
+# 6. Verify Docker image
+# 7. Start Docker container
+# 8. Verify container status
+# 9. Wait for application startup
+# 10. Test application using HTTP
+# 11. Display container logs
+# 12. Stop and remove Docker resources
+#
+# IMPORTANT:
+#
+# This stage currently does NOT deploy to:
+#
+# - Amazon ECR
+# - Amazon ECS
+# - ECS Fargate
+# - Application Load Balancer
+#
+# This stage is only for learning and testing Docker.
+#
+# ==========================================================
 
   docker:
 
     # --------------------------------------------------------
-    # Wait for CloudFormation deployment to finish first.
-    #
-    # Because:
-    #
-    # docker:
-    #   needs: deploy
-    #
-    # the Docker job will start only if the deploy job
-    # completes successfully.
+    # Run Docker only after CloudFormation deployment succeeds.
     # --------------------------------------------------------
-
     needs: deploy
-
 
     # --------------------------------------------------------
     # GitHub-hosted Ubuntu runner
     # --------------------------------------------------------
-
     runs-on: ubuntu-latest
 
     name: Build and Test Docker
-
 
     # ========================================================
     # DOCKER STEPS
@@ -1578,25 +1569,18 @@ jobs:
 
     steps:
 
-
       # ======================================================
       # Docker Step 1 - Checkout Repository
       # ======================================================
       #
-      # The Docker job gets its own fresh GitHub runner.
+      # Every GitHub Actions job gets its own fresh runner.
       #
-      # Therefore we MUST checkout the repository again.
-      #
-      # This makes the following files available:
-      #
-      # docker/Dockerfile
-      # docker-compose.yml
-      # application/
+      # Therefore the Docker job must checkout the repository
+      # independently.
       #
       # ======================================================
 
       - name: Checkout Repository
-
         uses: actions/checkout@v4
 
 
@@ -1604,16 +1588,17 @@ jobs:
       # Docker Step 2 - Verify Docker
       # ======================================================
       #
-      # Ubuntu GitHub-hosted runners already provide Docker.
+      # GitHub's Ubuntu runner already contains Docker.
       #
-      # We verify that Docker is available before continuing.
+      # We verify:
+      #
+      # - Docker
+      # - Docker Compose
       #
       # ======================================================
 
       - name: Verify Docker
-
         shell: bash
-
         run: |
 
           echo "======================================"
@@ -1632,24 +1617,28 @@ jobs:
 
 
       # ======================================================
-      # Docker Step 3 - Check Dockerfile
+      # Docker Step 3 - Check Docker Files
       # ======================================================
       #
-      # Make sure the Dockerfile exists before trying to
-      # build the image.
+      # Verify that the files required by the Docker build
+      # actually exist.
+      #
+      # Expected:
+      #
+      # docker/Dockerfile
+      # docker-compose.yml
       #
       # ======================================================
 
       - name: Check Docker Files
-
         shell: bash
-
         run: |
 
           echo "======================================"
           echo "Checking Docker Files"
           echo "======================================"
 
+          echo ""
 
           # --------------------------------------------------
           # Check Dockerfile
@@ -1657,39 +1646,38 @@ jobs:
 
           if [ ! -f "docker/Dockerfile" ]; then
 
-            echo "ERROR: Dockerfile not found."
+            echo "ERROR: Dockerfile was not found."
 
             echo ""
-            echo "Expected file:"
+            echo "Expected:"
             echo "docker/Dockerfile"
 
             exit 1
 
           fi
 
-
           echo "Dockerfile found:"
           echo "docker/Dockerfile"
 
-
           echo ""
 
-
           # --------------------------------------------------
-          # Check Docker Compose
+          # Check docker-compose.yml
           # --------------------------------------------------
 
           if [ ! -f "docker-compose.yml" ]; then
 
-            echo "ERROR: docker-compose.yml not found."
+            echo "ERROR: docker-compose.yml was not found."
+
+            echo ""
+            echo "Expected:"
+            echo "docker-compose.yml"
 
             exit 1
 
           fi
 
-
           echo "docker-compose.yml found."
-
 
           echo ""
 
@@ -1697,27 +1685,49 @@ jobs:
 
 
       # ======================================================
-      # Docker Step 4 - Build Docker Image
+      # Docker Step 4 - Validate Docker Compose
       # ======================================================
       #
-      # docker compose reads:
+      # docker compose config checks the Compose YAML before
+      # attempting to start the container.
+      #
+      # This is useful because it catches:
+      #
+      # - YAML errors
+      # - invalid Compose syntax
+      # - incorrect configuration
+      #
+      # ======================================================
+
+      - name: Validate Docker Compose
+        shell: bash
+        run: |
+
+          echo "======================================"
+          echo "Validating Docker Compose"
+          echo "======================================"
+
+          docker compose config
+
+          echo ""
+
+          echo "Docker Compose configuration is valid."
+
+
+      # ======================================================
+      # Docker Step 5 - Build Docker Image
+      # ======================================================
+      #
+      # docker compose build reads:
       #
       # docker-compose.yml
       #
-      # and that file points to:
-      #
-      # docker/Dockerfile
-      #
-      # The result will be:
-      #
-      # charlie-cafe:latest
+      # and uses the Dockerfile configured there.
       #
       # ======================================================
 
       - name: Build Docker Image
-
         shell: bash
-
         run: |
 
           echo "======================================"
@@ -1732,17 +1742,15 @@ jobs:
 
 
       # ======================================================
-      # Docker Step 5 - Verify Docker Image
+      # Docker Step 6 - Display Docker Images
       # ======================================================
       #
-      # Confirm that the image actually exists.
+      # Display all images created by the build.
       #
       # ======================================================
 
       - name: Verify Docker Image
-
         shell: bash
-
         run: |
 
           echo "======================================"
@@ -1751,65 +1759,25 @@ jobs:
 
           docker images
 
-
           echo ""
 
-
-          # --------------------------------------------------
-          # Inspect the Charlie Cafe image.
-          # --------------------------------------------------
-
-          if docker image inspect charlie-cafe:latest \
-            > /dev/null 2>&1
-          then
-
-            echo "Charlie Cafe Docker image exists."
-
-          else
-
-            echo "ERROR: charlie-cafe:latest was not created."
-
-            exit 1
-
-          fi
+          echo "Docker image verification completed."
 
 
       # ======================================================
-      # Docker Step 6 - Start Docker Container
+      # Docker Step 7 - Start Docker Container
       # ======================================================
       #
-      # Start the Charlie Cafe container defined in:
+      # Start the application in detached mode.
       #
-      # docker-compose.yml
+      # -d
       #
-      # Example:
-      #
-      # Host:
-      #     8080
-      #
-      # Container:
-      #     80
-      # IMPORTANT:
-      #
-      # docker compose up -d only starts the container.
-      #
-      # The container could immediately exit because of:
-      #
-      # - PHP-FPM startup failure
-      # - Nginx configuration error
-      # - incorrect PHP version
-      # - missing application files
-      # - incorrect socket path
-      # - startup command failure
-      #
-      # Therefore we immediately inspect the container.
+      # means detached mode.
       #
       # ======================================================
 
       - name: Start Docker Container
-
         shell: bash
-
         run: |
 
           echo "======================================"
@@ -1836,163 +1804,153 @@ jobs:
 
           echo ""
 
-          echo "======================================"
-          echo "Checking Charlie Cafe Container"
-          echo "======================================"
+          echo "Docker container startup command completed."
 
-          if docker ps -a \
-            --filter "name=charlie-cafe-container" \
-            --format "{{.Names}}" \
-            | grep -q "charlie-cafe-container"
-          then
-
-          echo "Charlie Cafe container exists."
-
-          else
-            echo "ERROR: Charlie Cafe container was not created."
-            exit 1
-          fi
-
-          echo ""
-
-          echo "Docker container started."
 
       # ======================================================
-      # Docker Step 7 - Check Docker Container
+      # Docker Step 8 - Check Container Status
       # ======================================================
       #
-      # Verify that the Charlie Cafe container is actually
-      # running.
+      # Instead of assuming a hard-coded container name,
+      # obtain the actual container ID from Docker Compose.
       #
-      # If the container exited, display its status and logs
-      # immediately so we can see why it failed.
+      # This makes the workflow more reliable.
       #
       # ======================================================
 
       - name: Check Docker Container
-
         shell: bash
-
         run: |
 
           echo "======================================"
-          echo "Docker Container Status"
+          echo "Checking Docker Container"
           echo "======================================"
-
-          docker ps -a
 
           echo ""
 
-          echo "======================================"
-          echo "Charlie Cafe Container"
-          echo "======================================"
-
-          CONTAINER_STATUS=$(docker inspect \
-            --format='{{.State.Status}}' \
-            charlie-cafe-container 2>/dev/null || echo "missing")
-
-          echo "Container status: $CONTAINER_STATUS"
+          docker compose ps -a
 
           echo ""
 
           # --------------------------------------------------
-          # Container is running
+          # Get the container ID created by Compose.
           # --------------------------------------------------
 
-          if [ "$CONTAINER_STATUS" = "running" ]; then
+          CONTAINER_ID=$(docker compose ps -q)
 
-            echo "Charlie Cafe container is running."
+          if [ -z "$CONTAINER_ID" ]; then
 
-          # --------------------------------------------------
-          # Container exists but stopped
-          # --------------------------------------------------
-
-          elif [ "$CONTAINER_STATUS" = "exited" ]; then
-
-            echo "ERROR: Charlie Cafe container exited."
-
-          echo ""
-
-          echo "======================================"
-          echo "Container Logs"
-          echo "======================================"
-
-          docker logs charlie-cafe-container || true
-
-          echo ""
-
-          echo "======================================"
-          echo "Container Inspection"
-          echo "======================================"
-
-          docker inspect charlie-cafe-container \
-            --format='Status={{.State.Status}}
-ExitCode={{.State.ExitCode}}
-Error={{.State.Error}}
-StartedAt={{.State.StartedAt}}
-FinishedAt={{.State.FinishedAt}}'
-
-          exit 1
-
-          # --------------------------------------------------
-          # Container missing
-          # --------------------------------------------------
-
-          else
-
-            echo "ERROR: Charlie Cafe container was not found."
+            echo "ERROR: Docker Compose did not create a container."
 
             echo ""
 
+            echo "Docker Compose status:"
             docker compose ps -a
+
+            echo ""
+
+            echo "Docker containers:"
+            docker ps -a
 
             exit 1
 
           fi
 
+          echo "Container ID:"
+          echo "$CONTAINER_ID"
+
+          echo ""
+
+          # --------------------------------------------------
+          # Get container status.
+          # --------------------------------------------------
+
+          CONTAINER_STATUS=$(docker inspect \
+            --format='{{.State.Status}}' \
+            "$CONTAINER_ID")
+
+          echo "Container status:"
+          echo "$CONTAINER_STATUS"
+
+          echo ""
+
+          # --------------------------------------------------
+          # Container must be running.
+          # --------------------------------------------------
+
+          if [ "$CONTAINER_STATUS" = "running" ]; then
+
+            echo "Docker container is running."
+
+          else
+
+            echo "ERROR: Docker container is not running."
+
+            echo ""
+
+            echo "======================================"
+            echo "Container Logs"
+            echo "======================================"
+
+            docker logs "$CONTAINER_ID" || true
+
+            echo ""
+
+            echo "======================================"
+            echo "Container Inspection"
+            echo "======================================"
+
+            docker inspect "$CONTAINER_ID"
+
+            exit 1
+
+          fi
+
+
       # ======================================================
-      # Docker Step 8 - Wait for Application
+      # Docker Step 9 - Wait for Application
       # ======================================================
       #
-      # Give Nginx/PHP-FPM a few seconds to start.
+      # Give Nginx/PHP-FPM/application processes time to start.
       #
       # ======================================================
 
-      - name: Wait for Container
-
+      - name: Wait for Application
         shell: bash
-
         run: |
 
-          echo "Waiting for application..."
+          echo "======================================"
+          echo "Waiting for Application"
+          echo "======================================"
 
           sleep 5
+
+          echo ""
 
           echo "Application startup wait completed."
 
 
       # ======================================================
-      # Docker Step 9 - Test Container
+      # Docker Step 10 - Test Application
       # ======================================================
       #
-      # Your docker-compose.yml maps:
+      # Your docker-compose.yml should expose:
       #
-      #     8080:80
+      # Host port:      8080
+      # Container port: 80
       #
-      # Therefore the GitHub runner tests:
+      # Therefore we test:
       #
-      #     http://localhost:8080
+      # http://localhost:8080
       #
       # ======================================================
 
       - name: Test Docker Container
-
         shell: bash
-
         run: |
 
           echo "======================================"
-          echo "Testing Docker Container"
+          echo "Testing Docker Application"
           echo "======================================"
 
           echo ""
@@ -2002,26 +1960,17 @@ FinishedAt={{.State.FinishedAt}}'
 
           echo ""
 
-
           # --------------------------------------------------
-          # Send HTTP request to the container.
-          #
-          # --fail:
-          #   Fail if HTTP returns an error.
-          #
-          # --silent:
-          #   Hide unnecessary curl output.
-          #
-          # --show-error:
-          #   Show errors if the request fails.
+          # HTTP test
           # --------------------------------------------------
 
           curl \
             --fail \
             --silent \
             --show-error \
+            --retry 5 \
+            --retry-delay 2 \
             http://localhost:8080
-
 
           echo ""
 
@@ -2031,55 +1980,71 @@ FinishedAt={{.State.FinishedAt}}'
 
 
       # ======================================================
-      # Docker Step 10 - Display Container Logs
+      # Docker Step 11 - Display Container Logs
       # ======================================================
       #
       # Always display logs.
       #
-      # This is useful when the container test fails.
+      # This is extremely useful if the HTTP test fails.
       #
       # ======================================================
 
       - name: Display Container Logs
-
         if: always()
-
         shell: bash
-
         run: |
 
           echo "======================================"
           echo "Docker Container Logs"
           echo "======================================"
 
-          docker logs charlie-cafe-container || true
+          docker compose logs --no-color || true
 
 
       # ======================================================
-      # Docker Step 11 - Stop Container
+      # Docker Step 12 - Display Final Docker Status
       # ======================================================
       #
-      # Always clean up the container.
+      # Always show the final state before cleanup.
       #
-      # docker compose down removes:
-      # 
-      # - container
-      # - compose network
+      # ======================================================
+
+      - name: Display Final Docker Status
+        if: always()
+        shell: bash
+        run: |
+
+          echo "======================================"
+          echo "Final Docker Status"
+          echo "======================================"
+
+          docker compose ps -a || true
+
+          echo ""
+
+          docker ps -a || true
+
+          echo ""
+
+          docker images || true
+
+
+      # ======================================================
+      # Docker Step 13 - Stop and Remove Docker Container
+      # ======================================================
       #
-      # The command is allowed to continue even if the
-      # container already stopped.
+      # Always clean up the Docker environment.
       #
-      # GitHub-hosted runners are temporary, but cleaning
-      # resources is still a good DevOps practice.
+      # --remove-orphans
+      #
+      # also removes containers that are no longer defined
+      # in the Compose file.
       #
       # ======================================================
 
       - name: Stop Docker Container
-
         if: always()
-
         shell: bash
-
         run: |
 
           echo "======================================"
@@ -2090,39 +2055,39 @@ FinishedAt={{.State.FinishedAt}}'
 
           echo ""
 
-          echo "Docker container stopped and removed."
+          echo "Docker container and Compose network cleaned up."
 
 
       # ======================================================
-      # Docker Step 12 - Docker Job Complete
+      # Docker Step 14 - Docker Job Complete
       # ======================================================
 
       - name: Docker Job Complete
-
         shell: bash
-
         run: |
 
+          echo ""
           echo "======================================"
           echo "Docker Build and Test Completed"
           echo "======================================"
 
           echo ""
 
-          echo "Docker Image:"
-          echo "charlie-cafe:latest"
+          echo "Docker build:"
+          echo "SUCCESS"
 
           echo ""
 
-          echo "Docker Container:"
-          echo "charlie-cafe-container"
+          echo "Docker container:"
+          echo "STARTED"
 
           echo ""
 
-          echo "Docker image was successfully built."
-
-          echo "Docker container was successfully tested."
+          echo "Docker HTTP test:"
+          echo "PASSED"
 
           echo ""
 
-          echo "======================================"   
+          echo "Docker job completed successfully."
+
+          echo "======================================"  
