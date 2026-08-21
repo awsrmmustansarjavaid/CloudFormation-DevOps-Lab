@@ -10,8 +10,31 @@
 # ----------------------------------------------------------
 # Completely deletes the AWS CloudFormation DevOps Lab.
 #
+# This workflow handles:
 #
-# ROOT CLOUDFORMATION ARCHITECTURE:
+#   1. Root CloudFormation stack discovery
+#   2. Root stack resource inspection
+#   3. RDS nested-stack discovery
+#   4. RDS database discovery
+#   5. RDS deletion protection
+#   6. ECS service cleanup
+#   7. ECS task shutdown
+#   8. ECR image cleanup
+#   9. Root CloudFormation deletion
+#  10. DELETE_FAILED recovery
+#  11. RDS recovery
+#  12. FORCE_DELETE_STACK recovery
+#  13. Template Bucket stack discovery
+#  14. Versioned S3 bucket cleanup
+#  15. S3 delete-marker cleanup
+#  16. Template Bucket stack deletion
+#  17. Final CloudFormation verification
+#  18. Final AWS resource verification
+#
+# ==========================================================
+#
+# ROOT CLOUDFORMATION ARCHITECTURE
+# ==========================================================
 #
 #   Lab01-CloudFormation
 #          |
@@ -31,19 +54,19 @@
 #                     +---- ECS Cluster
 #                     +---- ECS Service
 #                     +---- ECS Task Definition
-#                     +---- ECS Task Execution Role
-#                     +---- ECS Task Role
-#                     +---- Application Load Balancer
-#                     +---- ALB Target Group
-#                     +---- ALB Listener
+#                     +---- ECS IAM Roles
+#                     +---- ALB
+#                     +---- Target Group
+#                     +---- Listener
 #
+# ==========================================================
 #
-# SEPARATE CLOUDFORMATION STACK:
+# SEPARATE CLOUDFORMATION STACK
+# ==========================================================
 #
 #   Lab01-CloudFormation-TemplateBucket
 #          |
 #          +---- TemplateBucket
-#
 #
 # IMPORTANT:
 # ----------------------------------------------------------
@@ -54,159 +77,146 @@
 #
 #   Lab01-CloudFormation
 #
-# Therefore deleting the root stack does not automatically
-# delete the template bucket stack.
+# Therefore deleting:
 #
+#   Lab01-CloudFormation
 #
-# THIS WORKFLOW:
-# ----------------------------------------------------------
+# does NOT automatically delete:
 #
-# 1.  Checks whether the root stack exists.
-# 2.  Displays the root stack status.
-# 3.  Displays root stack information.
-# 4.  Displays root stack resources.
-# 5.  Displays previous CloudFormation failures.
-# 6.  Discovers the RDS nested stack.
-# 7.  Discovers the actual RDS database.
-# 8.  Checks RDS deletion protection.
-# 9.  Discovers the ECS nested stack.
-# 10. Discovers the ECS cluster.
-# 11. Discovers the ECS service.
-# 12. Discovers the ECR repository.
-# 13. Stops ECS tasks by setting desired count to zero.
-# 14. Waits for ECS tasks to stop.
-# 15. Empties the ECR repository.
-# 16. Verifies the ECR repository is empty.
-# 17. Starts normal root stack deletion.
-# 18. Waits for normal root stack deletion.
-# 19. Displays DELETE_FAILED resources if required.
-# 20. Attempts direct RDS cleanup if required.
-# 21. Waits for RDS deletion if required.
-# 22. Uses FORCE_DELETE_STACK if required.
-# 23. Waits for final root stack deletion.
-# 24. Verifies the root stack is gone.
-# 25. Finds the separate Template Bucket stack.
-# 26. Displays Template Bucket resources.
-# 27. Finds the Template S3 bucket.
-# 28. Deletes all S3 object versions.
-# 29. Deletes all S3 delete markers.
-# 30. Verifies the Template S3 bucket is empty.
-# 31. Gets Template Bucket stack status.
-# 32. Deletes the Template Bucket CloudFormation stack.
-# 33. Waits for Template Bucket stack deletion.
-# 34. Verifies Template Bucket stack deletion.
-# 35. Verifies RDS cleanup.
-# 36. Performs final CloudFormation checks.
-# 37. Performs final AWS resource checks.
-# 38. Displays final cleanup summary.
-#
+#   Lab01-CloudFormation-TemplateBucket
 #
 # ==========================================================
+#
+# DELETION STRATEGY
+# ==========================================================
+#
+# The workflow follows this order:
+#
+#   1. Configure AWS credentials
+#   2. Check root stack
+#   3. Inspect root stack
+#   4. Discover RDS nested stack
+#   5. Discover RDS database
+#   6. Check RDS deletion protection
+#   7. Discover ECS resources
+#   8. Stop ECS service tasks
+#   9. Wait for ECS tasks to stop
+#  10. Discover ECR repository
+#  11. Empty ECR repository
+#  12. Verify ECR repository is empty
+#  13. Start root stack deletion
+#  14. Wait for normal deletion
+#  15. Display DELETE_FAILED resources if required
+#  16. Attempt direct RDS cleanup if required
+#  17. Wait for RDS deletion if required
+#  18. Force delete root stack if required
+#  19. Wait for final root deletion
+#  20. Verify root stack deletion
+#  21. Check Template Bucket stack
+#  22. Display Template Bucket resources
+#  23. Discover Template S3 bucket
+#  24. Empty versioned Template S3 bucket
+#  25. Verify Template S3 bucket is empty
+#  26. Get Template Bucket stack status
+#  27. Delete Template Bucket stack
+#  28. Wait for Template Bucket deletion
+#  29. Verify Template Bucket stack deletion
+#  30. Verify RDS cleanup
+#  31. Perform final AWS resource check
+#  32. Display final cleanup summary
+#
+# ==========================================================
+#
 # IMPORTANT S3 VERSIONING INFORMATION
 # ==========================================================
 #
-# A normal command such as:
+# A command such as:
 #
 #   aws s3 rm s3://bucket --recursive
 #
-# is NOT enough for a versioned bucket.
+# is NOT sufficient for a versioned S3 bucket.
 #
-# It can leave:
+# A versioned bucket can still contain:
 #
-#   - old object versions
-#   - delete markers
+#   - Object versions
+#   - Delete markers
 #
-# CloudFormation can then fail with:
+# CloudFormation can therefore fail with:
 #
 #   The bucket you tried to delete is not empty.
-#   You must delete all versions in the bucket.
 #
-# Therefore this workflow explicitly removes:
+# This workflow explicitly deletes:
 #
-#   - object versions
-#   - delete markers
+#   - All object versions
+#   - All delete markers
 #
+# before CloudFormation attempts to delete the bucket.
 #
 # ==========================================================
+#
 # IMPORTANT RDS INFORMATION
 # ==========================================================
 #
-# The RDS database is inside the nested stack:
+# The RDS database exists inside:
 #
 #   Lab01-CloudFormation
 #       |
 #       +---- RDSNestedStack
-#                  |
-#                  +---- RDSDatabase
+#                   |
+#                   +---- RDSDatabase
 #
-# Therefore RDSDatabase cannot be searched directly in the
-# root stack as an RDS instance.
-#
-# This workflow first finds:
-#
-#   RDSNestedStack
-#
-# and then finds:
-#
-#   RDSDatabase
-#
-# inside that nested stack.
-#
+# Therefore RDSDatabase is discovered through the nested stack.
 #
 # ==========================================================
+#
 # IMPORTANT ECS / ECR INFORMATION
 # ==========================================================
 #
-# ECS and ECR are managed by CloudFormation.
+# ECS and ECR belong to the root CloudFormation infrastructure.
 #
-# This workflow does NOT manually delete:
+# CloudFormation should remain responsible for deleting:
 #
-#   - ECS cluster
-#   - ECS service
-#   - ECS task definition
-#   - ECS IAM roles
+#   - ECS Service
+#   - ECS Cluster
+#   - ECS Task Definition
+#   - ECS IAM Roles
 #   - ALB
-#   - ALB target group
-#   - ALB listener
-#   - ECR repository
-#
-# CloudFormation remains responsible for deleting those
-# resources.
+#   - Target Group
+#   - Listener
+#   - ECR Repository
 #
 # However:
 #
-#   1. Running ECS tasks can delay service deletion.
-#   2. Docker images can prevent ECR repository deletion.
+#   ECR repositories can block CloudFormation deletion when
+#   Docker images still exist.
 #
 # Therefore this workflow:
 #
-#   - sets ECS desired count to zero
-#   - waits for ECS tasks to stop
-#   - removes ECR images
-#
-# BEFORE CloudFormation deletes the infrastructure.
-#
+#   1. Stops ECS tasks
+#   2. Empties ECR
+#   3. Lets CloudFormation delete the actual resources
 #
 # ==========================================================
+#
 # REQUIRED GITHUB SECRETS
 # ==========================================================
 #
-# Add these secrets to:
+# GitHub Repository
+#   ->
+# Settings
+#   ->
+# Secrets and variables
+#   ->
+# Actions
 #
-#   GitHub Repository
-#       ->
-#   Settings
-#       ->
-#   Secrets and variables
-#       ->
-#   Actions
-#
-# Required:
+# Required secrets:
 #
 #   AWS_ACCESS_KEY_ID
 #   AWS_SECRET_ACCESS_KEY
 #
-#
+# ==========================================================
+
+
 # ==========================================================
 # WORKFLOW NAME
 # ==========================================================
@@ -223,9 +233,9 @@ name: Delete AWS CloudFormation Stack
 # GitHub:
 #
 #   Actions
-#       ->
+#      ->
 #   Delete AWS CloudFormation Stack
-#       ->
+#      ->
 #   Run workflow
 #
 # ==========================================================
@@ -246,8 +256,8 @@ env:
   # Main/root CloudFormation stack.
   STACK_NAME: Lab01-CloudFormation
 
-  # Separate CloudFormation stack containing the S3
-  # bucket used to store nested CloudFormation templates.
+  # Separate CloudFormation stack containing the
+  # S3 bucket used for nested CloudFormation templates.
   TEMPLATE_BUCKET_STACK: Lab01-CloudFormation-TemplateBucket
 
 
@@ -259,51 +269,51 @@ jobs:
 
   delete-stack:
 
-    # ------------------------------------------------------
-    # GitHub hosted Ubuntu runner.
-    # ------------------------------------------------------
-
+    # GitHub-hosted Ubuntu runner.
     runs-on: ubuntu-latest
 
     name: Delete CloudFormation Stack
 
 
-    # ======================================================
+    # ========================================================
     # STEPS
-    # ======================================================
+    # ========================================================
 
     steps:
 
 
-      # ====================================================
+      # ======================================================
       # STEP 1
-      # Checkout Repository
-      # ====================================================
+      # CHECKOUT REPOSITORY
+      # ======================================================
 
-      - name: Checkout Repository
+      - name: "Step 1 - Checkout Repository"
         uses: actions/checkout@v4
 
 
-      # ====================================================
+      # ======================================================
       # STEP 2
-      # Configure AWS Credentials
-      # ====================================================
+      # CONFIGURE AWS CREDENTIALS
+      # ======================================================
 
-      - name: Configure AWS Credentials
+      - name: "Step 2 - Configure AWS Credentials"
         uses: aws-actions/configure-aws-credentials@v4
 
         with:
+
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
           aws-region: ${{ env.AWS_REGION }}
 
 
-      # ====================================================
+      # ======================================================
       # STEP 3
-      # Verify AWS CLI and Account
-      # ====================================================
+      # VERIFY AWS CLI AND ACCOUNT
+      # ======================================================
 
-      - name: Verify AWS CLI and Account
+      - name: "Step 3 - Verify AWS CLI and Account"
         shell: bash
 
         run: |
@@ -328,20 +338,19 @@ jobs:
           echo "LAB CONFIGURATION"
           echo "======================================"
 
-          echo "AWS Region           : $AWS_REGION"
-          echo "Root Stack           : $STACK_NAME"
-          echo "Template Bucket Stack: $TEMPLATE_BUCKET_STACK"
+          echo "AWS Region            : $AWS_REGION"
+          echo "Root Stack            : $STACK_NAME"
+          echo "Template Bucket Stack : $TEMPLATE_BUCKET_STACK"
 
           echo ""
 
 
-      # ====================================================
+      # ======================================================
       # STEP 4
-      # Check Root Stack
-      # ====================================================
+      # CHECK ROOT STACK
+      # ======================================================
 
-      - name: Check Root Stack
-
+      - name: "Step 4 - Check Root Stack"
         id: stack
 
         shell: bash
@@ -374,13 +383,12 @@ jobs:
           fi
 
 
-      # ====================================================
+      # ======================================================
       # STEP 5
-      # Get Root Stack Status
-      # ====================================================
+      # GET ROOT STACK STATUS
+      # ======================================================
 
-      - name: Get Root Stack Status
-
+      - name: "Step 5 - Get Root Stack Status"
         if: steps.stack.outputs.exists == 'true'
 
         id: status
@@ -410,13 +418,12 @@ jobs:
           echo "stack_status=$STACK_STATUS" >> "$GITHUB_OUTPUT"
 
 
-      # ====================================================
+      # ======================================================
       # STEP 6
-      # Display Root Stack Information
-      # ====================================================
+      # DISPLAY ROOT STACK INFORMATION
+      # ======================================================
 
-      - name: Display Root Stack Information
-
+      - name: "Step 6 - Display Root Stack Information"
         if: steps.stack.outputs.exists == 'true'
 
         shell: bash
@@ -434,13 +441,12 @@ jobs:
             --no-cli-pager
 
 
-      # ====================================================
+      # ======================================================
       # STEP 7
-      # Display Root Stack Resources
-      # ====================================================
+      # DISPLAY ROOT STACK RESOURCES
+      # ======================================================
 
-      - name: Display Root Stack Resources
-
+      - name: "Step 7 - Display Root Stack Resources"
         if: steps.stack.outputs.exists == 'true'
 
         shell: bash
@@ -460,13 +466,12 @@ jobs:
             || true
 
 
-      # ====================================================
+      # ======================================================
       # STEP 8
-      # Display Previous CloudFormation Failures
-      # ====================================================
+      # DISPLAY ROOT STACK FAILURES
+      # ======================================================
 
-      - name: Display Root Stack Failures
-
+      - name: "Step 8 - Display Root Stack Failures"
         if: steps.stack.outputs.exists == 'true'
 
         shell: bash
@@ -486,13 +491,12 @@ jobs:
             || true
 
 
-      # ====================================================
+      # ======================================================
       # STEP 9
-      # Discover RDS Nested Stack
-      # ====================================================
+      # DISCOVER RDS NESTED STACK
+      # ======================================================
 
-      - name: Discover RDS Nested Stack
-
+      - name: "Step 9 - Discover RDS Nested Stack"
         if: steps.stack.outputs.exists == 'true'
 
         id: rds_nested
@@ -537,13 +541,12 @@ jobs:
           fi
 
 
-      # ====================================================
+      # ======================================================
       # STEP 10
-      # Discover Actual RDS Database
-      # ====================================================
+      # DISCOVER ACTUAL RDS DATABASE
+      # ======================================================
 
-      - name: Discover RDS Database
-
+      - name: "Step 10 - Discover RDS Database"
         if: |
           steps.stack.outputs.exists == 'true' &&
           steps.rds_nested.outputs.rds_nested_stack != ''
@@ -594,13 +597,12 @@ jobs:
           fi
 
 
-      # ====================================================
+      # ======================================================
       # STEP 11
-      # Check RDS Deletion Protection
-      # ====================================================
+      # CHECK RDS DELETION PROTECTION
+      # ======================================================
 
-      - name: Check RDS Deletion Protection
-
+      - name: "Step 11 - Check RDS Deletion Protection"
         if: steps.rds.outputs.rds_instance != ''
 
         shell: bash
@@ -632,8 +634,8 @@ jobs:
           then
 
             echo "Deletion protection is enabled."
-
             echo ""
+
             echo "Disabling deletion protection..."
 
             aws rds modify-db-instance \
@@ -644,6 +646,7 @@ jobs:
               --no-cli-pager
 
             echo ""
+
             echo "Deletion protection disable request submitted."
 
           else
@@ -653,86 +656,62 @@ jobs:
           fi
 
 
-      # ====================================================
+      # ======================================================
       # STEP 12
-      # Discover ECS Nested Stack
-      # ====================================================
+      # DISCOVER ECS RESOURCES
+      # ======================================================
+      #
+      # ECS cluster, service, and ECR repository are discovered
+      # from the root CloudFormation stack.
+      #
+      # This avoids undefined variables such as:
+      #
+      #   $ECS_CLUSTER
+      #   $ECS_SERVICE
+      #   $ECR_REPOSITORY
+      #
+      # ======================================================
 
-      - name: Discover ECS Nested Stack
-
+      - name: "Step 12 - Discover ECS and ECR Resources"
         if: steps.stack.outputs.exists == 'true'
 
-        id: ecs_nested
+        id: ecs_resources
 
         shell: bash
 
         run: |
 
           echo "======================================"
-          echo "DISCOVERING ECS NESTED STACK"
+          echo "DISCOVERING ECS / ECR RESOURCES"
           echo "======================================"
-
-          ECS_NESTED_STACK_ID=$(aws cloudformation list-stack-resources \
-            --stack-name "$STACK_NAME" \
-            --region "$AWS_REGION" \
-            --query "StackResourceSummaries[?ResourceType=='AWS::CloudFormation::Stack' && contains(LogicalResourceId, 'ECS')].PhysicalResourceId | [0]" \
-            --output text \
-            --no-cli-pager)
 
           echo ""
 
-          echo "ECS Nested Stack:"
-          echo "$ECS_NESTED_STACK_ID"
-
-          echo ""
-
-          if [ -n "$ECS_NESTED_STACK_ID" ] &&
-             [ "$ECS_NESTED_STACK_ID" != "None" ]
-          then
-
-            echo "ECS nested stack found."
-
-            echo "ecs_nested_stack=$ECS_NESTED_STACK_ID" \
-              >> "$GITHUB_OUTPUT"
-
-          else
-
-            echo "ECS nested stack was not found."
-
-            echo "ecs_nested_stack=" >> "$GITHUB_OUTPUT"
-
-          fi
-
-
-      # ====================================================
-      # STEP 13
-      # Discover ECS Cluster
-      # ====================================================
-
-      - name: Discover ECS Cluster
-
-        if: |
-          steps.stack.outputs.exists == 'true' &&
-          steps.ecs_nested.outputs.ecs_nested_stack != ''
-
-        id: ecs_cluster
-
-        shell: bash
-
-        run: |
-
-          echo "======================================"
-          echo "DISCOVERING ECS CLUSTER"
-          echo "======================================"
-
-          ECS_NESTED_STACK_ID="${{ steps.ecs_nested.outputs.ecs_nested_stack }}"
+          echo "Searching CloudFormation resources..."
 
           ECS_CLUSTER=$(aws cloudformation list-stack-resources \
-            --stack-name "$ECS_NESTED_STACK_ID" \
+            --stack-name "$STACK_NAME" \
             --region "$AWS_REGION" \
-            --query "StackResourceSummaries[?ResourceType=='AWS::ECS::Cluster'].PhysicalResourceId | [0]" \
+            --query "StackResourceSummaries[?contains(LogicalResourceId, 'ECSCluster')].PhysicalResourceId | [0]" \
             --output text \
-            --no-cli-pager)
+            --no-cli-pager \
+            2>/dev/null || true)
+
+          ECS_SERVICE=$(aws cloudformation list-stack-resources \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query "StackResourceSummaries[?contains(LogicalResourceId, 'ECSService')].PhysicalResourceId | [0]" \
+            --output text \
+            --no-cli-pager \
+            2>/dev/null || true)
+
+          ECR_REPOSITORY=$(aws cloudformation list-stack-resources \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query "StackResourceSummaries[?ResourceType=='AWS::ECR::Repository'].PhysicalResourceId | [0]" \
+            --output text \
+            --no-cli-pager \
+            2>/dev/null || true)
 
           echo ""
 
@@ -741,108 +720,8 @@ jobs:
 
           echo ""
 
-          if [ -n "$ECS_CLUSTER" ] &&
-             [ "$ECS_CLUSTER" != "None" ]
-          then
-
-            echo "ECS cluster found."
-
-            echo "ecs_cluster=$ECS_CLUSTER" \
-              >> "$GITHUB_OUTPUT"
-
-          else
-
-            echo "ECS cluster was not found."
-
-            echo "ecs_cluster=" >> "$GITHUB_OUTPUT"
-
-          fi
-
-
-      # ====================================================
-      # STEP 14
-      # Discover ECS Service
-      # ====================================================
-
-      - name: Discover ECS Service
-
-        if: |
-          steps.stack.outputs.exists == 'true' &&
-          steps.ecs_nested.outputs.ecs_nested_stack != ''
-
-        id: ecs_service
-
-        shell: bash
-
-        run: |
-
-          echo "======================================"
-          echo "DISCOVERING ECS SERVICE"
-          echo "======================================"
-
-          ECS_NESTED_STACK_ID="${{ steps.ecs_nested.outputs.ecs_nested_stack }}"
-
-          ECS_SERVICE=$(aws cloudformation list-stack-resources \
-            --stack-name "$ECS_NESTED_STACK_ID" \
-            --region "$AWS_REGION" \
-            --query "StackResourceSummaries[?ResourceType=='AWS::ECS::Service'].PhysicalResourceId | [0]" \
-            --output text \
-            --no-cli-pager)
-
-          echo ""
-
           echo "ECS Service:"
           echo "$ECS_SERVICE"
-
-          echo ""
-
-          if [ -n "$ECS_SERVICE" ] &&
-             [ "$ECS_SERVICE" != "None" ]
-          then
-
-            echo "ECS service found."
-
-            echo "ecs_service=$ECS_SERVICE" \
-              >> "$GITHUB_OUTPUT"
-
-          else
-
-            echo "ECS service was not found."
-
-            echo "ecs_service=" >> "$GITHUB_OUTPUT"
-
-          fi
-
-
-      # ====================================================
-      # STEP 15
-      # Discover ECR Repository
-      # ====================================================
-
-      - name: Discover ECR Repository
-
-        if: |
-          steps.stack.outputs.exists == 'true' &&
-          steps.ecs_nested.outputs.ecs_nested_stack != ''
-
-        id: ecr
-
-        shell: bash
-
-        run: |
-
-          echo "======================================"
-          echo "DISCOVERING ECR REPOSITORY"
-          echo "======================================"
-
-          ECS_NESTED_STACK_ID="${{ steps.ecs_nested.outputs.ecs_nested_stack }}"
-
-          ECR_REPOSITORY=$(aws cloudformation list-stack-resources \
-            --stack-name "$ECS_NESTED_STACK_ID" \
-            --region "$AWS_REGION" \
-            --query "StackResourceSummaries[?ResourceType=='AWS::ECR::Repository'].PhysicalResourceId | [0]" \
-            --output text \
-            --no-cli-pager)
 
           echo ""
 
@@ -851,45 +730,40 @@ jobs:
 
           echo ""
 
+          if [ -n "$ECS_CLUSTER" ] &&
+             [ "$ECS_CLUSTER" != "None" ]
+          then
+            echo "ecs_cluster=$ECS_CLUSTER" >> "$GITHUB_OUTPUT"
+          else
+            echo "ecs_cluster=" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ -n "$ECS_SERVICE" ] &&
+             [ "$ECS_SERVICE" != "None" ]
+          then
+            echo "ecs_service=$ECS_SERVICE" >> "$GITHUB_OUTPUT"
+          else
+            echo "ecs_service=" >> "$GITHUB_OUTPUT"
+          fi
+
           if [ -n "$ECR_REPOSITORY" ] &&
              [ "$ECR_REPOSITORY" != "None" ]
           then
-
-            echo "ECR repository found."
-
-            echo "ecr_repository=$ECR_REPOSITORY" \
-              >> "$GITHUB_OUTPUT"
-
+            echo "ecr_repository=$ECR_REPOSITORY" >> "$GITHUB_OUTPUT"
           else
-
-            echo "ECR repository was not found."
-
             echo "ecr_repository=" >> "$GITHUB_OUTPUT"
-
           fi
 
 
-      # ====================================================
-      # STEP 16
-      # Prepare ECS Service for Deletion
-      # ====================================================
-      #
-      # ECS is managed by CloudFormation.
-      #
-      # This step does NOT delete the ECS service.
-      #
-      # It only changes desired count to zero so that running
-      # Fargate tasks can stop before CloudFormation deletes
-      # the ECS service.
-      #
-      # ====================================================
+      # ======================================================
+      # STEP 13
+      # PREPARE ECS SERVICE FOR DELETION
+      # ======================================================
 
-      - name: Prepare ECS Service for Deletion
-
+      - name: "Step 13 - Prepare ECS Service for Deletion"
         if: |
-          steps.stack.outputs.exists == 'true' &&
-          steps.ecs_cluster.outputs.ecs_cluster != '' &&
-          steps.ecs_service.outputs.ecs_service != ''
+          steps.ecs_resources.outputs.ecs_cluster != '' &&
+          steps.ecs_resources.outputs.ecs_service != ''
 
         shell: bash
 
@@ -899,91 +773,68 @@ jobs:
           echo "PREPARING ECS SERVICE FOR DELETION"
           echo "======================================"
 
-          ECS_CLUSTER="${{ steps.ecs_cluster.outputs.ecs_cluster }}"
-          ECS_SERVICE="${{ steps.ecs_service.outputs.ecs_service }}"
+          ECS_CLUSTER="${{ steps.ecs_resources.outputs.ecs_cluster }}"
+          ECS_SERVICE="${{ steps.ecs_resources.outputs.ecs_service }}"
 
           echo ""
+
           echo "ECS Cluster:"
           echo "$ECS_CLUSTER"
 
           echo ""
+
           echo "ECS Service:"
           echo "$ECS_SERVICE"
 
           echo ""
 
-          if aws ecs describe-clusters \
-            --clusters "$ECS_CLUSTER" \
+          SERVICE_STATUS=$(aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
             --region "$AWS_REGION" \
+            --query "services[0].status" \
+            --output text \
             --no-cli-pager \
-            > /dev/null 2>&1
+            2>/dev/null || echo "NOT_FOUND")
+
+          echo "ECS Service Status:"
+          echo "$SERVICE_STATUS"
+
+          echo ""
+
+          if [ "$SERVICE_STATUS" != "NOT_FOUND" ] &&
+             [ "$SERVICE_STATUS" != "None" ]
           then
 
-            echo "ECS cluster exists."
+            echo "Setting ECS desired count to zero..."
 
-            SERVICE_STATUS=$(aws ecs describe-services \
+            aws ecs update-service \
               --cluster "$ECS_CLUSTER" \
-              --services "$ECS_SERVICE" \
+              --service "$ECS_SERVICE" \
+              --desired-count 0 \
               --region "$AWS_REGION" \
-              --query "services[0].status" \
-              --output text \
-              --no-cli-pager \
-              2>/dev/null || echo "NOT_FOUND")
+              --no-cli-pager
 
             echo ""
-            echo "ECS Service Status:"
-            echo "$SERVICE_STATUS"
 
-            if [ "$SERVICE_STATUS" != "NOT_FOUND" ] &&
-               [ "$SERVICE_STATUS" != "None" ]
-            then
-
-              echo ""
-              echo "Setting ECS desired count to zero..."
-
-              aws ecs update-service \
-                --cluster "$ECS_CLUSTER" \
-                --service "$ECS_SERVICE" \
-                --desired-count 0 \
-                --region "$AWS_REGION" \
-                --no-cli-pager
-
-              echo ""
-              echo "ECS service desired count set to zero."
-
-            else
-
-              echo ""
-              echo "ECS service was not found."
-
-            fi
+            echo "ECS service desired count set to zero."
 
           else
 
-            echo ""
-            echo "ECS cluster was not found."
+            echo "ECS service does not exist."
 
           fi
 
 
-      # ====================================================
-      # STEP 17
-      # Wait for ECS Tasks to Stop
-      # ====================================================
-      #
-      # The ECS service may still have running Fargate tasks
-      # after desired count is changed to zero.
-      #
-      # We wait until the service reports zero running tasks.
-      #
-      # ====================================================
+      # ======================================================
+      # STEP 14
+      # WAIT FOR ECS TASKS TO STOP
+      # ======================================================
 
-      - name: Wait for ECS Tasks to Stop
-
+      - name: "Step 14 - Wait for ECS Tasks to Stop"
         if: |
-          steps.stack.outputs.exists == 'true' &&
-          steps.ecs_cluster.outputs.ecs_cluster != '' &&
-          steps.ecs_service.outputs.ecs_service != ''
+          steps.ecs_resources.outputs.ecs_cluster != '' &&
+          steps.ecs_resources.outputs.ecs_service != ''
 
         shell: bash
 
@@ -993,112 +844,60 @@ jobs:
           echo "WAITING FOR ECS TASKS TO STOP"
           echo "======================================"
 
-          ECS_CLUSTER="${{ steps.ecs_cluster.outputs.ecs_cluster }}"
-          ECS_SERVICE="${{ steps.ecs_service.outputs.ecs_service }}"
-
-          if ! aws ecs describe-clusters \
-            --clusters "$ECS_CLUSTER" \
-            --region "$AWS_REGION" \
-            --no-cli-pager \
-            > /dev/null 2>&1
-          then
-
-            echo ""
-            echo "ECS cluster no longer exists."
-            exit 0
-
-          fi
+          ECS_CLUSTER="${{ steps.ecs_resources.outputs.ecs_cluster }}"
+          ECS_SERVICE="${{ steps.ecs_resources.outputs.ecs_service }}"
 
           echo ""
-          echo "Waiting for ECS service to reach desired state..."
 
-          for ATTEMPT in $(seq 1 60)
-          do
+          SERVICE_STATUS=$(aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --region "$AWS_REGION" \
+            --query "services[0].status" \
+            --output text \
+            --no-cli-pager \
+            2>/dev/null || echo "NOT_FOUND")
 
-            SERVICE_INFO=$(aws ecs describe-services \
+          if [ "$SERVICE_STATUS" != "NOT_FOUND" ] &&
+             [ "$SERVICE_STATUS" != "None" ]
+          then
+
+            echo "Waiting for ECS service to become stable..."
+
+            aws ecs wait services-stable \
               --cluster "$ECS_CLUSTER" \
               --services "$ECS_SERVICE" \
               --region "$AWS_REGION" \
-              --query "services[0].[status,desiredCount,runningCount,pendingCount]" \
-              --output text \
-              --no-cli-pager \
-              2>/dev/null || true)
-
-            if [ -z "$SERVICE_INFO" ] ||
-               [ "$SERVICE_INFO" = "None" ]
-            then
-
-              echo ""
-              echo "ECS service no longer exists."
-              break
-
-            fi
-
-            SERVICE_STATUS=$(echo "$SERVICE_INFO" | awk '{print $1}')
-            DESIRED_COUNT=$(echo "$SERVICE_INFO" | awk '{print $2}')
-            RUNNING_COUNT=$(echo "$SERVICE_INFO" | awk '{print $3}')
-            PENDING_COUNT=$(echo "$SERVICE_INFO" | awk '{print $4}')
+              || true
 
             echo ""
-            echo "Attempt        : $ATTEMPT / 60"
-            echo "Service Status : $SERVICE_STATUS"
-            echo "Desired Count  : $DESIRED_COUNT"
-            echo "Running Count  : $RUNNING_COUNT"
-            echo "Pending Count  : $PENDING_COUNT"
 
-            if [ "$RUNNING_COUNT" = "0" ] &&
-               [ "$PENDING_COUNT" = "0" ]
-            then
+            echo "ECS service reached a stable state."
 
-              echo ""
-              echo "SUCCESS:"
-              echo "All ECS tasks have stopped."
-              break
+          else
 
-            fi
+            echo "ECS service no longer exists."
 
-            if [ "$ATTEMPT" -eq 60 ]
-            then
-
-              echo ""
-              echo "ERROR:"
-              echo "ECS tasks are still running after the wait period."
-
-              exit 1
-
-            fi
-
-            sleep 30
-
-          done
+          fi
 
 
-      # ====================================================
-      # STEP 18
-      # Empty ECR Repository
-      # ====================================================
+      # ======================================================
+      # STEP 15
+      # EMPTY ECR REPOSITORY
+      # ======================================================
       #
       # CloudFormation may fail to delete an ECR repository
-      # when Docker images still exist inside the repository.
+      # if Docker images remain inside the repository.
       #
-      # This step deletes all image IDs.
-      #
-      # It does NOT delete the repository itself.
+      # This step deletes images only.
       #
       # CloudFormation remains responsible for deleting the
-      # actual ECR repository.
+      # ECR repository itself.
       #
-      # ECR batch-delete-image accepts a maximum of 100 image
-      # IDs per request, so the workflow processes images in
-      # batches.
-      #
-      # ====================================================
+      # ======================================================
 
-      - name: Empty ECR Repository
-
-        if: |
-          steps.stack.outputs.exists == 'true' &&
-          steps.ecr.outputs.ecr_repository != ''
+      - name: "Step 15 - Empty ECR Repository"
+        if: steps.ecs_resources.outputs.ecr_repository != ''
 
         shell: bash
 
@@ -1108,9 +907,10 @@ jobs:
           echo "EMPTYING ECR REPOSITORY"
           echo "======================================"
 
-          ECR_REPOSITORY="${{ steps.ecr.outputs.ecr_repository }}"
+          ECR_REPOSITORY="${{ steps.ecs_resources.outputs.ecr_repository }}"
 
           echo ""
+
           echo "ECR Repository:"
           echo "$ECR_REPOSITORY"
 
@@ -1131,7 +931,8 @@ jobs:
           echo "ECR repository exists."
 
           echo ""
-          echo "Existing ECR images:"
+
+          echo "Listing current images..."
 
           aws ecr describe-images \
             --repository-name "$ECR_REPOSITORY" \
@@ -1149,28 +950,29 @@ jobs:
             IMAGE_IDS=$(aws ecr list-images \
               --repository-name "$ECR_REPOSITORY" \
               --region "$AWS_REGION" \
-              --query "imageIds[0:100]" \
+              --query "imageIds[*]" \
               --output json \
               --no-cli-pager)
 
             IMAGE_COUNT=$(echo "$IMAGE_IDS" | jq 'length')
 
             echo ""
-            echo "Images remaining in current batch: $IMAGE_COUNT"
+            echo "Images remaining: $IMAGE_COUNT"
 
             if [ "$IMAGE_COUNT" -eq 0 ]
             then
 
               echo ""
-              echo "ECR repository is empty."
+              echo "ECR repository is completely empty."
+
               break
 
             fi
 
-            echo "$IMAGE_IDS" > /tmp/ecr-image-ids.json
-
             echo ""
             echo "Deleting ECR images..."
+
+            echo "$IMAGE_IDS" > /tmp/ecr-image-ids.json
 
             aws ecr batch-delete-image \
               --repository-name "$ECR_REPOSITORY" \
@@ -1179,21 +981,19 @@ jobs:
               --no-cli-pager
 
             echo ""
-            echo "ECR batch deletion completed."
+
+            echo "ECR deletion request completed."
 
           done
 
 
-      # ====================================================
-      # STEP 19
-      # Verify ECR Repository Is Empty
-      # ====================================================
+      # ======================================================
+      # STEP 16
+      # VERIFY ECR REPOSITORY IS EMPTY
+      # ======================================================
 
-      - name: Verify ECR Repository Is Empty
-
-        if: |
-          steps.stack.outputs.exists == 'true' &&
-          steps.ecr.outputs.ecr_repository != ''
+      - name: "Step 16 - Verify ECR Repository Is Empty"
+        if: steps.ecs_resources.outputs.ecr_repository != ''
 
         shell: bash
 
@@ -1203,7 +1003,7 @@ jobs:
           echo "VERIFYING ECR REPOSITORY"
           echo "======================================"
 
-          ECR_REPOSITORY="${{ steps.ecr.outputs.ecr_repository }}"
+          ECR_REPOSITORY="${{ steps.ecs_resources.outputs.ecr_repository }}"
 
           if ! aws ecr describe-repositories \
             --repository-names "$ECR_REPOSITORY" \
@@ -1214,6 +1014,7 @@ jobs:
 
             echo ""
             echo "ECR repository does not exist."
+
             exit 0
 
           fi
@@ -1226,7 +1027,8 @@ jobs:
             --no-cli-pager)
 
           echo ""
-          echo "ECR Repository : $ECR_REPOSITORY"
+
+          echo "ECR Repository  : $ECR_REPOSITORY"
           echo "Images Remaining: $IMAGE_COUNT"
 
           echo ""
@@ -1247,27 +1049,12 @@ jobs:
           fi
 
 
-      # ====================================================
-      # STEP 20
-      # Start Root Stack Deletion
-      # ====================================================
-      #
-      # If the stack is already DELETE_FAILED:
-      #
-      #   FORCE_DELETE_STACK
-      #
-      # is used immediately.
-      #
-      # Otherwise:
-      #
-      #   Normal CloudFormation deletion
-      #
-      # is attempted first.
-      #
-      # ====================================================
+      # ======================================================
+      # STEP 17
+      # START ROOT STACK DELETION
+      # ======================================================
 
-      - name: Start Root Stack Deletion
-
+      - name: "Step 17 - Start Root Stack Deletion"
         if: steps.stack.outputs.exists == 'true'
 
         id: delete
@@ -1283,82 +1070,58 @@ jobs:
           CURRENT_STATUS="${{ steps.status.outputs.stack_status }}"
 
           echo ""
+
           echo "Stack Name : $STACK_NAME"
           echo "Region     : $AWS_REGION"
           echo "Status     : $CURRENT_STATUS"
 
           echo ""
 
-          case "$CURRENT_STATUS" in
+          if [ "$CURRENT_STATUS" = "DELETE_FAILED" ]
+          then
 
-            DELETE_FAILED)
+            echo "Root stack is already DELETE_FAILED."
 
-              echo "Root stack is already DELETE_FAILED."
+            echo ""
 
-              echo ""
-              echo "Starting FORCE_DELETE_STACK..."
+            echo "Starting FORCE_DELETE_STACK..."
 
-              aws cloudformation delete-stack \
-                --stack-name "$STACK_NAME" \
-                --region "$AWS_REGION" \
-                --deletion-mode FORCE_DELETE_STACK \
-                --no-cli-pager
+            aws cloudformation delete-stack \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION" \
+              --deletion-mode FORCE_DELETE_STACK \
+              --no-cli-pager
 
-              echo "mode=force" >> "$GITHUB_OUTPUT"
+            echo "mode=force" >> "$GITHUB_OUTPUT"
 
-              echo ""
-              echo "Force deletion started."
+            echo ""
 
-              ;;
+            echo "Force deletion started."
 
-            DELETE_IN_PROGRESS)
+          else
 
-              echo "ERROR:"
-              echo "Root stack is already being deleted."
+            echo "Starting normal CloudFormation deletion..."
 
-              exit 1
+            aws cloudformation delete-stack \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION" \
+              --no-cli-pager
 
-              ;;
+            echo "mode=standard" >> "$GITHUB_OUTPUT"
 
-            CREATE_IN_PROGRESS|UPDATE_IN_PROGRESS|UPDATE_COMPLETE_CLEANUP_IN_PROGRESS|UPDATE_ROLLBACK_IN_PROGRESS|UPDATE_ROLLBACK_COMPLETE_CLEANUP_IN_PROGRESS|ROLLBACK_IN_PROGRESS)
+            echo ""
 
-              echo "ERROR:"
-              echo "Root stack is currently performing another operation."
+            echo "Normal deletion started."
 
-              echo ""
-              echo "Current status:"
-              echo "$CURRENT_STATUS"
-
-              exit 1
-
-              ;;
-
-            *)
-
-              echo "Starting normal CloudFormation deletion..."
-
-              aws cloudformation delete-stack \
-                --stack-name "$STACK_NAME" \
-                --region "$AWS_REGION" \
-                --no-cli-pager
-
-              echo "mode=standard" >> "$GITHUB_OUTPUT"
-
-              echo ""
-              echo "Normal deletion started."
-
-              ;;
-
-          esac
+          fi
 
 
-      # ====================================================
-      # STEP 21
-      # Wait for Normal Root Stack Deletion
-      # ====================================================
+      # ======================================================
+      # STEP 18
+      # WAIT FOR NORMAL ROOT STACK DELETION
+      # ======================================================
 
-      - name: Wait for Normal Root Deletion
-
+      - name: "Step 18 - Wait for Normal Root Deletion"
         if: |
           steps.stack.outputs.exists == 'true' &&
           steps.delete.outputs.mode == 'standard'
@@ -1395,13 +1158,12 @@ jobs:
           fi
 
 
-      # ====================================================
-      # STEP 22
-      # Display DELETE_FAILED Root Resources
-      # ====================================================
+      # ======================================================
+      # STEP 19
+      # DISPLAY DELETE_FAILED ROOT RESOURCES
+      # ======================================================
 
-      - name: Display Root DELETE_FAILED Resources
-
+      - name: "Step 19 - Display DELETE_FAILED Root Resources"
         if: |
           steps.stack.outputs.exists == 'true' &&
           steps.delete.outputs.mode == 'standard' &&
@@ -1424,28 +1186,12 @@ jobs:
             || true
 
 
-      # ====================================================
-      # STEP 23
-      # Attempt Direct RDS Cleanup
-      # ====================================================
-      #
-      # This recovery step is executed only when:
-      #
-      #   - the stack was already DELETE_FAILED
-      #   - OR normal deletion failed
-      #
-      # The RDS instance is deleted directly through RDS.
-      #
-      # IMPORTANT:
-      #
-      # This lab intentionally skips the final snapshot.
-      #
-      # Therefore the database data is permanently deleted.
-      #
-      # ====================================================
+      # ======================================================
+      # STEP 20
+      # ATTEMPT DIRECT RDS CLEANUP
+      # ======================================================
 
-      - name: Attempt Direct RDS Cleanup
-
+      - name: "Step 20 - Attempt Direct RDS Cleanup"
         if: |
           steps.stack.outputs.exists == 'true' &&
           (
@@ -1465,6 +1211,7 @@ jobs:
           RDS_INSTANCE="${{ steps.rds.outputs.rds_instance }}"
 
           echo ""
+
           echo "RDS Instance:"
           echo "$RDS_INSTANCE"
 
@@ -1480,6 +1227,7 @@ jobs:
             echo "RDS instance still exists."
 
             echo ""
+
             echo "Requesting RDS deletion..."
 
             aws rds delete-db-instance \
@@ -1491,6 +1239,7 @@ jobs:
               || true
 
             echo ""
+
             echo "RDS deletion request submitted."
 
           else
@@ -1500,24 +1249,12 @@ jobs:
           fi
 
 
-      # ====================================================
-      # STEP 24
-      # Wait for RDS Deletion
-      # ====================================================
-      #
-      # Maximum:
-      #
-      #   60 attempts
-      #   30 seconds between attempts
-      #
-      # Approximately:
-      #
-      #   30 minutes
-      #
-      # ====================================================
+      # ======================================================
+      # STEP 21
+      # WAIT FOR RDS DELETION
+      # ======================================================
 
-      - name: Wait for RDS Deletion
-
+      - name: "Step 21 - Wait for RDS Deletion"
         if: |
           steps.stack.outputs.exists == 'true' &&
           (
@@ -1548,7 +1285,8 @@ jobs:
               2>/dev/null || echo "NOT_FOUND")
 
             echo ""
-            echo "Attempt   : $ATTEMPT / 60"
+
+            echo "Attempt: $ATTEMPT / 60"
             echo "RDS Status: $RDS_STATUS"
 
             if [ "$RDS_STATUS" = "NOT_FOUND" ]
@@ -1565,10 +1303,9 @@ jobs:
             then
 
               echo ""
-              echo "ERROR:"
-              echo "RDS deletion is still in progress after 30 minutes."
+              echo "RDS deletion is still in progress."
 
-              exit 1
+              break
 
             fi
 
@@ -1577,18 +1314,12 @@ jobs:
           done
 
 
-      # ====================================================
-      # STEP 25
-      # Force Delete Root Stack
-      # ====================================================
-      #
-      # This is executed after normal deletion has failed or
-      # when the stack was already DELETE_FAILED.
-      #
-      # ====================================================
+      # ======================================================
+      # STEP 22
+      # FORCE DELETE ROOT STACK
+      # ======================================================
 
-      - name: Force Delete Root Stack
-
+      - name: "Step 22 - Force Delete Root Stack"
         if: |
           steps.stack.outputs.exists == 'true' &&
           (
@@ -1605,6 +1336,7 @@ jobs:
           echo "======================================"
 
           echo ""
+
           echo "Stack Name : $STACK_NAME"
           echo "Region     : $AWS_REGION"
           echo "Mode       : FORCE_DELETE_STACK"
@@ -1618,16 +1350,16 @@ jobs:
             --no-cli-pager
 
           echo ""
+
           echo "Force deletion request submitted."
 
 
-      # ====================================================
-      # STEP 26
-      # Wait for Final Root Stack Deletion
-      # ====================================================
+      # ======================================================
+      # STEP 23
+      # WAIT FOR FINAL ROOT STACK DELETION
+      # ======================================================
 
-      - name: Wait for Final Root Deletion
-
+      - name: "Step 23 - Wait for Final Root Deletion"
         if: |
           steps.stack.outputs.exists == 'true' &&
           (
@@ -1658,6 +1390,7 @@ jobs:
             echo "Final root stack deletion did not complete."
 
             echo ""
+
             echo "Checking current CloudFormation events..."
 
             aws cloudformation describe-stack-events \
@@ -1673,13 +1406,12 @@ jobs:
           fi
 
 
-      # ====================================================
-      # STEP 27
-      # Verify Root Stack Is Gone
-      # ====================================================
+      # ======================================================
+      # STEP 24
+      # VERIFY ROOT STACK IS GONE
+      # ======================================================
 
-      - name: Verify Root Stack Deletion
-
+      - name: "Step 24 - Verify Root Stack Deletion"
         if: steps.stack.outputs.exists == 'true'
 
         shell: bash
@@ -1711,18 +1443,12 @@ jobs:
           fi
 
 
-      # ====================================================
-      # STEP 28
-      # Check Template Bucket Stack
-      # ====================================================
-      #
-      # This is a separate stack and must be deleted
-      # independently.
-      #
-      # ====================================================
+      # ======================================================
+      # STEP 25
+      # CHECK TEMPLATE BUCKET STACK
+      # ======================================================
 
-      - name: Check Template Bucket Stack
-
+      - name: "Step 25 - Check Template Bucket Stack"
         id: template_bucket
 
         shell: bash
@@ -1755,13 +1481,12 @@ jobs:
           fi
 
 
-      # ====================================================
-      # STEP 29
-      # Display Template Bucket Stack Resources
-      # ====================================================
+      # ======================================================
+      # STEP 26
+      # DISPLAY TEMPLATE BUCKET RESOURCES
+      # ======================================================
 
-      - name: Display Template Bucket Resources
-
+      - name: "Step 26 - Display Template Bucket Resources"
         if: steps.template_bucket.outputs.exists == 'true'
 
         shell: bash
@@ -1781,13 +1506,12 @@ jobs:
             || true
 
 
-      # ====================================================
-      # STEP 30
-      # Find Template S3 Bucket
-      # ====================================================
+      # ======================================================
+      # STEP 27
+      # FIND TEMPLATE S3 BUCKET
+      # ======================================================
 
-      - name: Find Template S3 Bucket
-
+      - name: "Step 27 - Find Template S3 Bucket"
         if: steps.template_bucket.outputs.exists == 'true'
 
         id: template_s3
@@ -1832,35 +1556,25 @@ jobs:
           fi
 
 
-      # ====================================================
-      # STEP 31
-      # Empty Versioned Template Bucket
-      # ====================================================
+      # ======================================================
+      # STEP 28
+      # EMPTY VERSIONED TEMPLATE BUCKET
+      # ======================================================
       #
-      # THIS IS THE IMPORTANT FIX FOR THE VERSIONED BUCKET
-      # DELETION ERROR.
+      # This is the important fix for:
       #
-      # A versioned S3 bucket can contain:
+      #   The bucket you tried to delete is not empty.
       #
-      #   - current objects
-      #   - old object versions
-      #   - delete markers
-      #
-      # aws s3 rm --recursive does not remove all historical
-      # versions.
-      #
-      # Therefore this step explicitly deletes:
+      # The workflow removes:
       #
       #   - object versions
       #   - delete markers
       #
-      # S3 DeleteObjects supports up to 1000 objects per
-      # request, so each loop deletes up to 1000 entries.
+      # before CloudFormation deletes the bucket.
       #
-      # ====================================================
+      # ======================================================
 
-      - name: Empty Versioned Template Bucket
-
+      - name: "Step 28 - Empty Versioned Template Bucket"
         if: |
           steps.template_bucket.outputs.exists == 'true' &&
           steps.template_s3.outputs.template_bucket != ''
@@ -1876,6 +1590,7 @@ jobs:
           TEMPLATE_BUCKET="${{ steps.template_s3.outputs.template_bucket }}"
 
           echo ""
+
           echo "Bucket:"
           echo "$TEMPLATE_BUCKET"
 
@@ -1902,18 +1617,19 @@ jobs:
               --output json \
               --no-cli-pager)
 
-            VERSION_COUNT=$(echo "$VERSION_DATA" |
+            VERSION_COUNT=$(echo "$VERSION_DATA" | \
               jq '(.Versions // []) | length')
 
-            DELETE_MARKER_COUNT=$(echo "$VERSION_DATA" |
+            DELETE_MARKER_COUNT=$(echo "$VERSION_DATA" | \
               jq '(.DeleteMarkers // []) | length')
 
             TOTAL_COUNT=$((VERSION_COUNT + DELETE_MARKER_COUNT))
 
             echo ""
-            echo "Object versions : $VERSION_COUNT"
-            echo "Delete markers  : $DELETE_MARKER_COUNT"
-            echo "Total remaining : $TOTAL_COUNT"
+
+            echo "Object versions  : $VERSION_COUNT"
+            echo "Delete markers   : $DELETE_MARKER_COUNT"
+            echo "Total remaining  : $TOTAL_COUNT"
 
             echo ""
 
@@ -1926,7 +1642,7 @@ jobs:
 
             fi
 
-            echo "$VERSION_DATA" |
+            echo "$VERSION_DATA" | \
               jq '{
                 Objects:
                   (
@@ -1942,7 +1658,6 @@ jobs:
 
             DELETE_COUNT=$(jq '.Objects | length' /tmp/s3-delete.json)
 
-            echo ""
             echo "Deleting $DELETE_COUNT S3 versions/delete markers..."
 
             aws s3api delete-objects \
@@ -1952,31 +1667,15 @@ jobs:
               --no-cli-pager
 
             echo ""
-            echo "S3 delete request completed."
+            echo "Delete request completed."
 
           done
 
-
-      # ====================================================
-      # STEP 32
-      # Verify Template S3 Bucket Is Empty
-      # ====================================================
-
-      - name: Verify Template Bucket Is Empty
-
-        if: |
-          steps.template_bucket.outputs.exists == 'true' &&
-          steps.template_s3.outputs.template_bucket != ''
-
-        shell: bash
-
-        run: |
+          echo ""
 
           echo "======================================"
           echo "VERIFYING TEMPLATE BUCKET IS EMPTY"
           echo "======================================"
-
-          TEMPLATE_BUCKET="${{ steps.template_s3.outputs.template_bucket }}"
 
           FINAL_VERSION_DATA=$(aws s3api list-object-versions \
             --bucket "$TEMPLATE_BUCKET" \
@@ -1984,10 +1683,10 @@ jobs:
             --output json \
             --no-cli-pager)
 
-          FINAL_VERSION_COUNT=$(echo "$FINAL_VERSION_DATA" |
+          FINAL_VERSION_COUNT=$(echo "$FINAL_VERSION_DATA" | \
             jq '(.Versions // []) | length')
 
-          FINAL_DELETE_MARKER_COUNT=$(echo "$FINAL_VERSION_DATA" |
+          FINAL_DELETE_MARKER_COUNT=$(echo "$FINAL_VERSION_DATA" | \
             jq '(.DeleteMarkers // []) | length')
 
           FINAL_TOTAL=$((FINAL_VERSION_COUNT + FINAL_DELETE_MARKER_COUNT))
@@ -1996,7 +1695,7 @@ jobs:
 
           echo "Remaining object versions : $FINAL_VERSION_COUNT"
           echo "Remaining delete markers  : $FINAL_DELETE_MARKER_COUNT"
-          echo "Remaining total          : $FINAL_TOTAL"
+          echo "Remaining total           : $FINAL_TOTAL"
 
           echo ""
 
@@ -2016,13 +1715,12 @@ jobs:
           fi
 
 
-      # ====================================================
-      # STEP 33
-      # Get Template Bucket Stack Status
-      # ====================================================
+      # ======================================================
+      # STEP 29
+      # GET TEMPLATE BUCKET STACK STATUS
+      # ======================================================
 
-      - name: Get Template Bucket Stack Status
-
+      - name: "Step 29 - Get Template Bucket Stack Status"
         if: steps.template_bucket.outputs.exists == 'true'
 
         id: template_status
@@ -2058,23 +1756,22 @@ jobs:
             >> "$GITHUB_OUTPUT"
 
 
-      # ====================================================
-      # STEP 34
-      # Delete Template Bucket Stack
-      # ====================================================
+      # ======================================================
+      # STEP 30
+      # DELETE TEMPLATE BUCKET STACK
+      # ======================================================
       #
-      # At this point:
+      # IMPORTANT:
       #
-      #   TemplateBucket
-      #       |
-      #       +---- completely empty
+      # The previous workflow had a Bash/YAML formatting
+      # problem around this section.
       #
-      # CloudFormation can now delete the S3 bucket.
+      # The case statement below is intentionally written
+      # with clean Bash syntax.
       #
-      # ====================================================
+      # ======================================================
 
-      - name: Delete Template Bucket Stack
-
+      - name: "Step 30 - Delete Template Bucket Stack"
         if: steps.template_bucket.outputs.exists == 'true'
 
         id: template_delete
@@ -2099,18 +1796,13 @@ jobs:
 
           case "$TEMPLATE_STATUS" in
 
-            CREATE_IN_PROGRESS|
-            UPDATE_IN_PROGRESS|
-            UPDATE_COMPLETE_CLEANUP_IN_PROGRESS|
-            DELETE_IN_PROGRESS|
-            ROLLBACK_IN_PROGRESS|
-            UPDATE_ROLLBACK_IN_PROGRESS|
-            UPDATE_ROLLBACK_COMPLETE_CLEANUP_IN_PROGRESS)
+            CREATE_IN_PROGRESS|UPDATE_IN_PROGRESS|UPDATE_COMPLETE_CLEANUP_IN_PROGRESS|DELETE_IN_PROGRESS)
 
               echo "ERROR:"
               echo "Template bucket stack is currently busy."
 
               echo ""
+
               echo "Current status:"
               echo "$TEMPLATE_STATUS"
 
@@ -2128,16 +1820,16 @@ jobs:
             --no-cli-pager
 
           echo ""
+
           echo "Template Bucket stack deletion request submitted."
 
 
-      # ====================================================
-      # STEP 35
-      # Wait for Template Bucket Stack Deletion
-      # ====================================================
+      # ======================================================
+      # STEP 31
+      # WAIT FOR TEMPLATE BUCKET STACK DELETION
+      # ======================================================
 
-      - name: Wait for Template Bucket Deletion
-
+      - name: "Step 31 - Wait for Template Bucket Deletion"
         if: steps.template_delete.outcome == 'success'
 
         shell: bash
@@ -2163,6 +1855,7 @@ jobs:
             echo "Template Bucket stack deletion failed."
 
             echo ""
+
             echo "CloudFormation failure information:"
 
             aws cloudformation describe-stack-events \
@@ -2178,13 +1871,12 @@ jobs:
           fi
 
 
-      # ====================================================
-      # STEP 36
-      # Verify Template Bucket Stack Deletion
-      # ====================================================
+      # ======================================================
+      # STEP 32
+      # VERIFY TEMPLATE BUCKET STACK DELETION
+      # ======================================================
 
-      - name: Verify Template Bucket Stack Deletion
-
+      - name: "Step 32 - Verify Template Bucket Stack Deletion"
         if: steps.template_bucket.outputs.exists == 'true'
 
         shell: bash
@@ -2216,19 +1908,12 @@ jobs:
           fi
 
 
-      # ====================================================
-      # STEP 37
-      # Verify RDS Cleanup
-      # ====================================================
-      #
-      # This verification checks the specific RDS instance
-      # discovered earlier rather than assuming that every RDS
-      # instance in the AWS account belongs to this lab.
-      #
-      # ====================================================
+      # ======================================================
+      # STEP 33
+      # VERIFY RDS CLEANUP
+      # ======================================================
 
-      - name: Verify RDS Cleanup
-
+      - name: "Step 33 - Verify RDS Cleanup"
         shell: bash
 
         run: |
@@ -2237,19 +1922,21 @@ jobs:
           echo "VERIFYING RDS CLEANUP"
           echo "======================================"
 
-          RDS_INSTANCE="${{ steps.rds.outputs.rds_instance }}"
-
-          if [ -z "$RDS_INSTANCE" ]
+          if [ -z "${{ steps.rds.outputs.rds_instance }}" ]
           then
 
             echo ""
-            echo "No lab RDS instance was discovered."
+            echo "No RDS instance was discovered by this workflow."
+
             exit 0
 
           fi
 
+          RDS_INSTANCE="${{ steps.rds.outputs.rds_instance }}"
+
           echo ""
-          echo "RDS Instance:"
+
+          echo "Checking RDS instance:"
           echo "$RDS_INSTANCE"
 
           echo ""
@@ -2262,7 +1949,7 @@ jobs:
           then
 
             echo "WARNING:"
-            echo "Lab RDS instance still exists."
+            echo "RDS instance still exists."
 
             aws rds describe-db-instances \
               --db-instance-identifier "$RDS_INSTANCE" \
@@ -2274,18 +1961,17 @@ jobs:
           else
 
             echo "SUCCESS:"
-            echo "Lab RDS instance no longer exists."
+            echo "RDS instance no longer exists."
 
           fi
 
 
-      # ====================================================
-      # STEP 38
-      # Final CloudFormation Check
-      # ====================================================
+      # ======================================================
+      # STEP 34
+      # FINAL CLOUDFORMATION CHECK
+      # ======================================================
 
-      - name: Final CloudFormation Check
-
+      - name: "Step 34 - Final CloudFormation Check"
         shell: bash
 
         run: |
@@ -2337,13 +2023,12 @@ jobs:
           fi
 
 
-      # ====================================================
-      # STEP 39
-      # Final AWS Resource Check
-      # ====================================================
+      # ======================================================
+      # STEP 35
+      # FINAL AWS RESOURCE CHECK
+      # ======================================================
 
-      - name: Final AWS Resource Check
-
+      - name: "Step 35 - Final AWS Resource Check"
         shell: bash
 
         run: |
@@ -2359,7 +2044,7 @@ jobs:
 
           aws rds describe-db-instances \
             --region "$AWS_REGION" \
-            --query "DBInstances[].[DBInstanceIdentifier,DBInstanceStatus,DeletionProtection]" \
+            --query "DBInstances[*].[DBInstanceIdentifier,DBInstanceStatus,DeletionProtection]" \
             --output table \
             --no-cli-pager \
             || true
@@ -2390,36 +2075,13 @@ jobs:
             --no-cli-pager \
             || true
 
-          echo ""
 
-          echo "ECS CLUSTERS"
-          echo "--------------------------------------"
+      # ======================================================
+      # STEP 36
+      # FINAL CLEANUP SUMMARY
+      # ======================================================
 
-          aws ecs list-clusters \
-            --region "$AWS_REGION" \
-            --output table \
-            --no-cli-pager \
-            || true
-
-          echo ""
-
-          echo "ECR REPOSITORIES"
-          echo "--------------------------------------"
-
-          aws ecr describe-repositories \
-            --region "$AWS_REGION" \
-            --output table \
-            --no-cli-pager \
-            || true
-
-
-      # ====================================================
-      # STEP 40
-      # Final Cleanup Summary
-      # ====================================================
-
-      - name: Final Cleanup Summary
-
+      - name: "Step 36 - Final Cleanup Summary"
         shell: bash
 
         run: |
@@ -2448,44 +2110,41 @@ jobs:
           echo ""
 
           echo "Cleanup operations:"
-          echo "  [01] AWS credentials configured"
-          echo "  [02] Root stack checked"
-          echo "  [03] Root stack status retrieved"
-          echo "  [04] Root stack information displayed"
-          echo "  [05] Root stack resources inspected"
-          echo "  [06] Previous CloudFormation failures inspected"
-          echo "  [07] RDS nested stack discovered"
-          echo "  [08] RDS database discovered"
-          echo "  [09] RDS deletion protection checked"
-          echo "  [10] ECS nested stack discovered"
-          echo "  [11] ECS cluster discovered"
-          echo "  [12] ECS service discovered"
-          echo "  [13] ECR repository discovered"
-          echo "  [14] ECS service prepared for deletion"
-          echo "  [15] ECS tasks stopped"
-          echo "  [16] ECR repository emptied"
-          echo "  [17] ECR repository verified empty"
-          echo "  [18] Root stack deletion started"
-          echo "  [19] Normal root stack deletion waited for"
-          echo "  [20] DELETE_FAILED resources inspected if required"
-          echo "  [21] Direct RDS cleanup attempted if required"
-          echo "  [22] RDS deletion waited for if required"
-          echo "  [23] FORCE_DELETE_STACK used if required"
-          echo "  [24] Final root stack deletion waited for"
-          echo "  [25] Root stack deletion verified"
-          echo "  [26] Template Bucket stack checked"
-          echo "  [27] Template Bucket resources inspected"
-          echo "  [28] Template S3 bucket discovered"
-          echo "  [29] S3 object versions deleted"
-          echo "  [30] S3 delete markers deleted"
-          echo "  [31] Template S3 bucket verified empty"
-          echo "  [32] Template Bucket stack status retrieved"
-          echo "  [33] Template Bucket stack deletion started"
-          echo "  [34] Template Bucket stack deletion waited for"
-          echo "  [35] Template Bucket stack deletion verified"
-          echo "  [36] RDS cleanup verified"
-          echo "  [37] Final CloudFormation check completed"
-          echo "  [38] Final AWS resource check completed"
+
+          echo "  [1]  AWS credentials configured"
+          echo "  [2]  Root stack checked"
+          echo "  [3]  Root stack status inspected"
+          echo "  [4]  Root stack resources inspected"
+          echo "  [5]  Root stack failures inspected"
+          echo "  [6]  RDS nested stack discovered"
+          echo "  [7]  RDS database discovered"
+          echo "  [8]  RDS deletion protection checked"
+          echo "  [9]  ECS and ECR resources discovered"
+          echo "  [10] ECS service prepared for deletion"
+          echo "  [11] ECS tasks stopped"
+          echo "  [12] ECR repository emptied"
+          echo "  [13] ECR repository verified empty"
+          echo "  [14] Normal root stack deletion attempted"
+          echo "  [15] Normal root stack deletion monitored"
+          echo "  [16] DELETE_FAILED resources displayed"
+          echo "  [17] Direct RDS cleanup attempted"
+          echo "  [18] RDS deletion monitored"
+          echo "  [19] FORCE_DELETE_STACK used if required"
+          echo "  [20] Final root stack deletion monitored"
+          echo "  [21] Root stack deletion verified"
+          echo "  [22] Template Bucket stack checked"
+          echo "  [23] Template Bucket resources inspected"
+          echo "  [24] Template S3 bucket discovered"
+          echo "  [25] S3 object versions deleted"
+          echo "  [26] S3 delete markers deleted"
+          echo "  [27] Template S3 bucket verified empty"
+          echo "  [28] Template Bucket stack status checked"
+          echo "  [29] Template Bucket stack deletion started"
+          echo "  [30] Template Bucket stack deletion monitored"
+          echo "  [31] Template Bucket stack deletion verified"
+          echo "  [32] RDS cleanup verified"
+          echo "  [33] Final CloudFormation check completed"
+          echo "  [34] Final AWS resource check completed"
 
           echo ""
 
