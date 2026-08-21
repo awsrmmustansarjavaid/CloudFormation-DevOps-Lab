@@ -329,7 +329,7 @@ Parameters:
   DesiredCount:
     Type: Number
 
-    Default: 1
+    Default: 0
 
     Description:
       Number of ECS Fargate tasks.
