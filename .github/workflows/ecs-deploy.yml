@@ -1,351 +1,220 @@
-<<<<<<< HEAD
-name: Charlie Cafe - ECS ECR CI/CD
-
 # ============================================================
-# GitHub Actions Workflow
+# Charlie Cafe - ECS Deployment Workflow
 # ============================================================
 #
-# This workflow demonstrates:
+# File:
 #
-# GitHub
-#   |
-#   +--> CloudFormation
-#   |
-#   +--> Docker
+# .github/workflows/ecs-deploy.yml
+#
+# PURPOSE
+# ------------------------------------------------------------
+#
+# This workflow is ONLY responsible for deploying the Docker
+# image that has ALREADY been built and pushed to ECR by the
+# MAIN GitHub Actions workflow.
+#
+#
+# IMPORTANT:
+# ------------------------------------------------------------
+#
+# Docker build and ECR push are NOT performed here.
+#
+# The MAIN workflow already handles:
+#
+#     Dockerfile
+#          |
+#          v
+#     Docker Image
 #          |
 #          v
 #         ECR
-#          |
-#          v
-#         ECS
+#
+#
+# This reusable workflow handles only:
+#
+#     ECR
+#       |
+#       v
+#     ECS
+#       |
+#       v
+#     New ECS Deployment
+#       |
+#       v
+#     ECS Stable
+#
 #
 # ============================================================
 
 
+# ============================================================
+# WORKFLOW NAME
+# ============================================================
+
+name: Charlie Cafe - ECS Deployment
+
+
+# ============================================================
+# WORKFLOW TRIGGERS
+# ============================================================
+#
+# There are TWO ways this workflow can start:
+#
+# 1. workflow_call
+#
+#    The MAIN workflow calls this workflow automatically.
+#
+# 2. workflow_dispatch
+#
+#    You can manually run this workflow from GitHub Actions.
+#
+# ============================================================
+
 on:
 
-  # ----------------------------------------------------------
-  # Run whenever code is pushed to main.
-  # ----------------------------------------------------------
+  # ==========================================================
+  # REUSABLE WORKFLOW TRIGGER
+  # ==========================================================
+  #
+  # The MAIN workflow calls this file using:
+  #
+  #     uses: ./.github/workflows/ecs-deploy.yml
+  #
+  # ==========================================================
 
-  push:
-
-    branches:
-      - main
+  workflow_call:
 
 
-  # ----------------------------------------------------------
-  # Also allow manual execution from GitHub Actions.
-  # ----------------------------------------------------------
+  # ==========================================================
+  # MANUAL TRIGGER
+  # ==========================================================
+  #
+  # Allows you to manually run the ECS deployment workflow.
+  #
+  # GitHub:
+  #
+  # Actions
+  #   ↓
+  # Charlie Cafe - ECS Deployment
+  #   ↓
+  # Run workflow
+  #
+  # ==========================================================
 
   workflow_dispatch:
 
 
 # ============================================================
-# ENVIRONMENT VARIABLES
+# GLOBAL ENVIRONMENT VARIABLES
 # ============================================================
 
 env:
 
-  # ----------------------------------------------------------
-  # AWS region
-  # ----------------------------------------------------------
+  # ==========================================================
+  # AWS REGION
+  # ==========================================================
+  #
+  # This comes from your GitHub repository secret:
+  #
+  #     AWS_REGION
+  #
+  # Example:
+  #
+  #     us-east-1
+  #
+  # ==========================================================
 
   AWS_REGION: ${{ secrets.AWS_REGION }}
 
 
-  # ----------------------------------------------------------
-  # ECR repository
-  # ----------------------------------------------------------
+  # ==========================================================
+  # ECR REPOSITORY
+  # ==========================================================
   #
-  # This MUST match:
+  # CloudFormation creates this repository.
   #
-  # RepositoryName: charlie-cafe
+  # Example CloudFormation resource:
   #
-  # in CloudFormation.
-  # ----------------------------------------------------------
+  #     RepositoryName: charlie-cafe
+  #
+  # ==========================================================
 
   ECR_REPOSITORY: charlie-cafe
 
 
-  # ----------------------------------------------------------
-  # ECS cluster created by CloudFormation.
-  # ----------------------------------------------------------
+  # ==========================================================
+  # ECS CLUSTER
+  # ==========================================================
+  #
+  # CloudFormation creates:
+  #
+  #     CharlieCafe-Cluster
+  #
+  # ==========================================================
 
   ECS_CLUSTER: CharlieCafe-Cluster
 
 
-  # ----------------------------------------------------------
-  # ECS service created by CloudFormation.
-  # ----------------------------------------------------------
+  # ==========================================================
+  # ECS SERVICE
+  # ==========================================================
+  #
+  # CloudFormation creates:
+  #
+  #     CharlieCafe-Service
+  #
+  # ==========================================================
 
   ECS_SERVICE: CharlieCafe-Service
 
 
 # ============================================================
-# JOB 1
-# BUILD DOCKER IMAGE AND PUSH TO ECR
+# JOBS
 # ============================================================
 
 jobs:
 
-  docker:
 
-    name: Build and Push Docker Image
-
-    runs-on: ubuntu-latest
-
-
-    steps:
-
-
-      # ======================================================
-      # STEP 1
-      # CHECKOUT SOURCE CODE
-      # ======================================================
-
-      - name: Checkout source code
-
-        uses: actions/checkout@v4
-
-
-      # ======================================================
-      # STEP 2
-      # CONFIGURE AWS CREDENTIALS
-      # ======================================================
-      #
-      # For your beginner lab we can use the AWS credentials
-      # you already configured in GitHub Secrets.
-      #
-      # Later I strongly recommend moving this to GitHub OIDC.
-      #
-      # ======================================================
-
-      - name: Configure AWS credentials
-
-        uses: aws-actions/configure-aws-credentials@v4
-
-        with:
-
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
-          aws-region: ${{ env.AWS_REGION }}
-
-
-      # ======================================================
-      # STEP 3
-      # LOGIN TO AMAZON ECR
-      # ======================================================
-      #
-      # GitHub runner must authenticate with ECR before it
-      # can push a Docker image.
-      #
-      # ======================================================
-
-      - name: Login to Amazon ECR
-
-        id: login-ecr
-
-        uses: aws-actions/amazon-ecr-login@v2
-
-
-      # ======================================================
-      # STEP 4
-      # GET AWS ACCOUNT ID
-      # ======================================================
-
-      - name: Get AWS account ID
-
-        id: aws-account
-
-        shell: bash
-
-        run: |
-
-          ACCOUNT_ID=$(aws sts get-caller-identity \
-            --query Account \
-            --output text)
-
-          echo "ACCOUNT_ID=$ACCOUNT_ID" >> "$GITHUB_ENV"
-
-
-      # ======================================================
-      # STEP 5
-      # CREATE IMAGE TAG
-      # ======================================================
-      #
-      # We use the GitHub commit SHA as the image tag.
-      #
-      # Example:
-      #
-      # charlie-cafe:8f3a2c1...
-      #
-      # This is better than relying only on "latest" because
-      # every deployment can be traced to a specific commit.
-      #
-      # ======================================================
-
-      - name: Create Docker image tag
-
-        shell: bash
-
-        run: |
-
-          IMAGE_TAG=${GITHUB_SHA::7}
-
-          echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
-
-          echo "Docker image tag: $IMAGE_TAG"
-
-
-      # ======================================================
-      # STEP 6
-      # BUILD DOCKER IMAGE
-      # ======================================================
-      #
-      # GitHub looks for:
-      #
-      # Dockerfile
-      #
-      # in the repository root.
-      #
-      # Example:
-      #
-      # repository/
-      #
-      # ├── Dockerfile
-      # ├── index.php
-      # ├── ...
-      # └── .github/
-      #
-      # ======================================================
-
-      - name: Build Docker image
-
-        run: |
-
-          docker build \
-            -t $ECR_REPOSITORY:$IMAGE_TAG \
-            .
-
-
-      # ======================================================
-      # STEP 7
-      # TAG IMAGE FOR ECR
-      # ======================================================
-      #
-      # Docker needs the complete ECR repository URI.
-      #
-      # ======================================================
-
-      - name: Tag Docker image for ECR
-
-        run: |
-
-          ECR_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}"
-
-          echo "ECR_URI=$ECR_URI" >> "$GITHUB_ENV"
-
-          docker tag \
-            $ECR_REPOSITORY:$IMAGE_TAG \
-            $ECR_URI:$IMAGE_TAG
-
-          docker tag \
-            $ECR_REPOSITORY:$IMAGE_TAG \
-            $ECR_URI:latest
-
-
-      # ======================================================
-      # STEP 8
-      # PUSH IMAGE TO ECR
-      # ======================================================
-      #
-      # Two tags are pushed:
-      #
-      #   <commit-sha>
-      #   latest
-      #
-      # Example:
-      #
-      # charlie-cafe:a1b2c3d
-      #
-      # charlie-cafe:latest
-      #
-      # ======================================================
-
-      - name: Push Docker image to ECR
-
-        run: |
-
-          docker push \
-            $ECR_URI:$IMAGE_TAG
-
-          docker push \
-            $ECR_URI:latest
-
-
-      # ======================================================
-      # STEP 9
-      # DISPLAY IMAGE INFORMATION
-      # ======================================================
-
-      - name: Display image information
-
-        run: |
-
-          echo "=========================================="
-
-          echo "Docker image pushed successfully"
-
-          echo "ECR URI:"
-          echo "$ECR_URI"
-
-          echo "Image tag:"
-          echo "$IMAGE_TAG"
-
-          echo "=========================================="
-
-
-# ============================================================
-# JOB 2
-# DEPLOY IMAGE TO ECS
-# ============================================================
+  # ==========================================================
+  # ECS DEPLOYMENT JOB
+  # ==========================================================
+  #
+  # IMPORTANT:
+  #
+  # There is NO Docker build here.
+  #
+  # There is NO ECR push here.
+  #
+  # Those operations have already been completed by the
+  # Docker job in the MAIN workflow.
+  #
+  # ==========================================================
 
   deploy:
 
-    name: Deploy to ECS
+    name: Deploy Docker Image to ECS
+
+
+    # ----------------------------------------------------------
+    # GitHub-hosted Ubuntu runner
+    # ----------------------------------------------------------
 
     runs-on: ubuntu-latest
 
 
-    # --------------------------------------------------------
-    # This job waits for the Docker job.
+    # ========================================================
+    # STEP 1
+    # CONFIGURE AWS CREDENTIALS
+    # ========================================================
     #
-    # Therefore:
+    # The reusable workflow receives the GitHub secrets from
+    # the MAIN workflow through:
     #
-    # Docker build
-    #      |
-    #      v
-    # ECR push
-    #      |
-    #      v
-    # ECS deployment
+    #     secrets: inherit
     #
-    # --------------------------------------------------------
-
-    needs:
-      - docker
-
+    # ========================================================
 
     steps:
-
-
-      # ======================================================
-      # STEP 1
-      # CONFIGURE AWS
-      # ======================================================
 
       - name: Configure AWS credentials
 
@@ -360,481 +229,229 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
 
-      # ======================================================
+      # ========================================================
       # STEP 2
-      # FORCE ECS TO START A NEW DEPLOYMENT
-      # ======================================================
+      # VERIFY ECR IMAGE
+      # ========================================================
       #
-      # CloudFormation's Task Definition contains:
+      # The MAIN workflow has already pushed the Docker image
+      # into ECR.
       #
-      # ECR_REPOSITORY:latest
+      # This step confirms that the ECR repository contains
+      # images before we ask ECS to deploy.
       #
-      # When GitHub pushes a new "latest" image, ECS may still
-      # have an existing task running the old image.
-      #
-      # force-new-deployment tells ECS:
-      #
-      # "Start a fresh deployment and pull the current image."
-      #
-      # ======================================================
+      # ========================================================
 
-      - name: Deploy new Docker image to ECS
+      - name: Verify ECR image
 
         run: |
+
+          echo "Checking ECR repository..."
+
+          aws ecr describe-repositories \
+            --repository-names "$ECR_REPOSITORY"
+
+          echo ""
+
+          echo "Checking ECR images..."
+
+          aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY"
+
+          echo ""
+
+          echo "ECR image verification completed."
+
+
+      # ========================================================
+      # STEP 3
+      # VERIFY ECS CLUSTER
+      # ========================================================
+      #
+      # CloudFormation creates the ECS cluster.
+      #
+      # We do NOT create the cluster here.
+      #
+      # ========================================================
+
+      - name: Verify ECS cluster
+
+        run: |
+
+          echo "Checking ECS cluster..."
+
+          aws ecs describe-clusters \
+            --clusters "$ECS_CLUSTER"
+
+          echo ""
+
+          echo "ECS cluster exists."
+
+
+      # ========================================================
+      # STEP 4
+      # VERIFY ECS SERVICE
+      # ========================================================
+      #
+      # CloudFormation creates the ECS service.
+      #
+      # We do NOT create the service here.
+      #
+      # ========================================================
+
+      - name: Verify ECS service
+
+        run: |
+
+          echo "Checking ECS service..."
+
+          aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE"
+
+          echo ""
+
+          echo "ECS service exists."
+
+
+      # ========================================================
+      # STEP 5
+      # FORCE NEW ECS DEPLOYMENT
+      # ========================================================
+      #
+      # This is the MAIN purpose of this workflow.
+      #
+      #
+      # The MAIN workflow has already done:
+      #
+      #     Docker build
+      #          |
+      #          v
+      #     Docker image
+      #          |
+      #          v
+      #         ECR
+      #
+      #
+      # Now we tell ECS:
+      #
+      #     "Start a new deployment."
+      #
+      #
+      # This is especially important when your ECS task
+      # definition uses:
+      #
+      #     :latest
+      #
+      # because pushing a new image to the same ECR tag does
+      # not by itself replace the already-running ECS task.
+      #
+      # ========================================================
+
+      - name: Force new ECS deployment
+
+        run: |
+
+          echo "Starting new ECS deployment..."
 
           aws ecs update-service \
             --cluster "$ECS_CLUSTER" \
             --service "$ECS_SERVICE" \
             --force-new-deployment
 
+          echo ""
 
-      # ======================================================
-      # STEP 3
-      # WAIT FOR ECS SERVICE
-      # ======================================================
-      #
-      # GitHub waits until ECS reports the service is stable.
-      #
-      # ======================================================
+          echo "ECS deployment started."
 
-      - name: Wait for ECS service to stabilize
 
-        run: |
-
-          aws ecs wait services-stable \
-            --cluster "$ECS_CLUSTER" \
-            --services "$ECS_SERVICE"
-
-
-      # ======================================================
-      # STEP 4
-      # SHOW ECS SERVICE
-      # ======================================================
-
-      - name: Show ECS service status
-
-        run: |
-
-          aws ecs describe-services \
-            --cluster "$ECS_CLUSTER" \
-=======
-name: Charlie Cafe - ECS ECR CI/CD
-
-# ============================================================
-# GitHub Actions Workflow
-# ============================================================
-#
-# This workflow demonstrates:
-#
-# GitHub
-#   |
-#   +--> CloudFormation
-#   |
-#   +--> Docker
-#          |
-#          v
-#         ECR
-#          |
-#          v
-#         ECS
-#
-# ============================================================
-
-
-on:
-
-  # ----------------------------------------------------------
-  # Run whenever code is pushed to main.
-  # ----------------------------------------------------------
-
-  push:
-
-    branches:
-      - main
-
-
-  # ----------------------------------------------------------
-  # Also allow manual execution from GitHub Actions.
-  # ----------------------------------------------------------
-
-  workflow_dispatch:
-
-
-# ============================================================
-# ENVIRONMENT VARIABLES
-# ============================================================
-
-env:
-
-  # ----------------------------------------------------------
-  # AWS region
-  # ----------------------------------------------------------
-
-  AWS_REGION: ${{ secrets.AWS_REGION }}
-
-
-  # ----------------------------------------------------------
-  # ECR repository
-  # ----------------------------------------------------------
-  #
-  # This MUST match:
-  #
-  # RepositoryName: charlie-cafe
-  #
-  # in CloudFormation.
-  # ----------------------------------------------------------
-
-  ECR_REPOSITORY: charlie-cafe
-
-
-  # ----------------------------------------------------------
-  # ECS cluster created by CloudFormation.
-  # ----------------------------------------------------------
-
-  ECS_CLUSTER: CharlieCafe-Cluster
-
-
-  # ----------------------------------------------------------
-  # ECS service created by CloudFormation.
-  # ----------------------------------------------------------
-
-  ECS_SERVICE: CharlieCafe-Service
-
-
-# ============================================================
-# JOB 1
-# BUILD DOCKER IMAGE AND PUSH TO ECR
-# ============================================================
-
-jobs:
-
-  docker:
-
-    name: Build and Push Docker Image
-
-    runs-on: ubuntu-latest
-
-
-    steps:
-
-
-      # ======================================================
-      # STEP 1
-      # CHECKOUT SOURCE CODE
-      # ======================================================
-
-      - name: Checkout source code
-
-        uses: actions/checkout@v4
-
-
-      # ======================================================
-      # STEP 2
-      # CONFIGURE AWS CREDENTIALS
-      # ======================================================
-      #
-      # For your beginner lab we can use the AWS credentials
-      # you already configured in GitHub Secrets.
-      #
-      # Later I strongly recommend moving this to GitHub OIDC.
-      #
-      # ======================================================
-
-      - name: Configure AWS credentials
-
-        uses: aws-actions/configure-aws-credentials@v4
-
-        with:
-
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
-          aws-region: ${{ env.AWS_REGION }}
-
-
-      # ======================================================
-      # STEP 3
-      # LOGIN TO AMAZON ECR
-      # ======================================================
-      #
-      # GitHub runner must authenticate with ECR before it
-      # can push a Docker image.
-      #
-      # ======================================================
-
-      - name: Login to Amazon ECR
-
-        id: login-ecr
-
-        uses: aws-actions/amazon-ecr-login@v2
-
-
-      # ======================================================
-      # STEP 4
-      # GET AWS ACCOUNT ID
-      # ======================================================
-
-      - name: Get AWS account ID
-
-        id: aws-account
-
-        shell: bash
-
-        run: |
-
-          ACCOUNT_ID=$(aws sts get-caller-identity \
-            --query Account \
-            --output text)
-
-          echo "ACCOUNT_ID=$ACCOUNT_ID" >> "$GITHUB_ENV"
-
-
-      # ======================================================
-      # STEP 5
-      # CREATE IMAGE TAG
-      # ======================================================
-      #
-      # We use the GitHub commit SHA as the image tag.
-      #
-      # Example:
-      #
-      # charlie-cafe:8f3a2c1...
-      #
-      # This is better than relying only on "latest" because
-      # every deployment can be traced to a specific commit.
-      #
-      # ======================================================
-
-      - name: Create Docker image tag
-
-        shell: bash
-
-        run: |
-
-          IMAGE_TAG=${GITHUB_SHA::7}
-
-          echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
-
-          echo "Docker image tag: $IMAGE_TAG"
-
-
-      # ======================================================
+      # ========================================================
       # STEP 6
-      # BUILD DOCKER IMAGE
-      # ======================================================
+      # WAIT FOR ECS SERVICE TO STABILIZE
+      # ========================================================
       #
-      # GitHub looks for:
+      # GitHub now waits while ECS:
       #
-      # Dockerfile
+      #     starts new task
+      #          |
+      #          v
+      #     pulls image from ECR
+      #          |
+      #          v
+      #     starts container
+      #          |
+      #          v
+      #     ALB health check
+      #          |
+      #          v
+      #     task becomes healthy
+      #          |
+      #          v
+      #     ECS service stable
       #
-      # in the repository root.
-      #
-      # Example:
-      #
-      # repository/
-      #
-      # ├── Dockerfile
-      # ├── index.php
-      # ├── ...
-      # └── .github/
-      #
-      # ======================================================
-
-      - name: Build Docker image
-
-        run: |
-
-          docker build \
-            -t $ECR_REPOSITORY:$IMAGE_TAG \
-            .
-
-
-      # ======================================================
-      # STEP 7
-      # TAG IMAGE FOR ECR
-      # ======================================================
-      #
-      # Docker needs the complete ECR repository URI.
-      #
-      # ======================================================
-
-      - name: Tag Docker image for ECR
-
-        run: |
-
-          ECR_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}"
-
-          echo "ECR_URI=$ECR_URI" >> "$GITHUB_ENV"
-
-          docker tag \
-            $ECR_REPOSITORY:$IMAGE_TAG \
-            $ECR_URI:$IMAGE_TAG
-
-          docker tag \
-            $ECR_REPOSITORY:$IMAGE_TAG \
-            $ECR_URI:latest
-
-
-      # ======================================================
-      # STEP 8
-      # PUSH IMAGE TO ECR
-      # ======================================================
-      #
-      # Two tags are pushed:
-      #
-      #   <commit-sha>
-      #   latest
-      #
-      # Example:
-      #
-      # charlie-cafe:a1b2c3d
-      #
-      # charlie-cafe:latest
-      #
-      # ======================================================
-
-      - name: Push Docker image to ECR
-
-        run: |
-
-          docker push \
-            $ECR_URI:$IMAGE_TAG
-
-          docker push \
-            $ECR_URI:latest
-
-
-      # ======================================================
-      # STEP 9
-      # DISPLAY IMAGE INFORMATION
-      # ======================================================
-
-      - name: Display image information
-
-        run: |
-
-          echo "=========================================="
-
-          echo "Docker image pushed successfully"
-
-          echo "ECR URI:"
-          echo "$ECR_URI"
-
-          echo "Image tag:"
-          echo "$IMAGE_TAG"
-
-          echo "=========================================="
-
-
-# ============================================================
-# JOB 2
-# DEPLOY IMAGE TO ECS
-# ============================================================
-
-  deploy:
-
-    name: Deploy to ECS
-
-    runs-on: ubuntu-latest
-
-
-    # --------------------------------------------------------
-    # This job waits for the Docker job.
-    #
-    # Therefore:
-    #
-    # Docker build
-    #      |
-    #      v
-    # ECR push
-    #      |
-    #      v
-    # ECS deployment
-    #
-    # --------------------------------------------------------
-
-    needs:
-      - docker
-
-
-    steps:
-
-
-      # ======================================================
-      # STEP 1
-      # CONFIGURE AWS
-      # ======================================================
-
-      - name: Configure AWS credentials
-
-        uses: aws-actions/configure-aws-credentials@v4
-
-        with:
-
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
-          aws-region: ${{ env.AWS_REGION }}
-
-
-      # ======================================================
-      # STEP 2
-      # FORCE ECS TO START A NEW DEPLOYMENT
-      # ======================================================
-      #
-      # CloudFormation's Task Definition contains:
-      #
-      # ECR_REPOSITORY:latest
-      #
-      # When GitHub pushes a new "latest" image, ECS may still
-      # have an existing task running the old image.
-      #
-      # force-new-deployment tells ECS:
-      #
-      # "Start a fresh deployment and pull the current image."
-      #
-      # ======================================================
-
-      - name: Deploy new Docker image to ECS
-
-        run: |
-
-          aws ecs update-service \
-            --cluster "$ECS_CLUSTER" \
-            --service "$ECS_SERVICE" \
-            --force-new-deployment
-
-
-      # ======================================================
-      # STEP 3
-      # WAIT FOR ECS SERVICE
-      # ======================================================
-      #
-      # GitHub waits until ECS reports the service is stable.
-      #
-      # ======================================================
+      # ========================================================
 
       - name: Wait for ECS service to stabilize
 
         run: |
 
+          echo "Waiting for ECS service to become stable..."
+
           aws ecs wait services-stable \
             --cluster "$ECS_CLUSTER" \
             --services "$ECS_SERVICE"
 
+          echo ""
 
-      # ======================================================
-      # STEP 4
-      # SHOW ECS SERVICE
-      # ======================================================
+          echo "ECS service is stable."
+
+
+      # ========================================================
+      # STEP 7
+      # DISPLAY FINAL ECS SERVICE STATUS
+      # ========================================================
 
       - name: Show ECS service status
 
         run: |
 
+          echo "=========================================="
+          echo "ECS SERVICE STATUS"
+          echo "=========================================="
+
           aws ecs describe-services \
             --cluster "$ECS_CLUSTER" \
->>>>>>> 1362aa63ac6311b782dc6909582c1e94c853235e
             --services "$ECS_SERVICE"
+
+
+      # ========================================================
+      # STEP 8
+      # DEPLOYMENT COMPLETE
+      # ========================================================
+
+      - name: Deployment complete
+
+        run: |
+
+          echo ""
+          echo "=========================================="
+          echo "Charlie Cafe ECS deployment completed"
+          echo "=========================================="
+
+          echo ""
+          echo "ECR Repository:"
+          echo "$ECR_REPOSITORY"
+
+          echo ""
+          echo "ECS Cluster:"
+          echo "$ECS_CLUSTER"
+
+          echo ""
+          echo "ECS Service:"
+          echo "$ECS_SERVICE"
+
+          echo ""
+          echo "=========================================="
+          echo "Docker image is in ECR."
+          echo "ECS deployment completed."
+          echo "=========================================="
+

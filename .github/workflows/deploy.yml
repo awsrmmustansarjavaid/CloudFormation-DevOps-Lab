@@ -2091,3 +2091,110 @@ jobs:
           echo "Docker job completed successfully."
 
           echo "======================================"  
+
+  # ============================================================
+  # FINAL JOB - TRIGGER ECS + ECR DEPLOYMENT
+  # ============================================================
+  #
+  # This is the FINAL stage of the Charlie Cafe CI/CD pipeline.
+  #
+  # The workflow now becomes:
+  #
+  # CloudFormation
+  #       |
+  #       v
+  # AWS Infrastructure
+  #       |
+  #       v
+  # Docker
+  #       |
+  #       v
+  # Docker Image
+  #       |
+  #       v
+  # ECR
+  #       |
+  #       v
+  # ECS Deployment
+  #
+  # IMPORTANT:
+  #
+  # This job does NOT build the Docker image itself.
+  #
+  # The Docker job has already completed that work.
+  #
+  # This job simply calls:
+  #
+  # .github/workflows/ecs-deploy.yml
+  #
+  # ============================================================
+
+  ecs-deploy:
+
+    name: Trigger ECS Deployment
+
+
+    # ==========================================================
+    # IMPORTANT
+    #
+    # ECS deployment will NOT start until the Docker job
+    # successfully completes.
+    #
+    # Replace "docker" below with the EXACT job ID of your
+    # existing Docker job.
+    #
+    # Example:
+    #
+    # jobs:
+    #
+    #   cloudformation:
+    #
+    #   docker:
+    #
+    #   ecs-deploy:
+    #
+    # ==========================================================
+
+    needs:
+      - docker
+
+
+    # ==========================================================
+    # CALL THE SEPARATE ECS WORKFLOW
+    # ==========================================================
+    #
+    # This calls:
+    #
+    # .github/workflows/ecs-deploy.yml
+    #
+    # Because ecs-deploy.yml contains:
+    #
+    # on:
+    #   workflow_call:
+    #
+    # GitHub allows this workflow to call it.
+    #
+    # ==========================================================
+
+    uses: ./.github/workflows/ecs-deploy.yml
+
+
+    # ==========================================================
+    # IMPORTANT SECURITY NOTE
+    # ==========================================================
+    #
+    # The called workflow needs access to your GitHub Secrets:
+    #
+    # AWS_ACCESS_KEY_ID
+    # AWS_SECRET_ACCESS_KEY
+    # AWS_REGION
+    #
+    # secrets: inherit
+    #
+    # passes the caller workflow's secrets to the reusable
+    # workflow.
+    #
+    # ==========================================================
+
+    secrets: inherit
+
