@@ -9,40 +9,149 @@
 # PURPOSE
 # ------------------------------------------------------------
 #
-# This workflow is ONLY responsible for deploying the Docker
-# image that has ALREADY been built and pushed to ECR by the
-# MAIN GitHub Actions workflow.
+# This workflow is responsible for the COMPLETE ECS deployment
+# process for the Charlie Cafe application.
 #
 #
-# IMPORTANT:
+# The workflow performs the following operations:
+#
+#     1. Checkout repository
+#            |
+#            v
+#     2. Configure AWS credentials
+#            |
+#            v
+#     3. Validate ECS CloudFormation template
+#            |
+#            v
+#     4. Create / Update ECS CloudFormation stack
+#            |
+#            v
+#     5. CloudFormation creates:
+#
+#            ECR
+#            ECS Cluster
+#            IAM Roles
+#            CloudWatch Log Group
+#            VPC Endpoints
+#            Security Groups
+#            ALB
+#            Target Group
+#            Listener
+#            Task Definition
+#            ECS Service
+#
+#            |
+#            v
+#
+#     6. Verify ECR repository
+#            |
+#            v
+#     7. Verify Docker image
+#            |
+#            v
+#     8. Configure ECS service
+#            |
+#            v
+#     9. Force new ECS deployment
+#            |
+#            v
+#    10. Wait for ECS service to become stable
+#            |
+#            v
+#    11. Verify running ECS tasks
+#            |
+#            v
+#    12. Verify ALB target health
+#            |
+#            v
+#    13. Display final deployment information
+#
+#
+# ============================================================
+#
+# IMPORTANT ARCHITECTURE
 # ------------------------------------------------------------
 #
-# Docker build and ECR push are NOT performed here.
+# This workflow does NOT contain the actual ECS infrastructure
+# definitions.
 #
-# The MAIN workflow already handles:
+# The infrastructure is defined in:
+#
+#     templates/ecs.yaml
+#
+#
+# This workflow DEPLOYS that CloudFormation template.
+#
+#
+# Therefore:
+#
+# GitHub Actions
+#       |
+#       v
+# CloudFormation
+#       |
+#       +----------------------+
+#       |                      |
+#       v                      v
+#      ECR                    ECS
+#                             |
+#                    +--------+--------+
+#                    |                 |
+#                    v                 v
+#                  ALB          Fargate Tasks
+#
+#
+# ============================================================
+#
+# DOCKER IMAGE FLOW
+# ------------------------------------------------------------
+#
+# The MAIN workflow should build and push the Docker image:
 #
 #     Dockerfile
+#          |
+#          v
+#     Docker Build
 #          |
 #          v
 #     Docker Image
 #          |
 #          v
-#         ECR
+#     ECR :latest
 #
 #
-# This reusable workflow handles only:
+# This workflow then deploys that image:
 #
 #     ECR
-#       |
-#       v
-#     ECS
-#       |
-#       v
-#     New ECS Deployment
-#       |
-#       v
-#     ECS Stable
+#      |
+#      v
+#     ECS Task Definition
+#      |
+#      v
+#     ECS Fargate
+#      |
+#      v
+#     ALB
 #
+#
+# ============================================================
+#
+# IMPORTANT
+# ------------------------------------------------------------
+#
+# Your ECS CloudFormation template uses:
+#
+#     DesiredCount:
+#       Default: 0
+#
+# That is acceptable.
+#
+# CloudFormation can create the ECS infrastructure while there
+# are zero running tasks.
+#
+# After the ECR image exists, this workflow changes the desired
+# count to 1 and starts the ECS deployment.
 #
 # ============================================================
 
@@ -58,27 +167,44 @@ name: Charlie Cafe - ECS Deployment
 # WORKFLOW TRIGGERS
 # ============================================================
 #
-# There are TWO ways this workflow can start:
+# TWO ways to run this workflow:
 #
 # 1. workflow_call
 #
-#    The MAIN workflow calls this workflow automatically.
+#    The MAIN GitHub Actions workflow can call this workflow.
 #
 # 2. workflow_dispatch
 #
-#    You can manually run this workflow from GitHub Actions.
+#    You can manually run the workflow from:
+#
+#       GitHub
+#          |
+#          v
+#       Actions
+#          |
+#          v
+#       Charlie Cafe - ECS Deployment
+#          |
+#          v
+#       Run workflow
 #
 # ============================================================
 
 on:
 
   # ==========================================================
-  # REUSABLE WORKFLOW TRIGGER
+  # REUSABLE WORKFLOW
   # ==========================================================
   #
-  # The MAIN workflow calls this file using:
+  # MAIN workflow example:
+  #
+  # jobs:
+  #
+  #   ecs:
   #
   #     uses: ./.github/workflows/ecs-deploy.yml
+  #
+  #     secrets: inherit
   #
   # ==========================================================
 
@@ -86,19 +212,7 @@ on:
 
 
   # ==========================================================
-  # MANUAL TRIGGER
-  # ==========================================================
-  #
-  # Allows you to manually run the ECS deployment workflow.
-  #
-  # GitHub:
-  #
-  # Actions
-  #   ↓
-  # Charlie Cafe - ECS Deployment
-  #   ↓
-  # Run workflow
-  #
+  # MANUAL WORKFLOW
   # ==========================================================
 
   workflow_dispatch:
@@ -114,7 +228,7 @@ env:
   # AWS REGION
   # ==========================================================
   #
-  # This comes from your GitHub repository secret:
+  # GitHub repository secret:
   #
   #     AWS_REGION
   #
@@ -128,14 +242,74 @@ env:
 
 
   # ==========================================================
+  # ECS CLOUDFORMATION STACK NAME
+  # ==========================================================
+  #
+  # This stack contains the complete ECS infrastructure.
+  #
+  # CloudFormation creates:
+  #
+  #     ECR
+  #     ECS Cluster
+  #     ECS Service
+  #     Task Definition
+  #     ALB
+  #     Security Groups
+  #     VPC Endpoints
+  #     IAM Roles
+  #     CloudWatch Logs
+  #
+  # ==========================================================
+
+  ECS_STACK_NAME: CharlieCafe-ECS-Stack
+
+
+  # ==========================================================
+  # ECS CLOUDFORMATION TEMPLATE
+  # ==========================================================
+  #
+  # IMPORTANT:
+  #
+  # Make sure your repository contains:
+  #
+  #     templates/ecs.yaml
+  #
+  #
+  # If your file has another name, change this value.
+  #
+  # Example:
+  #
+  #     templates/CharlieCafe-ECS.yaml
+  #
+  # ==========================================================
+
+  ECS_TEMPLATE_FILE: templates/ecs.yaml
+
+
+  # ==========================================================
+  # APPLICATION NAME
+  # ==========================================================
+  #
+  # This is passed to CloudFormation:
+  #
+  #     ApplicationName = CharlieCafe
+  #
+  # ==========================================================
+
+  APPLICATION_NAME: CharlieCafe
+
+
+  # ==========================================================
   # ECR REPOSITORY
   # ==========================================================
   #
-  # CloudFormation creates this repository.
+  # Created by the ECS CloudFormation stack:
   #
-  # Example CloudFormation resource:
+  #     AWS::ECR::Repository
   #
-  #     RepositoryName: charlie-cafe
+  # Repository:
+  #
+  #     charlie-cafe
   #
   # ==========================================================
 
@@ -146,7 +320,7 @@ env:
   # ECS CLUSTER
   # ==========================================================
   #
-  # CloudFormation creates:
+  # Created by CloudFormation:
   #
   #     CharlieCafe-Cluster
   #
@@ -159,13 +333,45 @@ env:
   # ECS SERVICE
   # ==========================================================
   #
-  # CloudFormation creates:
+  # Created by CloudFormation:
   #
   #     CharlieCafe-Service
   #
   # ==========================================================
 
   ECS_SERVICE: CharlieCafe-Service
+
+
+  # ==========================================================
+  # CONTAINER PORT
+  # ==========================================================
+  #
+  # This MUST match the port exposed by your Docker container.
+  #
+  # Your current ECS CloudFormation template uses:
+  #
+  #     Default: 80
+  #
+  # ==========================================================
+
+  CONTAINER_PORT: 80
+
+
+  # ==========================================================
+  # ECS DESIRED COUNT
+  # ==========================================================
+  #
+  # Number of Fargate tasks that should run.
+  #
+  # For this beginner lab:
+  #
+  #     1
+  #
+  # means one ECS task.
+  #
+  # ==========================================================
+
+  ECS_DESIRED_COUNT: 1
 
 
 # ============================================================
@@ -176,45 +382,75 @@ jobs:
 
 
   # ==========================================================
-  # ECS DEPLOYMENT JOB
+  # JOB 1
+  # ECS INFRASTRUCTURE + DEPLOYMENT
   # ==========================================================
   #
-  # IMPORTANT:
+  # This single job performs:
   #
-  # There is NO Docker build here.
-  #
-  # There is NO ECR push here.
-  #
-  # Those operations have already been completed by the
-  # Docker job in the MAIN workflow.
+  #     CloudFormation
+  #          |
+  #          v
+  #     ECR
+  #          |
+  #          v
+  #     ECS
+  #          |
+  #          v
+  #     ALB
+  #          |
+  #          v
+  #     Deployment
   #
   # ==========================================================
 
   deploy:
 
-    name: Deploy Docker Image to ECS
+    name: Create ECS Infrastructure and Deploy Application
 
 
-    # ----------------------------------------------------------
-    # GitHub-hosted Ubuntu runner
-    # ----------------------------------------------------------
+    # ========================================================
+    # GITHUB RUNNER
+    # ========================================================
 
     runs-on: ubuntu-latest
 
 
     # ========================================================
-    # STEP 1
-    # CONFIGURE AWS CREDENTIALS
-    # ========================================================
-    #
-    # The reusable workflow receives the GitHub secrets from
-    # the MAIN workflow through:
-    #
-    #     secrets: inherit
-    #
+    # STEPS
     # ========================================================
 
     steps:
+
+
+      # ======================================================
+      # STEP 1
+      # CHECKOUT REPOSITORY
+      # ======================================================
+      #
+      # Required because this workflow needs to access:
+      #
+      #     templates/ecs.yaml
+      #
+      # ======================================================
+
+      - name: Checkout repository
+
+        uses: actions/checkout@v4
+
+
+      # ======================================================
+      # STEP 2
+      # CONFIGURE AWS CREDENTIALS
+      # ======================================================
+      #
+      # GitHub authenticates to AWS using:
+      #
+      #     AWS_ACCESS_KEY_ID
+      #     AWS_SECRET_ACCESS_KEY
+      #     AWS_REGION
+      #
+      # ======================================================
 
       - name: Configure AWS credentials
 
@@ -229,213 +465,871 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
 
-      # ========================================================
-      # STEP 2
-      # VERIFY ECR IMAGE
-      # ========================================================
+      # ======================================================
+      # STEP 3
+      # DISPLAY AWS ACCOUNT INFORMATION
+      # ======================================================
       #
-      # The MAIN workflow has already pushed the Docker image
-      # into ECR.
+      # This helps verify that GitHub Actions is connected to
+      # the correct AWS account.
       #
-      # This step confirms that the ECR repository contains
-      # images before we ask ECS to deploy.
-      #
-      # ========================================================
+      # ======================================================
 
-      - name: Verify ECR image
+      - name: Verify AWS identity
 
         run: |
 
-          echo "Checking ECR repository..."
+          echo "=========================================="
+          echo "AWS ACCOUNT INFORMATION"
+          echo "=========================================="
+
+          aws sts get-caller-identity
+
+          echo ""
+
+          echo "AWS Region:"
+          echo "$AWS_REGION"
+
+
+      # ======================================================
+      # STEP 4
+      # VERIFY ECS CLOUDFORMATION TEMPLATE
+      # ======================================================
+      #
+      # Before creating the stack, validate the YAML template.
+      #
+      # This catches CloudFormation syntax problems before
+      # attempting to create AWS resources.
+      #
+      # ======================================================
+
+      - name: Validate ECS CloudFormation template
+
+        run: |
+
+          echo "=========================================="
+          echo "VALIDATING ECS CLOUDFORMATION TEMPLATE"
+          echo "=========================================="
+
+          echo "Template:"
+          echo "$ECS_TEMPLATE_FILE"
+
+          echo ""
+
+          aws cloudformation validate-template \
+            --template-body file://"$ECS_TEMPLATE_FILE"
+
+          echo ""
+
+          echo "CloudFormation template validation completed."
+
+
+      # ======================================================
+      # STEP 5
+      # VERIFY REQUIRED NETWORK PARAMETERS
+      # ======================================================
+      #
+      # Your ECS CloudFormation template DOES NOT create the
+      # VPC and subnets.
+      #
+      # It consumes the existing networking infrastructure.
+      #
+      #
+      # Therefore these GitHub Secrets are required:
+      #
+      #     ECS_VPC_ID
+      #     ECS_PUBLIC_SUBNET_1
+      #     ECS_PUBLIC_SUBNET_2
+      #     ECS_PRIVATE_SUBNET_1
+      #     ECS_PRIVATE_SUBNET_2
+      #     ECS_PRIVATE_ROUTE_TABLE_ID
+      #
+      # ======================================================
+
+      - name: Verify ECS network parameters
+
+        shell: bash
+
+        run: |
+
+          echo "=========================================="
+          echo "VERIFYING ECS NETWORK PARAMETERS"
+          echo "=========================================="
+
+          if [ -z "${{ secrets.ECS_VPC_ID }}" ]; then
+            echo "ERROR: ECS_VPC_ID secret is missing."
+            exit 1
+          fi
+
+          if [ -z "${{ secrets.ECS_PUBLIC_SUBNET_1 }}" ]; then
+            echo "ERROR: ECS_PUBLIC_SUBNET_1 secret is missing."
+            exit 1
+          fi
+
+          if [ -z "${{ secrets.ECS_PUBLIC_SUBNET_2 }}" ]; then
+            echo "ERROR: ECS_PUBLIC_SUBNET_2 secret is missing."
+            exit 1
+          fi
+
+          if [ -z "${{ secrets.ECS_PRIVATE_SUBNET_1 }}" ]; then
+            echo "ERROR: ECS_PRIVATE_SUBNET_1 secret is missing."
+            exit 1
+          fi
+
+          if [ -z "${{ secrets.ECS_PRIVATE_SUBNET_2 }}" ]; then
+            echo "ERROR: ECS_PRIVATE_SUBNET_2 secret is missing."
+            exit 1
+          fi
+
+          if [ -z "${{ secrets.ECS_PRIVATE_ROUTE_TABLE_ID }}" ]; then
+            echo "ERROR: ECS_PRIVATE_ROUTE_TABLE_ID secret is missing."
+            exit 1
+          fi
+
+          echo "All required ECS network parameters are available."
+
+
+      # ======================================================
+      # STEP 6
+      # VERIFY VPC
+      # ======================================================
+      #
+      # Confirm that the VPC actually exists.
+      #
+      # ======================================================
+
+      - name: Verify VPC
+
+        run: |
+
+          echo "=========================================="
+          echo "VERIFYING VPC"
+          echo "=========================================="
+
+          aws ec2 describe-vpcs \
+            --vpc-ids "${{ secrets.ECS_VPC_ID }}" \
+            --query 'Vpcs[0].[VpcId,State,CidrBlock]' \
+            --output table
+
+          echo ""
+          echo "VPC verification completed."
+
+
+      # ======================================================
+      # STEP 7
+      # VERIFY SUBNETS
+      # ======================================================
+      #
+      # Confirm that all four subnets exist.
+      #
+      # ======================================================
+
+      - name: Verify ECS subnets
+
+        run: |
+
+          echo "=========================================="
+          echo "VERIFYING ECS SUBNETS"
+          echo "=========================================="
+
+          aws ec2 describe-subnets \
+            --subnet-ids \
+              "${{ secrets.ECS_PUBLIC_SUBNET_1 }}" \
+              "${{ secrets.ECS_PUBLIC_SUBNET_2 }}" \
+              "${{ secrets.ECS_PRIVATE_SUBNET_1 }}" \
+              "${{ secrets.ECS_PRIVATE_SUBNET_2 }}" \
+            --query 'Subnets[].[SubnetId,VpcId,AvailabilityZone,CidrBlock,MapPublicIpOnLaunch]' \
+            --output table
+
+          echo ""
+          echo "Subnet verification completed."
+
+
+      # ======================================================
+      # STEP 8
+      # VERIFY PRIVATE ROUTE TABLE
+      # ======================================================
+      #
+      # The ECS CloudFormation template creates an S3 Gateway
+      # VPC Endpoint using this route table.
+      #
+      # ======================================================
+
+      - name: Verify private route table
+
+        run: |
+
+          echo "=========================================="
+          echo "VERIFYING PRIVATE ROUTE TABLE"
+          echo "=========================================="
+
+          aws ec2 describe-route-tables \
+            --route-table-ids "${{ secrets.ECS_PRIVATE_ROUTE_TABLE_ID }}" \
+            --query 'RouteTables[0].[RouteTableId,VpcId]' \
+            --output table
+
+          echo ""
+          echo "Private route table verification completed."
+
+
+      # ======================================================
+      # STEP 9
+      # CREATE / UPDATE ECS CLOUDFORMATION STACK
+      # ======================================================
+      #
+      # THIS IS THE MOST IMPORTANT STEP.
+      #
+      # CloudFormation creates or updates:
+      #
+      #     1. ECR Repository
+      #     2. ECS Cluster
+      #     3. CloudWatch Log Group
+      #     4. ECS Task Execution Role
+      #     5. ECS Task Role
+      #     6. VPC Endpoint Security Group
+      #     7. ECR API Endpoint
+      #     8. ECR DKR Endpoint
+      #     9. S3 Gateway Endpoint
+      #    10. CloudWatch Logs Endpoint
+      #    11. ALB Security Group
+      #    12. ECS Task Security Group
+      #    13. Application Load Balancer
+      #    14. ALB Target Group
+      #    15. ALB Listener
+      #    16. ECS Task Definition
+      #    17. ECS Fargate Service
+      #
+      #
+      # The ECR repository is therefore created BEFORE the
+      # deployment attempts to use it.
+      #
+      # ======================================================
+
+      - name: Create or update ECS CloudFormation stack
+
+        run: |
+
+          echo "=========================================="
+          echo "DEPLOYING ECS CLOUDFORMATION STACK"
+          echo "=========================================="
+
+          echo ""
+          echo "Stack:"
+          echo "$ECS_STACK_NAME"
+
+          echo ""
+          echo "Template:"
+          echo "$ECS_TEMPLATE_FILE"
+
+          echo ""
+          echo "Starting CloudFormation deployment..."
+
+          aws cloudformation deploy \
+            --stack-name "$ECS_STACK_NAME" \
+            --template-file "$ECS_TEMPLATE_FILE" \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+              VpcId="${{ secrets.ECS_VPC_ID }}" \
+              PublicSubnet1="${{ secrets.ECS_PUBLIC_SUBNET_1 }}" \
+              PublicSubnet2="${{ secrets.ECS_PUBLIC_SUBNET_2 }}" \
+              PrivateSubnet1="${{ secrets.ECS_PRIVATE_SUBNET_1 }}" \
+              PrivateSubnet2="${{ secrets.ECS_PRIVATE_SUBNET_2 }}" \
+              PrivateRouteTableId="${{ secrets.ECS_PRIVATE_ROUTE_TABLE_ID }}" \
+              ApplicationName="$APPLICATION_NAME" \
+              ContainerPort="$CONTAINER_PORT" \
+              TaskCpu="256" \
+              TaskMemory="512" \
+              DesiredCount="0"
+
+          echo ""
+          echo "=========================================="
+          echo "ECS CLOUDFORMATION STACK DEPLOYED"
+          echo "=========================================="
+
+
+      # ======================================================
+      # STEP 10
+      # VERIFY CLOUDFORMATION STACK
+      # ======================================================
+      #
+      # Confirm the stack reached CREATE_COMPLETE or
+      # UPDATE_COMPLETE.
+      #
+      # ======================================================
+
+      - name: Verify ECS CloudFormation stack
+
+        run: |
+
+          echo "=========================================="
+          echo "ECS CLOUDFORMATION STACK STATUS"
+          echo "=========================================="
+
+          aws cloudformation describe-stacks \
+            --stack-name "$ECS_STACK_NAME" \
+            --query 'Stacks[0].[StackName,StackStatus]' \
+            --output table
+
+          echo ""
+
+          STACK_STATUS=$(aws cloudformation describe-stacks \
+            --stack-name "$ECS_STACK_NAME" \
+            --query 'Stacks[0].StackStatus' \
+            --output text)
+
+          echo "Current stack status:"
+          echo "$STACK_STATUS"
+
+          case "$STACK_STATUS" in
+
+            CREATE_COMPLETE)
+              echo "ECS stack created successfully."
+              ;;
+
+            UPDATE_COMPLETE)
+              echo "ECS stack updated successfully."
+              ;;
+
+            *)
+              echo "ERROR: Unexpected CloudFormation status: $STACK_STATUS"
+              exit 1
+              ;;
+
+          esac
+
+
+      # ======================================================
+      # STEP 11
+      # DISPLAY CLOUDFORMATION OUTPUTS
+      # ======================================================
+      #
+      # The ECS template outputs:
+      #
+      #     ECR Repository Name
+      #     ECR Repository URI
+      #     ECS Cluster
+      #     ECS Service
+      #     Task Definition
+      #     ALB DNS
+      #     Application URL
+      #     Security Group IDs
+      #
+      # ======================================================
+
+      - name: Display ECS CloudFormation outputs
+
+        run: |
+
+          echo "=========================================="
+          echo "ECS CLOUDFORMATION OUTPUTS"
+          echo "=========================================="
+
+          aws cloudformation describe-stacks \
+            --stack-name "$ECS_STACK_NAME" \
+            --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
+            --output table
+
+
+      # ======================================================
+      # STEP 12
+      # VERIFY ECR REPOSITORY
+      # ======================================================
+      #
+      # At this point CloudFormation has created:
+      #
+      #     charlie-cafe
+      #
+      # ======================================================
+
+      - name: Verify ECR repository
+
+        run: |
+
+          echo "=========================================="
+          echo "VERIFYING ECR REPOSITORY"
+          echo "=========================================="
 
           aws ecr describe-repositories \
-            --repository-names "$ECR_REPOSITORY"
+            --repository-names "$ECR_REPOSITORY" \
+            --query 'repositories[0].[repositoryName,repositoryUri,imageTagMutability]' \
+            --output table
 
           echo ""
+          echo "ECR repository exists."
 
-          echo "Checking ECR images..."
 
-          aws ecr describe-images \
-            --repository-name "$ECR_REPOSITORY"
+      # ======================================================
+      # STEP 13
+      # VERIFY ECR IMAGE
+      # ======================================================
+      #
+      # The MAIN workflow should have already built and pushed:
+      #
+      #     charlie-cafe:latest
+      #
+      #
+      # If this workflow is called AFTER the Docker push,
+      # this image should already exist.
+      #
+      # ======================================================
+
+      - name: Verify ECR latest image
+
+        shell: bash
+
+        run: |
+
+          echo "=========================================="
+          echo "VERIFYING ECR DOCKER IMAGE"
+          echo "=========================================="
+
+          IMAGE_COUNT=$(aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY" \
+            --filter tagStatus=TAGGED \
+            --query 'imageDetails[?contains(imageTags, `latest`)] | length(@)' \
+            --output text)
+
+          echo "Latest image count:"
+          echo "$IMAGE_COUNT"
+
+          if [ "$IMAGE_COUNT" -eq 0 ]; then
+
+            echo ""
+            echo "ERROR: charlie-cafe:latest was not found in ECR."
+            echo ""
+            echo "The ECS infrastructure exists, but the Docker image"
+            echo "has not been pushed to ECR yet."
+            echo ""
+            echo "Expected image:"
+            echo "charlie-cafe:latest"
+
+            exit 1
+
+          fi
 
           echo ""
+          echo "ECR latest image exists."
 
-          echo "ECR image verification completed."
 
-
-      # ========================================================
-      # STEP 3
+      # ======================================================
+      # STEP 14
       # VERIFY ECS CLUSTER
-      # ========================================================
-      #
-      # CloudFormation creates the ECS cluster.
-      #
-      # We do NOT create the cluster here.
-      #
-      # ========================================================
+      # ======================================================
 
       - name: Verify ECS cluster
 
         run: |
 
-          echo "Checking ECS cluster..."
+          echo "=========================================="
+          echo "VERIFYING ECS CLUSTER"
+          echo "=========================================="
 
           aws ecs describe-clusters \
-            --clusters "$ECS_CLUSTER"
+            --clusters "$ECS_CLUSTER" \
+            --query 'clusters[0].[clusterName,status,activeServicesCount,runningTasksCount]' \
+            --output table
 
           echo ""
-
           echo "ECS cluster exists."
 
 
-      # ========================================================
-      # STEP 4
+      # ======================================================
+      # STEP 15
       # VERIFY ECS SERVICE
-      # ========================================================
+      # ======================================================
       #
-      # CloudFormation creates the ECS service.
+      # CloudFormation created the service with:
       #
-      # We do NOT create the service here.
+      #     DesiredCount = 0
       #
-      # ========================================================
+      # Now we will start the application.
+      #
+      # ======================================================
 
       - name: Verify ECS service
 
         run: |
 
-          echo "Checking ECS service..."
+          echo "=========================================="
+          echo "VERIFYING ECS SERVICE"
+          echo "=========================================="
 
           aws ecs describe-services \
             --cluster "$ECS_CLUSTER" \
-            --services "$ECS_SERVICE"
+            --services "$ECS_SERVICE" \
+            --query 'services[0].[serviceName,status,desiredCount,runningCount,pendingCount]' \
+            --output table
 
           echo ""
-
           echo "ECS service exists."
 
 
-      # ========================================================
-      # STEP 5
+      # ======================================================
+      # STEP 16
+      # START ECS SERVICE
+      # ======================================================
+      #
+      # IMPORTANT:
+      #
+      # Your CloudFormation template intentionally creates
+      # the ECS service with:
+      #
+      #     DesiredCount = 0
+      #
+      #
+      # We now change it to:
+      #
+      #     DesiredCount = 1
+      #
+      #
+      # This causes ECS to start one Fargate task.
+      #
+      # ======================================================
+
+      - name: Start ECS service
+
+        run: |
+
+          echo "=========================================="
+          echo "STARTING ECS FARGATE SERVICE"
+          echo "=========================================="
+
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE" \
+            --desired-count "$ECS_DESIRED_COUNT"
+
+          echo ""
+          echo "ECS desired count changed to:"
+          echo "$ECS_DESIRED_COUNT"
+
+
+      # ======================================================
+      # STEP 17
       # FORCE NEW ECS DEPLOYMENT
-      # ========================================================
+      # ======================================================
       #
-      # This is the MAIN purpose of this workflow.
-      #
-      #
-      # The MAIN workflow has already done:
-      #
-      #     Docker build
-      #          |
-      #          v
-      #     Docker image
-      #          |
-      #          v
-      #         ECR
-      #
-      #
-      # Now we tell ECS:
-      #
-      #     "Start a new deployment."
-      #
-      #
-      # This is especially important when your ECS task
+      # This is especially important because your task
       # definition uses:
       #
       #     :latest
       #
-      # because pushing a new image to the same ECR tag does
-      # not by itself replace the already-running ECS task.
       #
-      # ========================================================
+      # ECR:
+      #
+      #     charlie-cafe:latest
+      #
+      #
+      # may point to a new Docker image.
+      #
+      # ECS does not automatically restart an existing task
+      # simply because the same ECR tag was overwritten.
+      #
+      #
+      # Therefore:
+      #
+      #     --force-new-deployment
+      #
+      # tells ECS to start a fresh deployment and pull the
+      # current image.
+      #
+      # ======================================================
 
       - name: Force new ECS deployment
 
         run: |
 
-          echo "Starting new ECS deployment..."
+          echo "=========================================="
+          echo "STARTING NEW ECS DEPLOYMENT"
+          echo "=========================================="
 
           aws ecs update-service \
             --cluster "$ECS_CLUSTER" \
             --service "$ECS_SERVICE" \
+            --desired-count "$ECS_DESIRED_COUNT" \
             --force-new-deployment
 
           echo ""
+          echo "New ECS deployment started."
 
-          echo "ECS deployment started."
 
-
-      # ========================================================
-      # STEP 6
+      # ======================================================
+      # STEP 18
       # WAIT FOR ECS SERVICE TO STABILIZE
-      # ========================================================
+      # ======================================================
       #
-      # GitHub now waits while ECS:
+      # ECS now performs:
       #
-      #     starts new task
-      #          |
-      #          v
-      #     pulls image from ECR
-      #          |
-      #          v
-      #     starts container
-      #          |
-      #          v
+      #     ECS
+      #      |
+      #      v
+      #     Start Fargate task
+      #      |
+      #      v
+      #     Pull image from ECR
+      #      |
+      #      v
+      #     Start Docker container
+      #      |
+      #      v
+      #     Register task with ALB
+      #      |
+      #      v
       #     ALB health check
-      #          |
-      #          v
-      #     task becomes healthy
-      #          |
-      #          v
+      #      |
+      #      v
+      #     Target becomes healthy
+      #      |
+      #      v
       #     ECS service stable
       #
-      # ========================================================
+      # ======================================================
 
       - name: Wait for ECS service to stabilize
 
         run: |
 
-          echo "Waiting for ECS service to become stable..."
+          echo "=========================================="
+          echo "WAITING FOR ECS SERVICE TO STABILIZE"
+          echo "=========================================="
 
           aws ecs wait services-stable \
             --cluster "$ECS_CLUSTER" \
             --services "$ECS_SERVICE"
 
           echo ""
+          echo "=========================================="
+          echo "ECS SERVICE IS STABLE"
+          echo "=========================================="
 
-          echo "ECS service is stable."
 
-
-      # ========================================================
-      # STEP 7
+      # ======================================================
+      # STEP 19
       # DISPLAY FINAL ECS SERVICE STATUS
-      # ========================================================
+      # ======================================================
 
-      - name: Show ECS service status
+      - name: Show final ECS service status
 
         run: |
 
           echo "=========================================="
-          echo "ECS SERVICE STATUS"
+          echo "FINAL ECS SERVICE STATUS"
           echo "=========================================="
 
           aws ecs describe-services \
             --cluster "$ECS_CLUSTER" \
-            --services "$ECS_SERVICE"
+            --services "$ECS_SERVICE" \
+            --query 'services[0].[serviceName,status,desiredCount,runningCount,pendingCount]' \
+            --output table
 
 
-      # ========================================================
-      # STEP 8
-      # DEPLOYMENT COMPLETE
-      # ========================================================
+      # ======================================================
+      # STEP 20
+      # SHOW RUNNING ECS TASKS
+      # ======================================================
+      #
+      # This confirms that the Fargate task actually started.
+      #
+      # ======================================================
+
+      - name: Show running ECS tasks
+
+        run: |
+
+          echo "=========================================="
+          echo "RUNNING ECS TASKS"
+          echo "=========================================="
+
+          TASK_ARNS=$(aws ecs list-tasks \
+            --cluster "$ECS_CLUSTER" \
+            --service-name "$ECS_SERVICE" \
+            --desired-status RUNNING \
+            --query 'taskArns' \
+            --output text)
+
+          if [ -z "$TASK_ARNS" ]; then
+
+            echo "ERROR: No running ECS tasks were found."
+            exit 1
+
+          fi
+
+          aws ecs describe-tasks \
+            --cluster "$ECS_CLUSTER" \
+            --tasks $TASK_ARNS \
+            --query 'tasks[*].[taskArn,lastStatus,healthStatus,taskDefinition]' \
+            --output table
+
+          echo ""
+          echo "Running ECS task verification completed."
+
+
+      # ======================================================
+      # STEP 21
+      # SHOW ECS TASK DEFINITION
+      # ======================================================
+      #
+      # Displays the task definition currently used by the
+      # ECS service.
+      #
+      # ======================================================
+
+      - name: Show ECS task definition
+
+        run: |
+
+          echo "=========================================="
+          echo "ECS TASK DEFINITION"
+          echo "=========================================="
+
+          aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --query 'services[0].taskDefinition' \
+            --output text
+
+
+      # ======================================================
+      # STEP 22
+      # GET ALB DNS NAME
+      # ======================================================
+      #
+      # The CloudFormation template creates:
+      #
+      #     CharlieCafe-ALB
+      #
+      #
+      # The application will be accessible through the ALB:
+      #
+      #     http://<ALB-DNS-NAME>
+      #
+      # ======================================================
+
+      - name: Get ALB information
+
+        id: alb
+
+        shell: bash
+
+        run: |
+
+          echo "=========================================="
+          echo "GETTING APPLICATION LOAD BALANCER"
+          echo "=========================================="
+
+          ALB_DNS=$(aws cloudformation describe-stacks \
+            --stack-name "$ECS_STACK_NAME" \
+            --query "Stacks[0].Outputs[?OutputKey=='ALBDNSName'].OutputValue" \
+            --output text)
+
+          APPLICATION_URL=$(aws cloudformation describe-stacks \
+            --stack-name "$ECS_STACK_NAME" \
+            --query "Stacks[0].Outputs[?OutputKey=='ApplicationURL'].OutputValue" \
+            --output text)
+
+          echo "ALB DNS:"
+          echo "$ALB_DNS"
+
+          echo ""
+          echo "Application URL:"
+          echo "$APPLICATION_URL"
+
+          echo "application_url=$APPLICATION_URL" >> "$GITHUB_OUTPUT"
+
+
+      # ======================================================
+      # STEP 23
+      # VERIFY ALB TARGET GROUP
+      # ======================================================
+      #
+      # The ECS task must become healthy behind the ALB.
+      #
+      # ======================================================
+
+      - name: Verify ALB target health
+
+        shell: bash
+
+        run: |
+
+          echo "=========================================="
+          echo "VERIFYING ALB TARGET HEALTH"
+          echo "=========================================="
+
+          TARGET_GROUP_ARN=$(aws cloudformation describe-stack-resources \
+            --stack-name "$ECS_STACK_NAME" \
+            --logical-resource-id ALBTargetGroup \
+            --query 'StackResources[0].PhysicalResourceId' \
+            --output text)
+
+          echo "Target Group:"
+          echo "$TARGET_GROUP_ARN"
+
+          echo ""
+
+          aws elbv2 describe-target-health \
+            --target-group-arn "$TARGET_GROUP_ARN" \
+            --query 'TargetHealthDescriptions[*].[Target.Id,Target.Port,TargetHealth.State,TargetHealth.Reason]' \
+            --output table
+
+          echo ""
+          echo "ALB target health check completed."
+
+
+      # ======================================================
+      # STEP 24
+      # DISPLAY CLOUDWATCH LOG GROUP
+      # ======================================================
+      #
+      # ECS container stdout/stderr is sent to:
+      #
+      #     /ecs/charlie-cafe
+      #
+      # ======================================================
+
+      - name: Verify CloudWatch log group
+
+        run: |
+
+          echo "=========================================="
+          echo "VERIFYING CLOUDWATCH LOG GROUP"
+          echo "=========================================="
+
+          aws logs describe-log-groups \
+            --log-group-name-prefix "/ecs/charlie-cafe" \
+            --query 'logGroups[*].[logGroupName,retentionInDays]' \
+            --output table
+
+          echo ""
+          echo "CloudWatch Logs verification completed."
+
+
+      # ======================================================
+      # STEP 25
+      # FINAL DEPLOYMENT SUMMARY
+      # ======================================================
+      #
+      # This is the final human-readable deployment report.
+      #
+      # ======================================================
 
       - name: Deployment complete
 
         run: |
 
           echo ""
-          echo "=========================================="
-          echo "Charlie Cafe ECS deployment completed"
-          echo "=========================================="
+          echo ""
+          echo "======================================================"
+          echo "        CHARLIE CAFE ECS DEPLOYMENT COMPLETE"
+          echo "======================================================"
+
+          echo ""
+          echo "AWS Region:"
+          echo "$AWS_REGION"
+
+          echo ""
+          echo "CloudFormation Stack:"
+          echo "$ECS_STACK_NAME"
 
           echo ""
           echo "ECR Repository:"
@@ -450,8 +1344,37 @@ jobs:
           echo "$ECS_SERVICE"
 
           echo ""
-          echo "=========================================="
-          echo "Docker image is in ECR."
-          echo "ECS deployment completed."
-          echo "=========================================="
+          echo "Desired Tasks:"
+          echo "$ECS_DESIRED_COUNT"
 
+          echo ""
+          echo "Container Port:"
+          echo "$CONTAINER_PORT"
+
+          echo ""
+          echo "Application URL:"
+          echo "${{ steps.alb.outputs.application_url }}"
+
+          echo ""
+          echo "======================================================"
+          echo "Infrastructure:"
+          echo "  CloudFormation      : SUCCESS"
+          echo "  ECR Repository      : SUCCESS"
+          echo "  ECS Cluster         : SUCCESS"
+          echo "  ECS Service         : SUCCESS"
+          echo "  Task Definition     : SUCCESS"
+          echo "  Application Load Balancer : SUCCESS"
+          echo "  VPC Endpoints       : SUCCESS"
+          echo "  Security Groups     : SUCCESS"
+          echo "  IAM Roles           : SUCCESS"
+          echo "  CloudWatch Logs     : SUCCESS"
+          echo ""
+          echo "Application:"
+          echo "  Docker Image        : SUCCESS"
+          echo "  ECS Deployment      : SUCCESS"
+          echo "  Fargate Task        : SUCCESS"
+          echo "  ECS Service Stable  : SUCCESS"
+          echo "======================================================"
+          echo ""
+          echo "Charlie Cafe is now running on ECS Fargate."
+          echo "======================================================"
