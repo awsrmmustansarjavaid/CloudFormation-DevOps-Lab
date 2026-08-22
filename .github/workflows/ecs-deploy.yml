@@ -17,7 +17,7 @@
 #     3. Verify AWS account
 #     4. Validate CloudFormation template
 #     5. Verify VPC and subnet infrastructure
-#     6. Create / update ECR + ECS CloudFormation stack
+#     6. Create / update ECS + ECR CloudFormation stack
 #     7. Verify ECR repository
 #     8. Login to ECR
 #     9. Build Docker image
@@ -31,7 +31,8 @@
 #    17. Verify running ECS task
 #    18. Verify ALB target health
 #    19. Test application URL
-#    20. Display final deployment summary
+#    20. Verify CloudWatch Logs
+#    21. Display final deployment summary
 #
 #
 # IMPORTANT
@@ -42,7 +43,28 @@
 #     templates/aws-ecs-ecr.yaml
 #
 #
-# The existing VPC/subnets are supplied through GitHub Secrets.
+# Existing VPC/subnets are supplied through GitHub Secrets.
+#
+#
+# IMPORTANT REUSABLE WORKFLOW RULE
+# ------------------------------------------------------------
+#
+# This file is a reusable workflow because it supports:
+#
+#     workflow_call
+#
+# Therefore the secrets used by workflow_call MUST be declared
+# explicitly below.
+#
+# The caller workflow (deploy.yml) may use:
+#
+#     secrets: inherit
+#
+# But THIS file must NOT use:
+#
+#     secrets: inherit
+#
+# under workflow_call.
 #
 #
 # ============================================================
@@ -58,16 +80,52 @@ name: Charlie Cafe - ECS Deployment
 on:
 
   # ----------------------------------------------------------
-  # Allows another workflow to call this workflow.
+  # Reusable workflow trigger.
+  #
+  # The calling workflow can pass the repository secrets.
+  #
   # ----------------------------------------------------------
 
   workflow_call:
 
-    secrets: inherit
+    secrets:
+
+      AWS_ACCESS_KEY_ID:
+        required: true
+
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+
+      AWS_REGION:
+        required: true
+
+      ECS_VPC_ID:
+        required: true
+
+      ECS_PUBLIC_SUBNET_1:
+        required: true
+
+      ECS_PUBLIC_SUBNET_2:
+        required: true
+
+      ECS_PRIVATE_SUBNET_1:
+        required: true
+
+      ECS_PRIVATE_SUBNET_2:
+        required: true
+
+      ECS_PRIVATE_ROUTE_TABLE_ID:
+        required: true
 
 
   # ----------------------------------------------------------
-  # Allows manual execution from GitHub Actions.
+  # Allows manual execution from:
+  #
+  # GitHub
+  #   -> Actions
+  #   -> Charlie Cafe - ECS Deployment
+  #   -> Run workflow
+  #
   # ----------------------------------------------------------
 
   workflow_dispatch:
@@ -93,7 +151,7 @@ env:
 
 
   # ----------------------------------------------------------
-  # CLOUDFORMATION STACK
+  # CLOUDFORMATION STACK NAME
   # ----------------------------------------------------------
 
   ECS_STACK_NAME: CharlieCafe-ECS-Stack
@@ -138,7 +196,7 @@ env:
   # CONTAINER PORT
   # ----------------------------------------------------------
   #
-  # MUST match the port used by the Docker container.
+  # This MUST match the port exposed by the Docker container.
   #
   # ----------------------------------------------------------
 
@@ -161,6 +219,17 @@ env:
 
   # ----------------------------------------------------------
   # ECS DESIRED COUNT
+  # ----------------------------------------------------------
+  #
+  # CloudFormation initially creates the service with:
+  #
+  #     DesiredCount = 0
+  #
+  # After the Docker image is pushed, this workflow changes it
+  # to:
+  #
+  #     DesiredCount = 1
+  #
   # ----------------------------------------------------------
 
   ECS_DESIRED_COUNT: 1
@@ -216,7 +285,7 @@ jobs:
       # CONFIGURE AWS CREDENTIALS
       # ======================================================
       #
-      # GitHub authenticates to AWS using:
+      # GitHub Actions authenticates to AWS using:
       #
       #     AWS_ACCESS_KEY_ID
       #     AWS_SECRET_ACCESS_KEY
@@ -241,10 +310,11 @@ jobs:
       # VERIFY AWS IDENTITY
       # ======================================================
       #
-      # This is extremely important.
+      # This confirms GitHub Actions is using the AWS account
+      # that you expect.
       #
-      # It confirms GitHub Actions is using the same AWS
-      # account you are using from PowerShell.
+      # This is especially important because your PowerShell
+      # deployment already works.
       #
       # ======================================================
 
@@ -253,6 +323,8 @@ jobs:
         shell: bash
 
         run: |
+
+          set -e
 
           echo "=================================================="
           echo "AWS IDENTITY"
@@ -273,12 +345,12 @@ jobs:
 
       # ======================================================
       # STEP 4
-      # VERIFY REQUIRED SECRETS
+      # VERIFY REQUIRED GITHUB SECRETS
       # ======================================================
       #
-      # We intentionally DO NOT print secret values.
+      # Secret VALUES are never printed.
       #
-      # We only verify that they exist.
+      # We only check that the secrets exist.
       #
       # ======================================================
 
@@ -288,66 +360,69 @@ jobs:
 
         run: |
 
+          set -e
+
           echo "=================================================="
           echo "VERIFYING REQUIRED GITHUB SECRETS"
           echo "=================================================="
 
 
-          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ]; then
+          test -n "${{ secrets.AWS_ACCESS_KEY_ID }}" || {
             echo "ERROR: AWS_ACCESS_KEY_ID is missing."
             exit 1
-          fi
+          }
 
 
-          if [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]; then
+          test -n "${{ secrets.AWS_SECRET_ACCESS_KEY }}" || {
             echo "ERROR: AWS_SECRET_ACCESS_KEY is missing."
             exit 1
-          fi
+          }
 
 
-          if [ -z "${{ secrets.AWS_REGION }}" ]; then
+          test -n "${{ secrets.AWS_REGION }}" || {
             echo "ERROR: AWS_REGION is missing."
             exit 1
-          fi
+          }
 
 
-          if [ -z "${{ secrets.ECS_VPC_ID }}" ]; then
+          test -n "${{ secrets.ECS_VPC_ID }}" || {
             echo "ERROR: ECS_VPC_ID is missing."
             exit 1
-          fi
+          }
 
 
-          if [ -z "${{ secrets.ECS_PUBLIC_SUBNET_1 }}" ]; then
+          test -n "${{ secrets.ECS_PUBLIC_SUBNET_1 }}" || {
             echo "ERROR: ECS_PUBLIC_SUBNET_1 is missing."
             exit 1
-          fi
+          }
 
 
-          if [ -z "${{ secrets.ECS_PUBLIC_SUBNET_2 }}" ]; then
+          test -n "${{ secrets.ECS_PUBLIC_SUBNET_2 }}" || {
             echo "ERROR: ECS_PUBLIC_SUBNET_2 is missing."
             exit 1
-          fi
+          }
 
 
-          if [ -z "${{ secrets.ECS_PRIVATE_SUBNET_1 }}" ]; then
+          test -n "${{ secrets.ECS_PRIVATE_SUBNET_1 }}" || {
             echo "ERROR: ECS_PRIVATE_SUBNET_1 is missing."
             exit 1
-          fi
+          }
 
 
-          if [ -z "${{ secrets.ECS_PRIVATE_SUBNET_2 }}" ]; then
+          test -n "${{ secrets.ECS_PRIVATE_SUBNET_2 }}" || {
             echo "ERROR: ECS_PRIVATE_SUBNET_2 is missing."
             exit 1
-          fi
+          }
 
 
-          if [ -z "${{ secrets.ECS_PRIVATE_ROUTE_TABLE_ID }}" ]; then
+          test -n "${{ secrets.ECS_PRIVATE_ROUTE_TABLE_ID }}" || {
             echo "ERROR: ECS_PRIVATE_ROUTE_TABLE_ID is missing."
             exit 1
-          fi
+          }
 
 
           echo ""
+
           echo "All required secrets are available."
 
 
@@ -362,22 +437,29 @@ jobs:
 
         run: |
 
+          set -e
+
           echo "=================================================="
           echo "VERIFYING CLOUDFORMATION TEMPLATE"
           echo "=================================================="
 
+
           if [ ! -f "$ECS_TEMPLATE_FILE" ]; then
 
             echo ""
+
             echo "ERROR:"
             echo "CloudFormation template was not found."
 
             echo ""
+
             echo "Expected:"
             echo "$ECS_TEMPLATE_FILE"
 
             echo ""
-            echo "Repository files:"
+
+            echo "Repository templates:"
+
             find templates -maxdepth 2 -type f -print 2>/dev/null || true
 
             exit 1
@@ -386,6 +468,7 @@ jobs:
 
 
           echo ""
+
           echo "Template found:"
           echo "$ECS_TEMPLATE_FILE"
 
@@ -401,15 +484,20 @@ jobs:
 
         run: |
 
+          set -e
+
           echo "=================================================="
           echo "VALIDATING CLOUDFORMATION TEMPLATE"
           echo "=================================================="
+
 
           aws cloudformation validate-template \
             --region "$AWS_REGION" \
             --template-body "file://$ECS_TEMPLATE_FILE"
 
+
           echo ""
+
           echo "CloudFormation template validation SUCCESS."
 
 
@@ -424,9 +512,12 @@ jobs:
 
         run: |
 
+          set -e
+
           echo "=================================================="
           echo "VERIFYING VPC"
           echo "=================================================="
+
 
           aws ec2 describe-vpcs \
             --region "$AWS_REGION" \
@@ -434,7 +525,9 @@ jobs:
             --query 'Vpcs[0].[VpcId,State,CidrBlock]' \
             --output table
 
+
           echo ""
+
           echo "VPC verification SUCCESS."
 
 
@@ -449,9 +542,12 @@ jobs:
 
         run: |
 
+          set -e
+
           echo "=================================================="
           echo "VERIFYING ECS SUBNETS"
           echo "=================================================="
+
 
           aws ec2 describe-subnets \
             --region "$AWS_REGION" \
@@ -463,7 +559,9 @@ jobs:
             --query 'Subnets[].[SubnetId,VpcId,AvailabilityZone,CidrBlock,MapPublicIpOnLaunch]' \
             --output table
 
+
           echo ""
+
           echo "Subnet verification SUCCESS."
 
 
@@ -478,9 +576,12 @@ jobs:
 
         run: |
 
+          set -e
+
           echo "=================================================="
           echo "VERIFYING PRIVATE ROUTE TABLE"
           echo "=================================================="
+
 
           aws ec2 describe-route-tables \
             --region "$AWS_REGION" \
@@ -488,7 +589,9 @@ jobs:
             --query 'RouteTables[0].[RouteTableId,VpcId]' \
             --output table
 
+
           echo ""
+
           echo "Private route table verification SUCCESS."
 
 
@@ -497,22 +600,31 @@ jobs:
       # CREATE / UPDATE ECS CLOUDFORMATION STACK
       # ======================================================
       #
-      # THIS COMMAND IS INTENTIONALLY VERY CLOSE TO YOUR
-      # SUCCESSFUL POWERSHELL COMMAND.
+      # This command intentionally matches your successful
+      # PowerShell deployment.
       #
-      # PowerShell:
+      # PowerShell equivalent:
       #
       # aws cloudformation deploy `
       #   --region $AWS_REGION `
       #   --stack-name $ECS_STACK_NAME `
       #   --template-file $ECS_TEMPLATE_FILE `
+      #   --capabilities CAPABILITY_NAMED_IAM `
+      #   --parameter-overrides `
+      #     VpcId=$VPC_ID `
+      #     PublicSubnet1=$PUBLIC_SUBNET_1 `
+      #     PublicSubnet2=$PUBLIC_SUBNET_2 `
+      #     PrivateSubnet1=$PRIVATE_SUBNET_1 `
+      #     PrivateSubnet2=$PRIVATE_SUBNET_2 `
+      #     PrivateRouteTableId=$PRIVATE_ROUTE_TABLE_ID `
+      #     ApplicationName=$APPLICATION_NAME `
+      #     ContainerPort=$CONTAINER_PORT `
+      #     TaskCpu=256 `
+      #     TaskMemory=512 `
+      #     DesiredCount=0
       #
-      # GitHub Actions:
-      #
-      # aws cloudformation deploy \
-      #   --region "$AWS_REGION" \
-      #   --stack-name "$ECS_STACK_NAME" \
-      #   --template-file "$ECS_TEMPLATE_FILE"
+      # GitHub Actions uses Bash, therefore '\' is used instead
+      # of PowerShell's '`' continuation character.
       #
       # ======================================================
 
@@ -522,28 +634,41 @@ jobs:
 
         run: |
 
+          set -e
+
           echo "=================================================="
           echo "CREATING / UPDATING ECS CLOUDFORMATION STACK"
           echo "=================================================="
 
+
           echo ""
+
           echo "AWS Region:"
           echo "$AWS_REGION"
 
+
           echo ""
+
           echo "Stack:"
           echo "$ECS_STACK_NAME"
 
+
           echo ""
+
           echo "Template:"
           echo "$ECS_TEMPLATE_FILE"
 
+
           echo ""
+
           echo "VPC:"
           echo "${{ secrets.ECS_VPC_ID }}"
 
+
           echo ""
+
           echo "Starting CloudFormation deployment..."
+
 
           aws cloudformation deploy \
             --region "$AWS_REGION" \
@@ -563,7 +688,9 @@ jobs:
               TaskMemory="$TASK_MEMORY" \
               DesiredCount="0"
 
+
           echo ""
+
           echo "=================================================="
           echo "ECS CLOUDFORMATION DEPLOYMENT SUCCESS"
           echo "=================================================="
@@ -580,9 +707,12 @@ jobs:
 
         run: |
 
+          set -e
+
           echo "=================================================="
           echo "VERIFYING ECS CLOUDFORMATION STACK"
           echo "=================================================="
+
 
           STACK_STATUS=$(aws cloudformation describe-stacks \
             --region "$AWS_REGION" \
@@ -592,10 +722,13 @@ jobs:
 
 
           echo ""
+
           echo "Stack:"
           echo "$ECS_STACK_NAME"
 
+
           echo ""
+
           echo "Status:"
           echo "$STACK_STATUS"
 
@@ -605,31 +738,41 @@ jobs:
             CREATE_COMPLETE)
 
               echo ""
+
               echo "ECS stack CREATED successfully."
 
               ;;
 
+
             UPDATE_COMPLETE)
 
               echo ""
+
               echo "ECS stack UPDATED successfully."
 
               ;;
 
+
             *)
 
               echo ""
+
               echo "ERROR: Unexpected CloudFormation status."
+
               echo "$STACK_STATUS"
 
+
               echo ""
+
               echo "CloudFormation events:"
+
 
               aws cloudformation describe-stack-events \
                 --region "$AWS_REGION" \
                 --stack-name "$ECS_STACK_NAME" \
                 --query 'StackEvents[0:20].[Timestamp,LogicalResourceId,ResourceStatus,ResourceStatusReason]' \
-                --output table
+                --output table || true
+
 
               exit 1
 
@@ -649,9 +792,12 @@ jobs:
 
         run: |
 
+          set -e
+
           echo "=================================================="
           echo "CLOUDFORMATION OUTPUTS"
           echo "=================================================="
+
 
           aws cloudformation describe-stacks \
             --region "$AWS_REGION" \
@@ -671,9 +817,12 @@ jobs:
 
         run: |
 
+          set -e
+
           echo "=================================================="
           echo "VERIFYING ECR REPOSITORY"
           echo "=================================================="
+
 
           aws ecr describe-repositories \
             --region "$AWS_REGION" \
@@ -681,7 +830,9 @@ jobs:
             --query 'repositories[0].[repositoryName,repositoryUri,imageTagMutability]' \
             --output table
 
+
           echo ""
+
           echo "ECR repository verification SUCCESS."
 
 
@@ -692,14 +843,12 @@ jobs:
 
       - name: Login to Amazon ECR
 
-        id: ecr-login
-
         uses: aws-actions/amazon-ecr-login@v2
 
 
       # ======================================================
       # STEP 15
-      # GET ECR REGISTRY
+      # GET ECR REPOSITORY URI
       # ======================================================
 
       - name: Get ECR repository URI
@@ -710,9 +859,12 @@ jobs:
 
         run: |
 
+          set -e
+
           echo "=================================================="
           echo "GETTING ECR REPOSITORY URI"
           echo "=================================================="
+
 
           ECR_URI=$(aws ecr describe-repositories \
             --region "$AWS_REGION" \
@@ -720,8 +872,12 @@ jobs:
             --query 'repositories[0].repositoryUri' \
             --output text)
 
+
+          echo ""
+
           echo "ECR URI:"
           echo "$ECR_URI"
+
 
           echo "repository_uri=$ECR_URI" >> "$GITHUB_OUTPUT"
 
@@ -731,11 +887,10 @@ jobs:
       # BUILD DOCKER IMAGE
       # ======================================================
       #
-      # IMPORTANT:
+      # This workflow builds the Docker image itself.
       #
-      # This workflow now builds the image itself.
-      #
-      # Therefore manual workflow_dispatch also works.
+      # Therefore workflow_dispatch can be used without another
+      # workflow having to push the image first.
       #
       # ======================================================
 
@@ -745,24 +900,34 @@ jobs:
 
         run: |
 
+          set -e
+
           echo "=================================================="
           echo "BUILDING DOCKER IMAGE"
           echo "=================================================="
 
+
           echo ""
+
           echo "Docker version:"
 
           docker --version
 
+
           echo ""
-          echo "Building:"
+
+          echo "Building image:"
+
           echo "${{ steps.ecr.outputs.repository_uri }}:$IMAGE_TAG"
+
 
           docker build \
             -t "${{ steps.ecr.outputs.repository_uri }}:$IMAGE_TAG" \
             .
 
+
           echo ""
+
           echo "Docker image build SUCCESS."
 
 
@@ -777,14 +942,19 @@ jobs:
 
         run: |
 
+          set -e
+
           echo "=================================================="
           echo "PUSHING DOCKER IMAGE TO ECR"
           echo "=================================================="
 
+
           docker push \
             "${{ steps.ecr.outputs.repository_uri }}:$IMAGE_TAG"
 
+
           echo ""
+
           echo "Docker image push SUCCESS."
 
 
@@ -799,9 +969,12 @@ jobs:
 
         run: |
 
+          set -e
+
           echo "=================================================="
           echo "VERIFYING ECR IMAGE"
           echo "=================================================="
+
 
           IMAGE_COUNT=$(aws ecr describe-images \
             --region "$AWS_REGION" \
@@ -812,6 +985,7 @@ jobs:
 
 
           echo ""
+
           echo "Latest image count:"
           echo "$IMAGE_COUNT"
 
@@ -819,6 +993,7 @@ jobs:
           if [ "$IMAGE_COUNT" -eq 0 ]; then
 
             echo ""
+
             echo "ERROR: latest image was not found in ECR."
 
             exit 1
@@ -827,6 +1002,7 @@ jobs:
 
 
           echo ""
+
           echo "ECR image verification SUCCESS."
 
 
@@ -841,9 +1017,12 @@ jobs:
 
         run: |
 
+          set -e
+
           echo "=================================================="
           echo "VERIFYING ECS CLUSTER"
           echo "=================================================="
+
 
           aws ecs describe-clusters \
             --region "$AWS_REGION" \
@@ -851,7 +1030,9 @@ jobs:
             --query 'clusters[0].[clusterName,status,activeServicesCount,runningTasksCount]' \
             --output table
 
+
           echo ""
+
           echo "ECS cluster verification SUCCESS."
 
 
@@ -866,9 +1047,12 @@ jobs:
 
         run: |
 
+          set -e
+
           echo "=================================================="
           echo "VERIFYING ECS SERVICE"
           echo "=================================================="
+
 
           aws ecs describe-services \
             --region "$AWS_REGION" \
@@ -877,7 +1061,9 @@ jobs:
             --query 'services[0].[serviceName,status,desiredCount,runningCount,pendingCount]' \
             --output table
 
+
           echo ""
+
           echo "ECS service verification SUCCESS."
 
 
@@ -886,11 +1072,14 @@ jobs:
       # START ECS SERVICE
       # ======================================================
       #
-      # CloudFormation intentionally created the service with:
+      # CloudFormation intentionally created the ECS service
+      # with:
       #
       #     DesiredCount = 0
       #
-      # Now we start:
+      # The Docker image now exists in ECR.
+      #
+      # We therefore start:
       #
       #     DesiredCount = 1
       #
@@ -902,9 +1091,12 @@ jobs:
 
         run: |
 
+          set -e
+
           echo "=================================================="
           echo "STARTING ECS FARGATE SERVICE"
           echo "=================================================="
+
 
           aws ecs update-service \
             --region "$AWS_REGION" \
@@ -912,7 +1104,9 @@ jobs:
             --service "$ECS_SERVICE" \
             --desired-count "$ECS_DESIRED_COUNT"
 
+
           echo ""
+
           echo "ECS desired count:"
           echo "$ECS_DESIRED_COUNT"
 
@@ -924,10 +1118,10 @@ jobs:
       #
       # The Docker image uses:
       #
-      #     :latest
+      #     latest
       #
-      # Since the latest image may have changed, force ECS to
-      # start a new deployment.
+      # Because latest may have changed, force ECS to create
+      # a new deployment.
       #
       # ======================================================
 
@@ -937,9 +1131,12 @@ jobs:
 
         run: |
 
+          set -e
+
           echo "=================================================="
           echo "FORCING NEW ECS DEPLOYMENT"
           echo "=================================================="
+
 
           aws ecs update-service \
             --region "$AWS_REGION" \
@@ -948,7 +1145,9 @@ jobs:
             --desired-count "$ECS_DESIRED_COUNT" \
             --force-new-deployment
 
+
           echo ""
+
           echo "New ECS deployment started."
 
 
@@ -963,16 +1162,21 @@ jobs:
 
         run: |
 
+          set -e
+
           echo "=================================================="
           echo "WAITING FOR ECS SERVICE TO STABILIZE"
           echo "=================================================="
+
 
           aws ecs wait services-stable \
             --region "$AWS_REGION" \
             --cluster "$ECS_CLUSTER" \
             --services "$ECS_SERVICE"
 
+
           echo ""
+
           echo "=================================================="
           echo "ECS SERVICE IS STABLE"
           echo "=================================================="
@@ -989,9 +1193,12 @@ jobs:
 
         run: |
 
+          set -e
+
           echo "=================================================="
           echo "FINAL ECS SERVICE STATUS"
           echo "=================================================="
+
 
           aws ecs describe-services \
             --region "$AWS_REGION" \
@@ -1012,9 +1219,12 @@ jobs:
 
         run: |
 
+          set -e
+
           echo "=================================================="
           echo "RUNNING ECS TASKS"
           echo "=================================================="
+
 
           TASK_ARNS=$(aws ecs list-tasks \
             --region "$AWS_REGION" \
@@ -1028,6 +1238,7 @@ jobs:
           if [ -z "$TASK_ARNS" ] || [ "$TASK_ARNS" = "None" ]; then
 
             echo ""
+
             echo "ERROR: No running ECS tasks found."
 
             exit 1
@@ -1044,12 +1255,13 @@ jobs:
 
 
           echo ""
+
           echo "Running ECS task verification SUCCESS."
 
 
       # ======================================================
       # STEP 26
-      # GET ALB DNS
+      # GET ALB INFORMATION
       # ======================================================
 
       - name: Get ALB information
@@ -1059,6 +1271,8 @@ jobs:
         shell: bash
 
         run: |
+
+          set -e
 
           echo "=================================================="
           echo "GETTING APPLICATION LOAD BALANCER"
@@ -1080,11 +1294,13 @@ jobs:
 
 
           echo ""
+
           echo "ALB DNS:"
           echo "$ALB_DNS"
 
 
           echo ""
+
           echo "Application URL:"
           echo "$APPLICATION_URL"
 
@@ -1094,7 +1310,7 @@ jobs:
 
       # ======================================================
       # STEP 27
-      # VERIFY ALB TARGET GROUP
+      # VERIFY ALB TARGET HEALTH
       # ======================================================
 
       - name: Verify ALB target health
@@ -1102,6 +1318,8 @@ jobs:
         shell: bash
 
         run: |
+
+          set -e
 
           echo "=================================================="
           echo "VERIFYING ALB TARGET HEALTH"
@@ -1117,6 +1335,7 @@ jobs:
 
 
           echo ""
+
           echo "Target Group:"
           echo "$TARGET_GROUP_ARN"
 
@@ -1132,6 +1351,7 @@ jobs:
 
 
           echo ""
+
           echo "ALB target health check completed."
 
 
@@ -1142,8 +1362,8 @@ jobs:
       #
       # This performs an actual HTTP request against the ALB.
       #
-      # We allow a few attempts because the ALB may need a
-      # little additional time after ECS becomes stable.
+      # We allow multiple attempts because ECS/ALB may need
+      # additional time after the service becomes stable.
       #
       # ======================================================
 
@@ -1152,6 +1372,8 @@ jobs:
         shell: bash
 
         run: |
+
+          set -e
 
           echo "=================================================="
           echo "TESTING APPLICATION URL"
@@ -1162,6 +1384,7 @@ jobs:
 
 
           echo ""
+
           echo "URL:"
           echo "$APPLICATION_URL"
 
@@ -1169,6 +1392,7 @@ jobs:
           if [ -z "$APPLICATION_URL" ] || [ "$APPLICATION_URL" = "None" ]; then
 
             echo ""
+
             echo "ERROR: ApplicationURL CloudFormation output was not found."
 
             exit 1
@@ -1177,12 +1401,14 @@ jobs:
 
 
           echo ""
+
           echo "Waiting for application..."
 
 
           for attempt in {1..10}; do
 
             echo ""
+
             echo "HTTP test attempt: $attempt/10"
 
 
@@ -1195,13 +1421,18 @@ jobs:
               "$APPLICATION_URL" || true)
 
 
+            echo ""
+
             echo "HTTP status:"
             echo "$HTTP_CODE"
 
 
-            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 500 ]; then
+            if [[ "$HTTP_CODE" =~ ^[0-9]+$ ]] && \
+               [ "$HTTP_CODE" -ge 200 ] && \
+               [ "$HTTP_CODE" -lt 500 ]; then
 
               echo ""
+
               echo "Application HTTP test SUCCESS."
 
               exit 0
@@ -1215,6 +1446,7 @@ jobs:
 
 
           echo ""
+
           echo "ERROR: Application did not return a successful HTTP response."
 
           exit 1
@@ -1231,6 +1463,8 @@ jobs:
 
         run: |
 
+          set -e
+
           echo "=================================================="
           echo "VERIFYING CLOUDWATCH LOG GROUP"
           echo "=================================================="
@@ -1244,6 +1478,7 @@ jobs:
 
 
           echo ""
+
           echo "CloudWatch Logs verification completed."
 
 
@@ -1259,62 +1494,98 @@ jobs:
         run: |
 
           echo ""
-          echo ""
-          echo "======================================================"
-          echo "       CHARLIE CAFE ECS DEPLOYMENT COMPLETE"
-          echo "======================================================"
 
           echo ""
+
+          echo "======================================================"
+
+          echo "       CHARLIE CAFE ECS DEPLOYMENT COMPLETE"
+
+          echo "======================================================"
+
+
+          echo ""
+
           echo "AWS Region:"
           echo "$AWS_REGION"
 
+
           echo ""
+
           echo "CloudFormation Stack:"
           echo "$ECS_STACK_NAME"
 
+
           echo ""
+
           echo "ECR Repository:"
           echo "$ECR_REPOSITORY"
 
+
           echo ""
+
           echo "ECS Cluster:"
           echo "$ECS_CLUSTER"
 
+
           echo ""
+
           echo "ECS Service:"
           echo "$ECS_SERVICE"
 
+
           echo ""
+
           echo "Desired Tasks:"
           echo "$ECS_DESIRED_COUNT"
 
+
           echo ""
+
           echo "Container Port:"
           echo "$CONTAINER_PORT"
 
+
           echo ""
+
           echo "Application URL:"
           echo "${{ steps.alb.outputs.application_url }}"
 
-          echo ""
-          echo "======================================================"
-          echo "                 DEPLOYMENT STATUS"
-          echo "======================================================"
 
           echo ""
+
+          echo "======================================================"
+
+          echo "                 DEPLOYMENT STATUS"
+
+          echo "======================================================"
+
+
+          echo ""
+
           echo "CloudFormation       : SUCCESS"
+
           echo "ECR Repository       : SUCCESS"
+
           echo "Docker Image         : SUCCESS"
+
           echo "ECS Cluster          : SUCCESS"
+
           echo "ECS Service          : SUCCESS"
-          echo "Task Definition      : SUCCESS"
+
           echo "Fargate Task         : SUCCESS"
-          echo "Application LB       : SUCCESS"
+
           echo "ALB Target Health    : SUCCESS"
+
           echo "CloudWatch Logs      : SUCCESS"
+
           echo "Application HTTP     : SUCCESS"
 
+
           echo ""
+
           echo "======================================================"
+
           echo "Charlie Cafe is now running on ECS Fargate."
+
           echo "======================================================"
