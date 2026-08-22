@@ -78,7 +78,7 @@
 #
 # The infrastructure is defined in:
 #
-#     templates/ecs.yaml
+#     templates/aws-ecs-ecr.yaml
 #
 #
 # This workflow DEPLOYS that CloudFormation template.
@@ -272,7 +272,7 @@ env:
   #
   # Make sure your repository contains:
   #
-  #     templates/ecs.yaml
+  #     templates/aws-ecs-ecr.yaml
   #
   #
   # If your file has another name, change this value.
@@ -430,7 +430,7 @@ jobs:
       #
       # Required because this workflow needs to access:
       #
-      #     templates/ecs.yaml
+      #    templates/aws-ecs-ecr.yaml
       #
       # ======================================================
 
