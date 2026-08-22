@@ -78,7 +78,11 @@
 #
 # The infrastructure is defined in:
 #
+<<<<<<< HEAD
 #     templates/aws-ecs-ecr.yaml
+=======
+#     templates/ecs.yaml
+>>>>>>> 550d42b (updating git)
 #
 #
 # This workflow DEPLOYS that CloudFormation template.
@@ -272,7 +276,11 @@ env:
   #
   # Make sure your repository contains:
   #
+<<<<<<< HEAD
   #     templates/aws-ecs-ecr.yaml
+=======
+  #     templates/ecs.yaml
+>>>>>>> 550d42b (updating git)
   #
   #
   # If your file has another name, change this value.
@@ -283,7 +291,11 @@ env:
   #
   # ==========================================================
 
+<<<<<<< HEAD
   ECS_TEMPLATE_FILE: templates/aws-ecs-ecr.yaml
+=======
+  ECS_TEMPLATE_FILE: templates/ecs.yaml
+>>>>>>> 550d42b (updating git)
 
 
   # ==========================================================
@@ -430,7 +442,11 @@ jobs:
       #
       # Required because this workflow needs to access:
       #
+<<<<<<< HEAD
       #    templates/aws-ecs-ecr.yaml
+=======
+      #     templates/ecs.yaml
+>>>>>>> 550d42b (updating git)
       #
       # ======================================================
 
@@ -480,6 +496,7 @@ jobs:
         run: |
 
           echo "=========================================="
+<<<<<<< HEAD
 <<<<<<< HEAD
           echo "AWS ACCOUNT INFORMATION"
           echo "=========================================="
@@ -855,6 +872,376 @@ jobs:
 
           echo "Checking ECR repository..."
 >>>>>>> 72f88b3 (updating git)
+=======
+          echo "AWS ACCOUNT INFORMATION"
+          echo "=========================================="
+
+          aws sts get-caller-identity
+
+          echo ""
+
+          echo "AWS Region:"
+          echo "$AWS_REGION"
+
+
+      # ======================================================
+      # STEP 4
+      # VERIFY ECS CLOUDFORMATION TEMPLATE
+      # ======================================================
+      #
+      # Before creating the stack, validate the YAML template.
+      #
+      # This catches CloudFormation syntax problems before
+      # attempting to create AWS resources.
+      #
+      # ======================================================
+
+      - name: Validate ECS CloudFormation template
+
+        run: |
+
+          echo "=========================================="
+          echo "VALIDATING ECS CLOUDFORMATION TEMPLATE"
+          echo "=========================================="
+
+          echo "Template:"
+          echo "$ECS_TEMPLATE_FILE"
+
+          echo ""
+
+          aws cloudformation validate-template \
+            --template-body file://"$ECS_TEMPLATE_FILE"
+
+          echo ""
+
+          echo "CloudFormation template validation completed."
+
+
+      # ======================================================
+      # STEP 5
+      # VERIFY REQUIRED NETWORK PARAMETERS
+      # ======================================================
+      #
+      # Your ECS CloudFormation template DOES NOT create the
+      # VPC and subnets.
+      #
+      # It consumes the existing networking infrastructure.
+      #
+      #
+      # Therefore these GitHub Secrets are required:
+      #
+      #     ECS_VPC_ID
+      #     ECS_PUBLIC_SUBNET_1
+      #     ECS_PUBLIC_SUBNET_2
+      #     ECS_PRIVATE_SUBNET_1
+      #     ECS_PRIVATE_SUBNET_2
+      #     ECS_PRIVATE_ROUTE_TABLE_ID
+      #
+      # ======================================================
+
+      - name: Verify ECS network parameters
+
+        shell: bash
+
+        run: |
+
+          echo "=========================================="
+          echo "VERIFYING ECS NETWORK PARAMETERS"
+          echo "=========================================="
+
+          if [ -z "${{ secrets.ECS_VPC_ID }}" ]; then
+            echo "ERROR: ECS_VPC_ID secret is missing."
+            exit 1
+          fi
+
+          if [ -z "${{ secrets.ECS_PUBLIC_SUBNET_1 }}" ]; then
+            echo "ERROR: ECS_PUBLIC_SUBNET_1 secret is missing."
+            exit 1
+          fi
+
+          if [ -z "${{ secrets.ECS_PUBLIC_SUBNET_2 }}" ]; then
+            echo "ERROR: ECS_PUBLIC_SUBNET_2 secret is missing."
+            exit 1
+          fi
+
+          if [ -z "${{ secrets.ECS_PRIVATE_SUBNET_1 }}" ]; then
+            echo "ERROR: ECS_PRIVATE_SUBNET_1 secret is missing."
+            exit 1
+          fi
+
+          if [ -z "${{ secrets.ECS_PRIVATE_SUBNET_2 }}" ]; then
+            echo "ERROR: ECS_PRIVATE_SUBNET_2 secret is missing."
+            exit 1
+          fi
+
+          if [ -z "${{ secrets.ECS_PRIVATE_ROUTE_TABLE_ID }}" ]; then
+            echo "ERROR: ECS_PRIVATE_ROUTE_TABLE_ID secret is missing."
+            exit 1
+          fi
+
+          echo "All required ECS network parameters are available."
+
+
+      # ======================================================
+      # STEP 6
+      # VERIFY VPC
+      # ======================================================
+      #
+      # Confirm that the VPC actually exists.
+      #
+      # ======================================================
+
+      - name: Verify VPC
+
+        run: |
+
+          echo "=========================================="
+          echo "VERIFYING VPC"
+          echo "=========================================="
+
+          aws ec2 describe-vpcs \
+            --vpc-ids "${{ secrets.ECS_VPC_ID }}" \
+            --query 'Vpcs[0].[VpcId,State,CidrBlock]' \
+            --output table
+
+          echo ""
+          echo "VPC verification completed."
+
+
+      # ======================================================
+      # STEP 7
+      # VERIFY SUBNETS
+      # ======================================================
+      #
+      # Confirm that all four subnets exist.
+      #
+      # ======================================================
+
+      - name: Verify ECS subnets
+
+        run: |
+
+          echo "=========================================="
+          echo "VERIFYING ECS SUBNETS"
+          echo "=========================================="
+
+          aws ec2 describe-subnets \
+            --subnet-ids \
+              "${{ secrets.ECS_PUBLIC_SUBNET_1 }}" \
+              "${{ secrets.ECS_PUBLIC_SUBNET_2 }}" \
+              "${{ secrets.ECS_PRIVATE_SUBNET_1 }}" \
+              "${{ secrets.ECS_PRIVATE_SUBNET_2 }}" \
+            --query 'Subnets[].[SubnetId,VpcId,AvailabilityZone,CidrBlock,MapPublicIpOnLaunch]' \
+            --output table
+
+          echo ""
+          echo "Subnet verification completed."
+
+
+      # ======================================================
+      # STEP 8
+      # VERIFY PRIVATE ROUTE TABLE
+      # ======================================================
+      #
+      # The ECS CloudFormation template creates an S3 Gateway
+      # VPC Endpoint using this route table.
+      #
+      # ======================================================
+
+      - name: Verify private route table
+
+        run: |
+
+          echo "=========================================="
+          echo "VERIFYING PRIVATE ROUTE TABLE"
+          echo "=========================================="
+
+          aws ec2 describe-route-tables \
+            --route-table-ids "${{ secrets.ECS_PRIVATE_ROUTE_TABLE_ID }}" \
+            --query 'RouteTables[0].[RouteTableId,VpcId]' \
+            --output table
+
+          echo ""
+          echo "Private route table verification completed."
+
+
+      # ======================================================
+      # STEP 9
+      # CREATE / UPDATE ECS CLOUDFORMATION STACK
+      # ======================================================
+      #
+      # THIS IS THE MOST IMPORTANT STEP.
+      #
+      # CloudFormation creates or updates:
+      #
+      #     1. ECR Repository
+      #     2. ECS Cluster
+      #     3. CloudWatch Log Group
+      #     4. ECS Task Execution Role
+      #     5. ECS Task Role
+      #     6. VPC Endpoint Security Group
+      #     7. ECR API Endpoint
+      #     8. ECR DKR Endpoint
+      #     9. S3 Gateway Endpoint
+      #    10. CloudWatch Logs Endpoint
+      #    11. ALB Security Group
+      #    12. ECS Task Security Group
+      #    13. Application Load Balancer
+      #    14. ALB Target Group
+      #    15. ALB Listener
+      #    16. ECS Task Definition
+      #    17. ECS Fargate Service
+      #
+      #
+      # The ECR repository is therefore created BEFORE the
+      # deployment attempts to use it.
+      #
+      # ======================================================
+
+      - name: Create or update ECS CloudFormation stack
+
+        run: |
+
+          echo "=========================================="
+          echo "DEPLOYING ECS CLOUDFORMATION STACK"
+          echo "=========================================="
+
+          echo ""
+          echo "Stack:"
+          echo "$ECS_STACK_NAME"
+
+          echo ""
+          echo "Template:"
+          echo "$ECS_TEMPLATE_FILE"
+
+          echo ""
+          echo "Starting CloudFormation deployment..."
+
+          aws cloudformation deploy \
+            --stack-name "$ECS_STACK_NAME" \
+            --template-file "$ECS_TEMPLATE_FILE" \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+              VpcId="${{ secrets.ECS_VPC_ID }}" \
+              PublicSubnet1="${{ secrets.ECS_PUBLIC_SUBNET_1 }}" \
+              PublicSubnet2="${{ secrets.ECS_PUBLIC_SUBNET_2 }}" \
+              PrivateSubnet1="${{ secrets.ECS_PRIVATE_SUBNET_1 }}" \
+              PrivateSubnet2="${{ secrets.ECS_PRIVATE_SUBNET_2 }}" \
+              PrivateRouteTableId="${{ secrets.ECS_PRIVATE_ROUTE_TABLE_ID }}" \
+              ApplicationName="$APPLICATION_NAME" \
+              ContainerPort="$CONTAINER_PORT" \
+              TaskCpu="256" \
+              TaskMemory="512" \
+              DesiredCount="0"
+
+          echo ""
+          echo "=========================================="
+          echo "ECS CLOUDFORMATION STACK DEPLOYED"
+          echo "=========================================="
+
+
+      # ======================================================
+      # STEP 10
+      # VERIFY CLOUDFORMATION STACK
+      # ======================================================
+      #
+      # Confirm the stack reached CREATE_COMPLETE or
+      # UPDATE_COMPLETE.
+      #
+      # ======================================================
+
+      - name: Verify ECS CloudFormation stack
+
+        run: |
+
+          echo "=========================================="
+          echo "ECS CLOUDFORMATION STACK STATUS"
+          echo "=========================================="
+
+          aws cloudformation describe-stacks \
+            --stack-name "$ECS_STACK_NAME" \
+            --query 'Stacks[0].[StackName,StackStatus]' \
+            --output table
+
+          echo ""
+
+          STACK_STATUS=$(aws cloudformation describe-stacks \
+            --stack-name "$ECS_STACK_NAME" \
+            --query 'Stacks[0].StackStatus' \
+            --output text)
+
+          echo "Current stack status:"
+          echo "$STACK_STATUS"
+
+          case "$STACK_STATUS" in
+
+            CREATE_COMPLETE)
+              echo "ECS stack created successfully."
+              ;;
+
+            UPDATE_COMPLETE)
+              echo "ECS stack updated successfully."
+              ;;
+
+            *)
+              echo "ERROR: Unexpected CloudFormation status: $STACK_STATUS"
+              exit 1
+              ;;
+
+          esac
+
+
+      # ======================================================
+      # STEP 11
+      # DISPLAY CLOUDFORMATION OUTPUTS
+      # ======================================================
+      #
+      # The ECS template outputs:
+      #
+      #     ECR Repository Name
+      #     ECR Repository URI
+      #     ECS Cluster
+      #     ECS Service
+      #     Task Definition
+      #     ALB DNS
+      #     Application URL
+      #     Security Group IDs
+      #
+      # ======================================================
+
+      - name: Display ECS CloudFormation outputs
+
+        run: |
+
+          echo "=========================================="
+          echo "ECS CLOUDFORMATION OUTPUTS"
+          echo "=========================================="
+
+          aws cloudformation describe-stacks \
+            --stack-name "$ECS_STACK_NAME" \
+            --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' \
+            --output table
+
+
+      # ======================================================
+      # STEP 12
+      # VERIFY ECR REPOSITORY
+      # ======================================================
+      #
+      # At this point CloudFormation has created:
+      #
+      #     charlie-cafe
+      #
+      # ======================================================
+
+      - name: Verify ECR repository
+
+        run: |
+
+          echo "=========================================="
+          echo "VERIFYING ECR REPOSITORY"
+          echo "=========================================="
+>>>>>>> 550d42b (updating git)
 
           aws ecr describe-repositories \
             --repository-names "$ECR_REPOSITORY" \
@@ -1384,4 +1771,8 @@ jobs:
           echo "======================================================"
           echo ""
           echo "Charlie Cafe is now running on ECS Fargate."
+<<<<<<< HEAD
           echo "======================================================"
+=======
+          echo "======================================================"
+>>>>>>> 550d42b (updating git)
