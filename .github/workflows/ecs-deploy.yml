@@ -78,11 +78,7 @@
 #
 # The infrastructure is defined in:
 #
-<<<<<<< HEAD
 #     templates/aws-ecs-ecr.yaml
-=======
-#     templates/ecs.yaml
->>>>>>> 550d42b (updating git)
 #
 #
 # This workflow DEPLOYS that CloudFormation template.
@@ -276,11 +272,7 @@ env:
   #
   # Make sure your repository contains:
   #
-<<<<<<< HEAD
   #     templates/aws-ecs-ecr.yaml
-=======
-  #     templates/ecs.yaml
->>>>>>> 550d42b (updating git)
   #
   #
   # If your file has another name, change this value.
@@ -291,12 +283,7 @@ env:
   #
   # ==========================================================
 
-<<<<<<< HEAD
   ECS_TEMPLATE_FILE: templates/aws-ecs-ecr.yaml
-=======
-  ECS_TEMPLATE_FILE: templates/ecs.yaml
->>>>>>> 550d42b (updating git)
-
 
   # ==========================================================
   # APPLICATION NAME
@@ -442,11 +429,7 @@ jobs:
       #
       # Required because this workflow needs to access:
       #
-<<<<<<< HEAD
       #    templates/aws-ecs-ecr.yaml
-=======
-      #     templates/ecs.yaml
->>>>>>> 550d42b (updating git)
       #
       # ======================================================
 
@@ -496,8 +479,6 @@ jobs:
         run: |
 
           echo "=========================================="
-<<<<<<< HEAD
-<<<<<<< HEAD
           echo "AWS ACCOUNT INFORMATION"
           echo "=========================================="
 
@@ -866,13 +847,10 @@ jobs:
           echo "=========================================="
           echo "VERIFYING ECR REPOSITORY"
           echo "=========================================="
-=======
           echo "VERIFYING ECR"
           echo "=========================================="  
 
           echo "Checking ECR repository..."
->>>>>>> 72f88b3 (updating git)
-=======
           echo "AWS ACCOUNT INFORMATION"
           echo "=========================================="
 
@@ -1241,8 +1219,7 @@ jobs:
           echo "=========================================="
           echo "VERIFYING ECR REPOSITORY"
           echo "=========================================="
->>>>>>> 550d42b (updating git)
-
+          
           aws ecr describe-repositories \
             --repository-names "$ECR_REPOSITORY" \
             --query 'repositories[0].[repositoryName,repositoryUri,imageTagMutability]' \
