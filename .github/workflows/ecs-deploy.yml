@@ -283,7 +283,7 @@ env:
   #
   # ==========================================================
 
-  ECS_TEMPLATE_FILE: templates/ecs.yaml
+  ECS_TEMPLATE_FILE: templates/aws-ecs-ecr.yaml
 
 
   # ==========================================================
