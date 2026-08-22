@@ -283,7 +283,7 @@ env:
   #
   # ==========================================================
 
-  ECS_TEMPLATE_FILE: templates/ecs.yaml
+  ECS_TEMPLATE_FILE: templates/aws-ecs-ecr.yaml
 
 
   # ==========================================================
@@ -480,6 +480,7 @@ jobs:
         run: |
 
           echo "=========================================="
+<<<<<<< HEAD
           echo "AWS ACCOUNT INFORMATION"
           echo "=========================================="
 
@@ -848,6 +849,12 @@ jobs:
           echo "=========================================="
           echo "VERIFYING ECR REPOSITORY"
           echo "=========================================="
+=======
+          echo "VERIFYING ECR"
+          echo "=========================================="  
+
+          echo "Checking ECR repository..."
+>>>>>>> 72f88b3 (updating git)
 
           aws ecr describe-repositories \
             --repository-names "$ECR_REPOSITORY" \
