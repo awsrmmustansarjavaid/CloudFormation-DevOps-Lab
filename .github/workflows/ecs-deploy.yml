@@ -3,8 +3,7 @@
 # ============================================================
 #
 # File:
-#
-# .github/workflows/ecs-deploy.yml
+#   .github/workflows/ecs-deploy.yml
 #
 # PURPOSE
 # ------------------------------------------------------------
@@ -30,57 +29,22 @@
 #   14. Verify ECR repository
 #   15. Login to Amazon ECR
 #   16. Get ECR repository URI
-#   17. Build Docker image
-#   18. Push Docker image to ECR
-#   19. Verify ECR latest image
-#   20. Verify ECS cluster
-#   21. Verify ECS service
-#   22. Start ECS service
-#   23. Force new ECS deployment
-#   24. Wait for ECS service stabilization
-#   25. Display final ECS service status
-#   26. Display running ECS tasks
-#   27. Get ALB information
-#   28. Verify ALB target health
-#   29. Test application URL
-#   30. Verify CloudWatch log group
-#   31. Display final deployment summary
-#
-#
-# ============================================================
-# IMPORTANT - REUSABLE WORKFLOW SECRETS
-# ============================================================
-#
-# This workflow supports TWO execution methods:
-#
-# A. Called from deploy.yml
-#
-#    deploy.yml
-#       |
-#       +---- secrets: inherit
-#       |
-#       +---- ecs-deploy.yml
-#
-# B. Manually using workflow_dispatch
-#
-# Repository secrets are used by the workflow.
-#
-# IMPORTANT:
-#
-# DO NOT put:
-#
-#     secrets: inherit
-#
-# inside workflow_call in THIS FILE.
-#
-# "secrets: inherit" belongs in the CALLER workflow.
-#
-# Example caller:
-#
-# jobs:
-#   ecs-deploy:
-#     uses: ./.github/workflows/ecs-deploy.yml
-#     secrets: inherit
+#   17. Verify Docker build files
+#   18. Build Docker image
+#   19. Push Docker image to ECR
+#   20. Verify ECR latest image
+#   21. Verify ECS cluster
+#   22. Verify ECS service
+#   23. Start ECS service
+#   24. Force new ECS deployment
+#   25. Wait for ECS service stabilization
+#   26. Display final ECS service status
+#   27. Display running ECS tasks
+#   28. Get ALB information
+#   29. Verify ALB target health
+#   30. Test application URL
+#   31. Verify CloudWatch log group
+#   32. Display final deployment summary
 #
 # ============================================================
 
@@ -98,25 +62,41 @@ on:
   # Reusable workflow trigger
   # ----------------------------------------------------------
   #
-  # The calling workflow is responsible for:
+  # IMPORTANT:
   #
+  # "secrets: inherit" belongs in the CALLER workflow.
+  #
+  # Example:
+  #
+  # jobs:
+  #   ecs-deploy:
+  #     uses: ./.github/workflows/ecs-deploy.yml
   #     secrets: inherit
   #
+  # DO NOT put:
+  #
+  # workflow_call:
+  #   secrets: inherit
+  #
+  # inside this workflow.
   # ----------------------------------------------------------
+
   workflow_call:
 
   # ----------------------------------------------------------
   # Manual execution
   # ----------------------------------------------------------
   #
-  # Allows execution from:
+  # GitHub:
   #
-  # GitHub
-  #   -> Actions
-  #   -> Charlie Cafe - ECS Deployment
-  #   -> Run workflow
+  # Actions
+  #   ->
+  # Charlie Cafe - ECS Deployment
+  #   ->
+  # Run workflow
   #
   # ----------------------------------------------------------
+
   workflow_dispatch:
 
 
@@ -135,8 +115,7 @@ env:
   # MAIN NETWORK CLOUDFORMATION STACK
   # ----------------------------------------------------------
   #
-  # This stack already creates the VPC, subnets, route tables,
-  # etc.
+  # This stack creates the VPC, subnets, route tables, etc.
   #
   # The ECS workflow reads the network outputs from this stack.
   #
@@ -192,10 +171,13 @@ env:
   # FINAL ECS DESIRED COUNT
   # ----------------------------------------------------------
   #
-  # CloudFormation initially creates the service with
-  # DesiredCount=0.
+  # CloudFormation initially creates the ECS service with:
   #
-  # Later this workflow changes the service to this value.
+  #   DesiredCount = 0
+  #
+  # Later the workflow changes the service to:
+  #
+  #   DesiredCount = 1
   #
   # ----------------------------------------------------------
   ECS_DESIRED_COUNT: 1
@@ -223,10 +205,7 @@ jobs:
     runs-on: ubuntu-latest
 
     # --------------------------------------------------------
-    # Maximum runtime for the complete deployment job.
-    #
-    # ECS stabilization can take several minutes, so 30
-    # minutes gives the deployment enough time to complete.
+    # Maximum runtime for the complete deployment.
     # --------------------------------------------------------
     timeout-minutes: 30
 
@@ -266,10 +245,6 @@ jobs:
       # ======================================================
       # STEP 3
       # VERIFY AWS IDENTITY
-      # ======================================================
-      #
-      # Confirms that GitHub Actions is connected to AWS.
-      #
       # ======================================================
 
       - name: Verify AWS identity
@@ -338,7 +313,7 @@ jobs:
       #
       # This workflow does NOT create another VPC.
       #
-      # Instead, it reads:
+      # It reads:
       #
       #   VPC
       #   Public Subnet 1
@@ -347,7 +322,7 @@ jobs:
       #   Private Subnet 2
       #   Private Route Table
       #
-      # from the main CloudFormation stack outputs.
+      # from the main stack outputs.
       #
       # ======================================================
 
@@ -384,15 +359,20 @@ jobs:
           case "$STACK_STATUS" in
 
             CREATE_COMPLETE|UPDATE_COMPLETE)
+
               echo ""
               echo "Main stack is ready."
+
               ;;
 
             *)
+
               echo ""
               echo "ERROR: Main CloudFormation stack is not ready."
               echo "Expected CREATE_COMPLETE or UPDATE_COMPLETE."
+
               exit 1
+
               ;;
 
           esac
@@ -490,14 +470,21 @@ jobs:
           # --------------------------------------------------
 
           if [ -z "$VPC_ID" ] || \
+             [ "$VPC_ID" = "None" ] || \
              [ -z "$PUBLIC_SUBNET_1" ] || \
+             [ "$PUBLIC_SUBNET_1" = "None" ] || \
              [ -z "$PUBLIC_SUBNET_2" ] || \
+             [ "$PUBLIC_SUBNET_2" = "None" ] || \
              [ -z "$PRIVATE_SUBNET_1" ] || \
+             [ "$PRIVATE_SUBNET_1" = "None" ] || \
              [ -z "$PRIVATE_SUBNET_2" ] || \
-             [ -z "$PRIVATE_ROUTE_TABLE_ID" ]; then
+             [ "$PRIVATE_SUBNET_2" = "None" ] || \
+             [ -z "$PRIVATE_ROUTE_TABLE_ID" ] || \
+             [ "$PRIVATE_ROUTE_TABLE_ID" = "None" ]; then
 
             echo ""
             echo "ERROR: One or more CloudFormation network outputs are missing."
+
             exit 1
 
           fi
@@ -505,7 +492,7 @@ jobs:
           # --------------------------------------------------
           # Export network values for later workflow steps.
           #
-          # GITHUB_ENV makes these variables available to
+          # GITHUB_ENV makes these variables available to all
           # subsequent steps in this job.
           # --------------------------------------------------
 
@@ -541,16 +528,20 @@ jobs:
 
             echo ""
             echo "ERROR: CloudFormation template was not found."
-
             echo ""
             echo "Expected:"
             echo "$ECS_TEMPLATE_FILE"
 
             echo ""
             echo "Available template files:"
-            find templates -maxdepth 2 -type f -print 2>/dev/null || true
+
+            find templates \
+              -maxdepth 2 \
+              -type f \
+              -print 2>/dev/null || true
 
             exit 1
+
           fi
 
           echo ""
@@ -657,15 +648,13 @@ jobs:
       # CREATE / UPDATE ECS + ECR CLOUDFORMATION STACK
       # ======================================================
       #
-      # This is equivalent to the successful PowerShell
-      # deployment command you tested manually.
+      # DesiredCount is intentionally set to 0.
       #
-      # IMPORTANT:
+      # After infrastructure creation:
       #
-      # DesiredCount is intentionally set to 0 here.
+      #   Step 23 -> desired count = 1
       #
-      # After CloudFormation creates the infrastructure,
-      # Step 22 changes the ECS service desired count to 1.
+      #   Step 24 -> force new deployment
       #
       # ======================================================
 
@@ -682,36 +671,12 @@ jobs:
           echo "$AWS_REGION"
 
           echo ""
-          echo "Main Stack:"
-          echo "$MAIN_STACK_NAME"
-
-          echo ""
           echo "ECS Stack:"
           echo "$ECS_STACK_NAME"
 
           echo ""
           echo "VPC:"
           echo "$VPC_ID"
-
-          echo ""
-          echo "Public Subnet 1:"
-          echo "$PUBLIC_SUBNET_1"
-
-          echo ""
-          echo "Public Subnet 2:"
-          echo "$PUBLIC_SUBNET_2"
-
-          echo ""
-          echo "Private Subnet 1:"
-          echo "$PRIVATE_SUBNET_1"
-
-          echo ""
-          echo "Private Subnet 2:"
-          echo "$PRIVATE_SUBNET_2"
-
-          echo ""
-          echo "Private Route Table:"
-          echo "$PRIVATE_ROUTE_TABLE_ID"
 
           echo ""
           echo "Starting CloudFormation deployment..."
@@ -770,13 +735,17 @@ jobs:
           case "$STACK_STATUS" in
 
             CREATE_COMPLETE)
+
               echo ""
               echo "ECS stack CREATED successfully."
+
               ;;
 
             UPDATE_COMPLETE)
+
               echo ""
               echo "ECS stack UPDATED successfully."
+
               ;;
 
             *)
@@ -795,6 +764,7 @@ jobs:
                 --output table
 
               exit 1
+
               ;;
 
           esac
@@ -872,15 +842,133 @@ jobs:
             --query 'repositories[0].repositoryUri' \
             --output text)
 
+          if [ -z "$ECR_URI" ] || [ "$ECR_URI" = "None" ]; then
+
+            echo ""
+            echo "ERROR: ECR repository URI was not found."
+
+            exit 1
+
+          fi
+
           echo ""
           echo "ECR URI:"
           echo "$ECR_URI"
+
+          # --------------------------------------------------
+          # Export ECR URI for subsequent steps.
+          # --------------------------------------------------
+
+          echo "ECR_URI=$ECR_URI" >> "$GITHUB_ENV"
+
+          # --------------------------------------------------
+          # Also create a step output.
+          # --------------------------------------------------
 
           echo "repository_uri=$ECR_URI" >> "$GITHUB_OUTPUT"
 
 
       # ======================================================
       # STEP 17
+      # VERIFY DOCKER BUILD FILES
+      # ======================================================
+      #
+      # Expected project structure:
+      #
+      #   docker/
+      #     Dockerfile
+      #
+      #   application/
+      #     application files
+      #
+      # The Dockerfile is expected to copy:
+      #
+      #   application/
+      #
+      # into the container.
+      #
+      # ======================================================
+
+      - name: Verify Docker build files
+        shell: bash
+        run: |
+
+          echo "=================================================="
+          echo "VERIFYING DOCKER BUILD FILES"
+          echo "=================================================="
+
+          echo ""
+          echo "Current directory:"
+          pwd
+
+          echo ""
+          echo "Repository root:"
+          ls -la
+
+          # --------------------------------------------------
+          # Verify Dockerfile
+          # --------------------------------------------------
+
+          echo ""
+          echo "Checking Dockerfile..."
+
+          if [ ! -f "docker/Dockerfile" ]; then
+
+            echo "ERROR: docker/Dockerfile was not found."
+
+            echo ""
+            echo "Repository structure:"
+
+            find . \
+              -maxdepth 3 \
+              -type f \
+              -print \
+              | sort
+
+            exit 1
+
+          fi
+
+          echo "Dockerfile found:"
+          echo "docker/Dockerfile"
+
+          # --------------------------------------------------
+          # Verify application directory
+          # --------------------------------------------------
+
+          echo ""
+          echo "Checking application directory..."
+
+          if [ ! -d "application" ]; then
+
+            echo "ERROR: application directory was not found."
+
+            echo ""
+            echo "The Docker build expects:"
+            echo "application/"
+
+            exit 1
+
+          fi
+
+          echo "application directory found."
+
+          echo ""
+          echo "Application files:"
+
+          find application \
+            -maxdepth 2 \
+            -type f \
+            | head -50
+
+          echo ""
+          echo "=================================================="
+          echo "DOCKER BUILD FILE VERIFICATION SUCCESS"
+          echo "=================================================="
+
+
+      # ======================================================
+      # STEP 18
       # BUILD DOCKER IMAGE
       # ======================================================
 
@@ -895,19 +983,42 @@ jobs:
           docker --version
 
           echo ""
-          echo "Building:"
-          echo "${{ steps.ecr.outputs.repository_uri }}:$IMAGE_TAG"
+          echo "Dockerfile:"
+          echo "docker/Dockerfile"
+
+          echo ""
+          echo "Build context:"
+          echo "."
+
+          echo ""
+          echo "ECR image:"
+          echo "$ECR_URI:$IMAGE_TAG"
+
+          # --------------------------------------------------
+          # Build Docker image.
+          #
+          # The image is tagged directly with the ECR URI.
+          # --------------------------------------------------
 
           docker build \
-            -t "${{ steps.ecr.outputs.repository_uri }}:$IMAGE_TAG" \
+            --file docker/Dockerfile \
+            --tag "$ECR_URI:$IMAGE_TAG" \
             .
+
+          echo ""
+
+          echo "=================================================="
+          echo "DOCKER IMAGE BUILD SUCCESS"
+          echo "=================================================="
+
+          docker images
 
           echo ""
           echo "Docker image build SUCCESS."
 
 
       # ======================================================
-      # STEP 18
+      # STEP 19
       # PUSH DOCKER IMAGE TO ECR
       # ======================================================
 
@@ -919,15 +1030,20 @@ jobs:
           echo "PUSHING DOCKER IMAGE TO ECR"
           echo "=================================================="
 
-          docker push \
-            "${{ steps.ecr.outputs.repository_uri }}:$IMAGE_TAG"
+          echo ""
+          echo "Image:"
+          echo "$ECR_URI:$IMAGE_TAG"
+
+          docker push "$ECR_URI:$IMAGE_TAG"
 
           echo ""
-          echo "Docker image push SUCCESS."
+          echo "=================================================="
+          echo "ECR IMAGE PUSH SUCCESS"
+          echo "=================================================="
 
 
       # ======================================================
-      # STEP 19
+      # STEP 20
       # VERIFY ECR LATEST IMAGE
       # ======================================================
 
@@ -954,6 +1070,7 @@ jobs:
 
             echo ""
             echo "ERROR: latest image was not found in ECR."
+
             exit 1
 
           fi
@@ -963,7 +1080,7 @@ jobs:
 
 
       # ======================================================
-      # STEP 20
+      # STEP 21
       # VERIFY ECS CLUSTER
       # ======================================================
 
@@ -974,6 +1091,25 @@ jobs:
           echo "=================================================="
           echo "VERIFYING ECS CLUSTER"
           echo "=================================================="
+
+          CLUSTER_STATUS=$(aws ecs describe-clusters \
+            --region "$AWS_REGION" \
+            --clusters "$ECS_CLUSTER" \
+            --query 'clusters[0].status' \
+            --output text)
+
+          echo ""
+          echo "Cluster status:"
+          echo "$CLUSTER_STATUS"
+
+          if [ "$CLUSTER_STATUS" != "ACTIVE" ]; then
+
+            echo ""
+            echo "ERROR: ECS cluster is not ACTIVE."
+
+            exit 1
+
+          fi
 
           aws ecs describe-clusters \
             --region "$AWS_REGION" \
@@ -986,7 +1122,7 @@ jobs:
 
 
       # ======================================================
-      # STEP 21
+      # STEP 22
       # VERIFY ECS SERVICE
       # ======================================================
 
@@ -1010,9 +1146,12 @@ jobs:
           echo "$SERVICE_STATUS"
 
           if [ "$SERVICE_STATUS" = "None" ] || [ -z "$SERVICE_STATUS" ]; then
+
             echo ""
             echo "ERROR: ECS service was not found."
+
             exit 1
+
           fi
 
           aws ecs describe-services \
@@ -1027,14 +1166,17 @@ jobs:
 
 
       # ======================================================
-      # STEP 22
+      # STEP 23
       # START ECS SERVICE
       # ======================================================
       #
-      # CloudFormation intentionally created the ECS service
-      # with DesiredCount = 0.
+      # CloudFormation created the service with:
       #
-      # Now change it to DesiredCount = 1.
+      #   DesiredCount = 0
+      #
+      # Now change it to:
+      #
+      #   DesiredCount = 1
       #
       # ======================================================
 
@@ -1058,15 +1200,14 @@ jobs:
 
 
       # ======================================================
-      # STEP 23
+      # STEP 24
       # FORCE NEW ECS DEPLOYMENT
       # ======================================================
       #
-      # This is important because the Docker image uses the
-      # "latest" tag.
+      # The Docker image uses the "latest" tag.
       #
-      # ECS must be told to start a new deployment so the new
-      # image can be pulled.
+      # ECS therefore needs a new deployment so that the task
+      # pulls the latest image from ECR.
       #
       # ======================================================
 
@@ -1090,7 +1231,7 @@ jobs:
 
 
       # ======================================================
-      # STEP 24
+      # STEP 25
       # WAIT FOR ECS SERVICE TO STABILIZE
       # ======================================================
 
@@ -1114,7 +1255,7 @@ jobs:
 
 
       # ======================================================
-      # STEP 25
+      # STEP 26
       # SHOW FINAL ECS SERVICE STATUS
       # ======================================================
 
@@ -1135,7 +1276,7 @@ jobs:
 
 
       # ======================================================
-      # STEP 26
+      # STEP 27
       # SHOW RUNNING ECS TASKS
       # ======================================================
 
@@ -1159,6 +1300,7 @@ jobs:
 
             echo ""
             echo "ERROR: No running ECS tasks found."
+
             exit 1
 
           fi
@@ -1175,7 +1317,7 @@ jobs:
 
 
       # ======================================================
-      # STEP 27
+      # STEP 28
       # GET ALB INFORMATION
       # ======================================================
 
@@ -1212,6 +1354,7 @@ jobs:
 
             echo ""
             echo "ERROR: ALBDNSName CloudFormation output was not found."
+
             exit 1
 
           fi
@@ -1220,20 +1363,24 @@ jobs:
 
             echo ""
             echo "ERROR: ApplicationURL CloudFormation output was not found."
+
             exit 1
 
           fi
+
+          # --------------------------------------------------
+          # Export application URL to later steps.
+          # --------------------------------------------------
 
           echo "application_url=$APPLICATION_URL" >> "$GITHUB_OUTPUT"
 
 
       # ======================================================
-      # STEP 28
+      # STEP 29
       # VERIFY ALB TARGET HEALTH
       # ======================================================
       #
-      # This step now actually verifies that the target group
-      # contains at least one HEALTHY target.
+      # This verifies that at least one target is HEALTHY.
       #
       # ======================================================
 
@@ -1260,6 +1407,7 @@ jobs:
 
             echo ""
             echo "ERROR: ALB target group was not found."
+
             exit 1
 
           fi
@@ -1287,6 +1435,7 @@ jobs:
 
             echo ""
             echo "ERROR: No healthy ALB targets were found."
+
             exit 1
 
           fi
@@ -1296,7 +1445,7 @@ jobs:
 
 
       # ======================================================
-      # STEP 29
+      # STEP 30
       # TEST APPLICATION URL
       # ======================================================
       #
@@ -1304,8 +1453,7 @@ jobs:
       #
       # Each attempt waits 15 seconds before retrying.
       #
-      # A response between HTTP 200 and 399 is considered
-      # successful.
+      # HTTP 200-399 is considered successful.
       #
       # ======================================================
 
@@ -1326,7 +1474,8 @@ jobs:
           if [ -z "$APPLICATION_URL" ] || [ "$APPLICATION_URL" = "None" ]; then
 
             echo ""
-            echo "ERROR: ApplicationURL CloudFormation output was not found."
+            echo "ERROR: ApplicationURL was not found."
+
             exit 1
 
           fi
@@ -1356,32 +1505,32 @@ jobs:
 
               echo ""
               echo "Application HTTP test SUCCESS."
+
               exit 0
 
             fi
 
             if [ "$attempt" -lt 10 ]; then
+
               echo ""
               echo "Application is not ready yet."
               echo "Waiting 15 seconds before retry..."
+
               sleep 15
+
             fi
 
           done
 
           echo ""
           echo "ERROR: Application did not return a successful HTTP response."
+
           exit 1
 
 
       # ======================================================
-      # STEP 30
+      # STEP 31
       # VERIFY CLOUDWATCH LOG GROUP
-      # ======================================================
-      #
-      # This step confirms that the ECS CloudWatch log group
-      # exists.
-      #
       # ======================================================
 
       - name: Verify CloudWatch log group
@@ -1406,6 +1555,7 @@ jobs:
 
             echo ""
             echo "ERROR: Expected CloudWatch log group was not found."
+
             exit 1
 
           fi
@@ -1421,7 +1571,7 @@ jobs:
 
 
       # ======================================================
-      # STEP 31
+      # STEP 32
       # FINAL DEPLOYMENT SUMMARY
       # ======================================================
 
