@@ -133,20 +133,6 @@ infrastructure/
 That's a structure you can comfortably show in a portfolio or interview.
 ---
 
-### Most important point: don't duplicate your application
-
-Your idea should be:
-
-```
-                    Charlie Cafe Application
-                            │
-             ┌──────────────┴──────────────┐
-             │                             │
-      CloudFormation                   Terraform
-             │                             │
-             ▼                             ▼
-      AWS Infrastructure            AWS Infrastructure
-```
 
 
 
