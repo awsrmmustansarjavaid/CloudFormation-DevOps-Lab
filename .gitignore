@@ -29,6 +29,6 @@ doc/*
 *.pdf
 *.doc
 *.docx
-*.md
+#*.md
 *.jpg
 *.png
