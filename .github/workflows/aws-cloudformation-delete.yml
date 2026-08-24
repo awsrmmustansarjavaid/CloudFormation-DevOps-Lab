@@ -4,7 +4,7 @@
 # ==========================================================
 #
 # File:
-#   .github/workflows/delete.yml
+#   .github/workflows/aws-cloudformation-delete.yml
 #
 # PURPOSE
 # ----------------------------------------------------------
