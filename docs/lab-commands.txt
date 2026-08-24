@@ -1,0 +1,127 @@
+
+1. You can list the available key pairs:
+
+aws ec2 describe-key-pairs \
+  --region us-east-1 \
+  --query "KeyPairs[].KeyName" \
+  --output table
+
+Run the command as ONE line
+
+In PowerShell, use:
+
+aws ec2 describe-key-pairs --query "KeyPairs[].KeyName" --output table --region us-east-1
+
+You should get something like:
+
+----------------
+| DescribeKeyPairs |
++------------------+
+| Lab-KeyPair      |
+| Public           |
++------------------+
+
+If you want multiple lines in PowerShell
+
+PowerShell uses the backtick ` for line continuation, not \.
+
+aws ec2 describe-key-pairs `
+  --query "KeyPairs[].KeyName" `
+  --output table `
+  --region us-east-1
+Important
+
+Your original command appears to have been entered like this:
+
+--output table
+--query "KeyPairs[].KeyName"
+--region us-east-1
+aws ec2 describe-key-pairs
+
+That won't work because the aws ec2 describe-key-pairs command needs to come first.
+
+For your CloudFormation lab, I recommend the one-line version:
+
+aws ec2 describe-key-pairs --query "KeyPairs[].KeyName" --output table --region us-east-1
+
+Then check that Lab-KeyPair appears in the output. If it does, that is the value you should use for your CloudFormation KeyPairName parameter.
+
+------------------------------
+
+First run this in PowerShell:
+
+aws cloudformation describe-stack-events `
+  --stack-name Lab01-CloudFormation `
+  --region us-east-1 `
+  --query "StackEvents[?ResourceStatus=='CREATE_FAILED'].[LogicalResourceId,ResourceType,ResourceStatusReason]" `
+  --output table
+This is the most important command right now.
+
+It should give us something similar to:
+
+LogicalResourceId       ResourceType                    ResourceStatusReason
+--------------------    -----------------------------   -----------------------------
+SomeResource            AWS::EC2::Instance              ...
+
+or:
+
+AWS::CloudFormation::Stack
+TemplateURL ...
+
+or:
+
+AWS::RDS::DBInstance
+...
+
+Send me the complete output of that command.
+
+
+----
+
+aws cloudformation describe-stack-events `
+  --stack-name Lab01-CloudFormation `
+  --region us-east-1 `
+  --query "StackEvents[?contains(ResourceStatus, 'FAILED')].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" `
+  --output table
+
+----
+
+
+cd "C:\Users\musta\Downloads\AWS-Labs\CloudFormation-DevOps-Lab"
+
+tree /F
+
+----------
+Check Git status:
+
+git status
+
+git branch --show-current
+
+git remote -v
+
+-----------
+Check that all nested templates are actually tracked:
+
+git ls-files templates
+
+----------
+First check your AWS region:
+
+aws configure get region
+
+let's use:
+
+$env:AWS_REGION="us-east-1"
+
+You can verify:
+
+$env:AWS_REGION
+
+----
+
+
+
+
+
+
