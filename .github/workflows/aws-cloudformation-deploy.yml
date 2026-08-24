@@ -2185,7 +2185,7 @@ jobs:
     #
     # This calls:
     #
-    # .github/workflows/ecs-deploy.yml
+    # .github/workflows/aws-cloudformation-ecs-deploy.yml
     #
     # Because ecs-deploy.yml contains:
     #
@@ -2196,7 +2196,7 @@ jobs:
     #
     # ==========================================================
 
-    uses: ./.github/workflows/ecs-deploy.yml
+    uses: ./.github/workflows/aws-cloudformation-ecs-deploy.yml
 
 
     # ==========================================================
