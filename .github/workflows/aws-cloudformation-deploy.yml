@@ -4,14 +4,14 @@
 # ==========================================================
 #
 # File:
-# .github/workflows/deploy.yml
+# .github/workflows/aws-cloudformation-deploy.yml
 #
 # Purpose:
 # ----------------------------------------------------------
 # This workflow automatically validates and deploys the
 # CloudFormation infrastructure defined in:
 #
-# templates/lab01.yaml
+# infrastructure/aws-cloudformation/templates/main.yaml
 #
 # The workflow performs the following tasks:
 #
@@ -153,17 +153,35 @@ env:
 
 
   # ========================================================
+  # AWS CloudFormation Base Directory
+  # ========================================================
+
+  CLOUDFORMATION_DIR: infrastructure/aws-cloudformation
+
+  # ========================================================
+  #
   # Template Bucket CloudFormation Template
+  # 
+  # TEMPLATE_BUCKET_FILE: infrastructure/aws-cloudformation/templates/TemplateBucket-MainStack.yaml
+  #
+  # TEMPLATE_BUCKET_FILE: ${{ env.CLOUDFORMATION_DIR }}/templates/TemplateBucket-MainStack.yaml
+  #
   # ========================================================
 
-  TEMPLATE_BUCKET_FILE: templates/TemplateBucket-MainStack.yaml
+  TEMPLATE_BUCKET_FILE: infrastructure/aws-cloudformation/templates/TemplateBucket-MainStack.yaml
 
 
   # ========================================================
+  #
   # Main CloudFormation Template
+  #
+  # TEMPLATE_FILE: infrastructure/aws-cloudformation/templates/main.yaml
+  #
+  # TEMPLATE_FILE: ${{ env.CLOUDFORMATION_DIR }}/templates/main.yaml
+  #
   # ========================================================
 
-  TEMPLATE_FILE: templates/lab01.yaml
+  TEMPLATE_FILE: infrastructure/aws-cloudformation/templates/main.yaml
 
 
 # ==========================================================
@@ -199,9 +217,9 @@ jobs:
       #
       # This makes files such as:
       #
-      # templates/lab01.yaml
-      # templates/aws-rds.yaml
-      # templates/ec2-webserver.yaml
+      # infrastructure/aws-cloudformation/templates/main.yaml
+      # infrastructure/aws-cloudformation/templates/aws-rds.yaml
+      # infrastructure/aws-cloudformation/templates/ec2-webserver.yaml
       #
       # available to the workflow.
       #
@@ -722,12 +740,14 @@ jobs:
           # TemplateBucket-MainStack.yaml is excluded because
           # it creates the template bucket itself.
           #
-          # lab01.yaml is uploaded as well because it is part
+          # main.yaml is uploaded as well because it is part
           # of the repository's CloudFormation templates.
+          #
+          # templates/ replaced with new ["$CLOUDFORMATION_DIR/templates/" \]
           # --------------------------------------------------
 
           aws s3 sync \
-            templates/ \
+            "$CLOUDFORMATION_DIR/templates/" \
             "s3://$TEMPLATE_BUCKET/templates/" \
             --exclude "TemplateBucket-MainStack.yaml" \
             --region "$AWS_REGION"
