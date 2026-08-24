@@ -94,7 +94,7 @@ env:
   # --------------------------------------------------------
   # MAIN / ROOT CLOUDFORMATION STACK
   # --------------------------------------------------------
-  STACK_NAME: Lab01-CloudFormation
+  STACK_NAME: Main-CloudFormation
 
   # --------------------------------------------------------
   # STANDALONE ECS + ECR STACK

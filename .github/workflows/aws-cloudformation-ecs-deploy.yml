@@ -120,7 +120,7 @@ env:
   # The ECS workflow reads the network outputs from this stack.
   #
   # ----------------------------------------------------------
-  MAIN_STACK_NAME: Lab01-CloudFormation
+  MAIN_STACK_NAME: Main-CloudFormation
 
   # ----------------------------------------------------------
   # ECS CLOUDFORMATION STACK
