@@ -2474,6 +2474,182 @@ Then:
 ./verify-cloudformation-lab.sh
 ```
 
+### Create an IAM role for the EC2 lab
+
+For your learning lab, the simplest initial approach is to create a role with read-only access.
+
+You can create the role from the AWS Console:
+
+IAM → Roles → Create role
+
+Select:
+
+```
+Trusted entity type:
+AWS service
+```
+
+Then:
+
+```
+Use case:
+EC2
+```
+
+Create something like:
+
+```
+CharlieCafe-EC2-Verification-Role
+```
+
+
+For your first verification phase, you can attach:
+
+```
+ReadOnlyAccess
+```
+
+This is convenient for a lab because your verification script examines many AWS services.
+
+Important
+
+I would not use AdministratorAccess just to make the script work.
+
+Your verification script only needs to inspect resources, so read-only permissions are much more appropriate.
+
+### Attach the role to the existing EC2
+
+After creating the role, go to:
+
+EC2 → Instances → your instance
+
+Then:
+
+Actions → Security → Modify IAM role
+
+Select:
+
+```
+CharlieCafe-EC2-Verification-Role
+```
+
+and save.
+
+You do not need to recreate the EC2 instance.
+
+### Test the role from EC2
+
+After attaching the role, wait a few seconds and run:
+
+```
+TOKEN=$(curl -sX PUT \
+  "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+
+curl -s \
+  -H "X-aws-ec2-metadata-token: $TOKEN" \
+  http://169.254.169.254/latest/meta-data/iam/security-credentials/
+```
+
+Now you should get a role name, for example:
+
+```
+CharlieCafe-EC2-Verification-Role
+```
+
+Then:
+
+```
+aws sts get-caller-identity
+```
+
+You should get something similar to:
+
+```
+{
+    "UserId": "AROAEXAMPLE:i-0123456789abcdef0",
+    "Account": "123456789012",
+    "Arn": "arn:aws:sts::123456789012:assumed-role/CharlieCafe-EC2-Verification-Role/i-0123456789abcdef0"
+}
+```
+
+That is the result we want.
+
+### 1. Verify CloudFormation
+
+Once sts get-caller-identity works, test your main stack:
+
+```
+aws cloudformation list-stacks \
+  --region us-east-1 \
+  --stack-status-filter \
+    CREATE_COMPLETE \
+    UPDATE_COMPLETE \
+    UPDATE_ROLLBACK_COMPLETE
+```
+
+If you know your stack name, even better:
+
+```
+aws cloudformation describe-stacks \
+  --stack-name YOUR_MAIN_STACK_NAME \
+  --region us-east-1
+```
+
+### 2. Verify your VPC
+
+Your lab is using:
+
+```
+10.0.0.0/16
+```
+
+so test:
+
+```
+aws ec2 describe-vpcs \
+  --filters "Name=cidr-block,Values=10.0.0.0/16" \
+  --region us-east-1
+```
+
+You should now receive actual VPC information.
+
+### 3. Verify ECS/ECR
+
+Then:
+
+```
+aws ecs list-clusters \
+  --region us-east-1
+```
+
+And:
+
+```
+aws ecr describe-repositories \
+  --repository-names charlie-cafe \
+  --region us-east-1
+```
+
+And:
+
+```
+aws ecs describe-services \
+  --cluster CharlieCafe-Cluster \
+  --services CharlieCafe-Service \
+  --region us-east-1
+```
+
+These commands will tell us whether the resources actually exist.
+
+
+
+
+
+
+
+
+
 ---
 # 7. Verify-CloudFormationLab.ps1
 
