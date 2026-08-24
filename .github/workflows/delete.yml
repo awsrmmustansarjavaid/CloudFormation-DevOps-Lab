@@ -1,89 +1,73 @@
 # ==========================================================
 # AWS CLOUDFORMATION DEVOPS LAB
-# COMPLETE DELETE / CLEANUP WORKFLOW
+# COMPLETE AWS DELETE / CLEANUP WORKFLOW
 # ==========================================================
 #
 # File:
 #   .github/workflows/delete.yml
 #
-# Purpose:
+# PURPOSE
 # ----------------------------------------------------------
-# Completely clean the AWS CloudFormation DevOps Lab.
+# Completely remove the Charlie Cafe / AWS DevOps Lab.
+#
+# IMPORTANT DELETION ORDER
+# ----------------------------------------------------------
+#
+# 1. Discover root stack
+# 2. Discover standalone ECS/ECR stack
+# 3. Stop standalone ECS service
+# 4. Wait for ECS tasks
+# 5. Delete ECR images
+# 6. Delete standalone ECS/ECR CloudFormation stack
+# 7. Clean Docker containers/images on EC2 through SSM
+# 8. Empty Template S3 bucket
+# 9. Delete Template Bucket stack
+# 10. Delete ROOT CloudFormation stack
+# 11. CloudFormation deletes nested stacks
+# 12. Wait for root deletion
+# 13. If DELETE_FAILED:
+#       - inspect failed resources
+#       - retry ECS cleanup
+#       - retry ALB cleanup
+#       - retry Target Group cleanup
+#       - retry root deletion
+# 14. Final verification
+#
 #
 # IMPORTANT:
 # ----------------------------------------------------------
-# This workflow is designed to avoid the common dependency
-# cycle where ECS / ALB / ENIs / VPC resources prevent the
-# root CloudFormation stack from deleting.
+# There are TWO possible ECS architectures:
+#
+# A) Standalone ECS stack:
+#      CharlieCafe-ECS-Stack
+#
+#    This workflow deletes it FIRST.
+#
+# B) Nested ECS stack:
+#      ECSStack
+#
+#    If ECSStack is a true nested stack under the root stack,
+#    DO NOT delete it directly.
+#
+#    CloudFormation will delete it when the ROOT stack is deleted.
 #
 #
-# HIGH-LEVEL ORDER
+# ECR:
 # ----------------------------------------------------------
-#
-#   1. Discover root stack
-#   2. Discover nested stacks/resources
-#   3. Disable RDS deletion protection
-#   4. Stop ECS service
-#   5. Wait for ECS tasks
-#   6. Delete ECS service if necessary
-#   7. Clean Docker containers/images on EC2 through SSM
-#   8. Empty S3 template bucket
-#   9. Delete separate Template Bucket stack
-#  10. Delete root CloudFormation stack
-#  11. Wait for root deletion
-#  12. If DELETE_FAILED:
-#        - inspect failed resources
-#        - retry service cleanup
-#        - retry ALB cleanup
-#        - retry target group cleanup
-#        - retry root deletion
-#  13. If still DELETE_FAILED:
-#        - FORCE_DELETE_STACK
-#  14. Verify remaining AWS resources
+# ECR images are deleted BEFORE deleting the ECS/ECR stack.
+# This is important because an ECR repository containing images
+# can prevent CloudFormation from deleting the repository.
 #
 #
-# IMPORTANT CLOUDFORMATION RULE
+# DOCKER:
 # ----------------------------------------------------------
+# Docker cleanup is performed on EC2 through AWS SSM.
 #
-# ECSStack / RDSNestedStack / S3NestedStack are assumed to
-# be NESTED stacks when they appear as:
-#
-#   AWS::CloudFormation::Stack
-#
-# Nested stacks should NOT normally be deleted directly.
-#
-# The ROOT stack should delete them.
-#
-# AWS documentation recommends operating on nested stacks
-# through their root stack.
-#
-#
-# ECR NOTE
-# ----------------------------------------------------------
-#
-# If ECR is owned by the nested CloudFormation stack, this
-# workflow does NOT blindly delete the ECR repository before
-# root deletion.
-#
-# Instead:
-#
-#   - remove ECR images
-#   - allow CloudFormation to delete the repository
-#
-# This prevents the parent/nested CloudFormation hierarchy
-# from becoming inconsistent.
-#
-#
-# DOCKER NOTE
-# ----------------------------------------------------------
-#
-# If Docker containers/images exist on an EC2 instance,
-# they are cleaned through AWS Systems Manager (SSM).
-#
-# The GitHub runner itself is NOT your EC2 Docker host.
+# The GitHub Actions runner is NOT the EC2 Docker host.
 #
 #
 # ==========================================================
+
 
 name: Complete AWS Lab Cleanup
 
@@ -97,21 +81,37 @@ on:
 
 
 # ==========================================================
-# GLOBAL ENVIRONMENT
+# GLOBAL VARIABLES
 # ==========================================================
 
 env:
 
-  # AWS Region
+  # --------------------------------------------------------
+  # AWS REGION
+  # --------------------------------------------------------
   AWS_REGION: us-east-1
 
-  # Root CloudFormation stack
+  # --------------------------------------------------------
+  # MAIN / ROOT CLOUDFORMATION STACK
+  # --------------------------------------------------------
   STACK_NAME: Lab01-CloudFormation
 
-  # Separate Template Bucket stack
+  # --------------------------------------------------------
+  # STANDALONE ECS + ECR STACK
+  #
+  # This is the stack created by your ECS deployment workflow.
+  # --------------------------------------------------------
+  ECS_STACK_NAME: CharlieCafe-ECS-Stack
+
+  # --------------------------------------------------------
+  # SEPARATE S3 TEMPLATE BUCKET STACK
+  # --------------------------------------------------------
   TEMPLATE_BUCKET_STACK: Lab01-CloudFormation-TemplateBucket
 
-  # Maximum time to wait for CloudFormation deletion
+  # --------------------------------------------------------
+  # MAX ROOT STACK DELETE WAIT
+  # 20 minutes
+  # --------------------------------------------------------
   ROOT_DELETE_WAIT_SECONDS: 1200
 
 
@@ -127,25 +127,26 @@ jobs:
 
     runs-on: ubuntu-latest
 
-
     steps:
 
 
       # ======================================================
       # STEP 1
-      # Checkout repository
+      # CHECKOUT REPOSITORY
       # ======================================================
 
       - name: "Step 1 - Checkout Repository"
+
         uses: actions/checkout@v4
 
 
       # ======================================================
       # STEP 2
-      # Configure AWS credentials
+      # CONFIGURE AWS CREDENTIALS
       # ======================================================
 
       - name: "Step 2 - Configure AWS Credentials"
+
         uses: aws-actions/configure-aws-credentials@v4
 
         with:
@@ -159,10 +160,11 @@ jobs:
 
       # ======================================================
       # STEP 3
-      # Verify AWS
+      # VERIFY AWS ACCOUNT
       # ======================================================
 
       - name: "Step 3 - Verify AWS Account"
+
         shell: bash
 
         run: |
@@ -170,7 +172,7 @@ jobs:
           set -euo pipefail
 
           echo "=================================================="
-          echo "AWS VERIFICATION"
+          echo "AWS ACCOUNT VERIFICATION"
           echo "=================================================="
 
           aws --version
@@ -181,19 +183,32 @@ jobs:
 
           echo ""
 
-          echo "Region              : $AWS_REGION"
-          echo "Root Stack          : $STACK_NAME"
-          echo "Template Bucket     : $TEMPLATE_BUCKET_STACK"
+          echo "AWS Region:"
+          echo "  $AWS_REGION"
 
           echo ""
+
+          echo "Root Stack:"
+          echo "  $STACK_NAME"
+
+          echo ""
+
+          echo "Standalone ECS/ECR Stack:"
+          echo "  $ECS_STACK_NAME"
+
+          echo ""
+
+          echo "Template Bucket Stack:"
+          echo "  $TEMPLATE_BUCKET_STACK"
 
 
       # ======================================================
       # STEP 4
-      # Discover root stack
+      # DISCOVER ROOT STACK
       # ======================================================
 
       - name: "Step 4 - Discover Root Stack"
+
         id: root
 
         shell: bash
@@ -223,18 +238,23 @@ jobs:
             )
 
             echo "exists=true" >> "$GITHUB_OUTPUT"
+
             echo "status=$STATUS" >> "$GITHUB_OUTPUT"
 
             echo ""
+
             echo "Root stack exists."
+
             echo "Status: $STATUS"
 
           else
 
             echo "exists=false" >> "$GITHUB_OUTPUT"
+
             echo "status=NOT_FOUND" >> "$GITHUB_OUTPUT"
 
             echo ""
+
             echo "Root stack does not exist."
 
           fi
@@ -242,10 +262,11 @@ jobs:
 
       # ======================================================
       # STEP 5
-      # Display root resources
+      # DISPLAY ROOT RESOURCES
       # ======================================================
 
       - name: "Step 5 - Display Root Resources"
+
         if: steps.root.outputs.exists == 'true'
 
         shell: bash
@@ -269,10 +290,929 @@ jobs:
 
       # ======================================================
       # STEP 6
-      # Discover RDS nested stack
+      # DISCOVER STANDALONE ECS/ECR STACK
+      # ======================================================
+      #
+      # THIS IS THE IMPORTANT FIX.
+      #
+      # Your previous workflow only discovered ECSStack as a
+      # nested resource inside the root stack.
+      #
+      # Your Charlie Cafe ECS workflow creates:
+      #
+      #   CharlieCafe-ECS-Stack
+      #
+      # Therefore we explicitly discover it here.
       # ======================================================
 
-      - name: "Step 6 - Discover RDS Nested Stack"
+      - name: "Step 6 - Discover Standalone ECS ECR Stack"
+
+        id: ecs_stack
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "DISCOVER STANDALONE ECS/ECR STACK"
+          echo "=================================================="
+
+          if aws cloudformation describe-stacks \
+            --stack-name "$ECS_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --no-cli-pager \
+            >/dev/null 2>&1
+          then
+
+            STATUS=$(
+              aws cloudformation describe-stacks \
+                --stack-name "$ECS_STACK_NAME" \
+                --region "$AWS_REGION" \
+                --query "Stacks[0].StackStatus" \
+                --output text \
+                --no-cli-pager
+            )
+
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+
+            echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+
+            echo ""
+
+            echo "Standalone ECS/ECR stack FOUND."
+
+            echo "Stack : $ECS_STACK_NAME"
+
+            echo "Status: $STATUS"
+
+          else
+
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+
+            echo "status=NOT_FOUND" >> "$GITHUB_OUTPUT"
+
+            echo ""
+
+            echo "Standalone ECS/ECR stack does not exist."
+
+          fi
+
+
+      # ======================================================
+      # STEP 7
+      # DISPLAY ECS STACK RESOURCES
+      # ======================================================
+
+      - name: "Step 7 - Display ECS Stack Resources"
+
+        if: steps.ecs_stack.outputs.exists == 'true'
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "ECS/ECR STACK RESOURCES"
+          echo "=================================================="
+
+          aws cloudformation list-stack-resources \
+            --stack-name "$ECS_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query "StackResourceSummaries[].[LogicalResourceId,ResourceType,ResourceStatus,PhysicalResourceId]" \
+            --output table \
+            --no-cli-pager \
+            || true
+
+
+      # ======================================================
+      # STEP 8
+      # DISCOVER ECS CLUSTER FROM STANDALONE STACK
+      # ======================================================
+
+      - name: "Step 8 - Discover ECS Cluster"
+
+        if: steps.ecs_stack.outputs.exists == 'true'
+
+        id: standalone_ecs_cluster
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          ECS_CLUSTER=$(
+            aws cloudformation list-stack-resources \
+              --stack-name "$ECS_STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query "StackResourceSummaries[?ResourceType=='AWS::ECS::Cluster'].PhysicalResourceId | [0]" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )
+
+          echo "ECS Cluster: $ECS_CLUSTER"
+
+          if [[ -n "$ECS_CLUSTER" && "$ECS_CLUSTER" != "None" ]]
+          then
+
+            echo "cluster=$ECS_CLUSTER" >> "$GITHUB_OUTPUT"
+
+          else
+
+            echo "cluster=" >> "$GITHUB_OUTPUT"
+
+          fi
+
+
+      # ======================================================
+      # STEP 9
+      # DISCOVER ECS SERVICE
+      # ======================================================
+
+      - name: "Step 9 - Discover ECS Service"
+
+        if: steps.ecs_stack.outputs.exists == 'true'
+
+        id: standalone_ecs_service
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          ECS_SERVICE=$(
+            aws cloudformation list-stack-resources \
+              --stack-name "$ECS_STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query "StackResourceSummaries[?ResourceType=='AWS::ECS::Service'].PhysicalResourceId | [0]" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )
+
+          echo "ECS Service: $ECS_SERVICE"
+
+          if [[ -n "$ECS_SERVICE" && "$ECS_SERVICE" != "None" ]]
+          then
+
+            echo "service=$ECS_SERVICE" >> "$GITHUB_OUTPUT"
+
+          else
+
+            echo "service=" >> "$GITHUB_OUTPUT"
+
+          fi
+
+
+      # ======================================================
+      # STEP 10
+      # DISCOVER ECR REPOSITORY
+      # ======================================================
+
+      - name: "Step 10 - Discover ECR Repository"
+
+        if: steps.ecs_stack.outputs.exists == 'true'
+
+        id: standalone_ecr
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          ECR_REPOSITORY=$(
+            aws cloudformation list-stack-resources \
+              --stack-name "$ECS_STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query "StackResourceSummaries[?ResourceType=='AWS::ECR::Repository'].PhysicalResourceId | [0]" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )
+
+          echo "ECR Repository: $ECR_REPOSITORY"
+
+          if [[ -n "$ECR_REPOSITORY" && "$ECR_REPOSITORY" != "None" ]]
+          then
+
+            echo "repository=$ECR_REPOSITORY" >> "$GITHUB_OUTPUT"
+
+          else
+
+            echo "repository=" >> "$GITHUB_OUTPUT"
+
+          fi
+
+
+      # ======================================================
+      # STEP 11
+      # STOP ECS SERVICE
+      # ======================================================
+      #
+      # IMPORTANT:
+      # We do NOT manually delete the CloudFormation-owned ECS
+      # service here.
+      #
+      # We simply scale it to zero.
+      #
+      # Then CloudFormation can safely delete it when the stack
+      # is deleted.
+      # ======================================================
+
+      - name: "Step 11 - Stop ECS Service"
+
+        if: |
+          steps.standalone_ecs_cluster.outputs.cluster != '' &&
+          steps.standalone_ecs_service.outputs.service != ''
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          ECS_CLUSTER="${{ steps.standalone_ecs_cluster.outputs.cluster }}"
+
+          ECS_SERVICE="${{ steps.standalone_ecs_service.outputs.service }}"
+
+          echo "=================================================="
+          echo "STOP ECS SERVICE"
+          echo "=================================================="
+
+          if aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --region "$AWS_REGION" \
+            --no-cli-pager \
+            >/dev/null 2>&1
+          then
+
+            aws ecs update-service \
+              --cluster "$ECS_CLUSTER" \
+              --service "$ECS_SERVICE" \
+              --desired-count 0 \
+              --region "$AWS_REGION" \
+              --no-cli-pager \
+              || true
+
+            echo "ECS desired count set to 0."
+
+          else
+
+            echo "ECS service already absent."
+
+          fi
+
+
+      # ======================================================
+      # STEP 12
+      # WAIT FOR ECS TASKS
+      # ======================================================
+
+      - name: "Step 12 - Wait For ECS Tasks"
+
+        if: |
+          steps.standalone_ecs_cluster.outputs.cluster != '' &&
+          steps.standalone_ecs_service.outputs.service != ''
+
+        shell: bash
+
+        run: |
+
+          set -u
+
+          ECS_CLUSTER="${{ steps.standalone_ecs_cluster.outputs.cluster }}"
+
+          ECS_SERVICE="${{ steps.standalone_ecs_service.outputs.service }}"
+
+          echo "=================================================="
+          echo "WAIT FOR ECS TASKS"
+          echo "=================================================="
+
+          for ATTEMPT in $(seq 1 36)
+          do
+
+            RUNNING=$(
+              aws ecs describe-services \
+                --cluster "$ECS_CLUSTER" \
+                --services "$ECS_SERVICE" \
+                --region "$AWS_REGION" \
+                --query "services[0].runningCount" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || echo "0"
+            )
+
+            echo "Attempt $ATTEMPT / 36"
+
+            echo "Running tasks: $RUNNING"
+
+            if [[ "$RUNNING" == "0" ]]
+            then
+
+              echo "All ECS tasks stopped."
+
+              exit 0
+
+            fi
+
+            sleep 10
+
+          done
+
+          echo ""
+
+          echo "WARNING: ECS tasks did not reach zero."
+
+          echo "Continuing cleanup."
+
+
+      # ======================================================
+      # STEP 13
+      # EMPTY ECR REPOSITORY
+      # ======================================================
+      #
+      # THIS IS REQUIRED BEFORE ECS/ECR STACK DELETION.
+      #
+      # CloudFormation cannot normally delete an ECR repository
+      # that still contains images unless the repository was
+      # explicitly configured with:
+      #
+      #   EmptyOnDelete: true
+      #
+      # Therefore we remove the images first.
+      # ======================================================
+
+      - name: "Step 13 - Delete All ECR Images"
+
+        if: steps.standalone_ecr.outputs.repository != ''
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          ECR_REPOSITORY="${{ steps.standalone_ecr.outputs.repository }}"
+
+          echo "=================================================="
+          echo "DELETE ALL ECR IMAGES"
+          echo "=================================================="
+
+          if ! aws ecr describe-repositories \
+            --repository-names "$ECR_REPOSITORY" \
+            --region "$AWS_REGION" \
+            --no-cli-pager \
+            >/dev/null 2>&1
+          then
+
+            echo "ECR repository already absent."
+
+            exit 0
+
+          fi
+
+          while true
+          do
+
+            IMAGE_IDS=$(
+              aws ecr list-images \
+                --repository-name "$ECR_REPOSITORY" \
+                --region "$AWS_REGION" \
+                --query "imageIds[*]" \
+                --output json \
+                --no-cli-pager
+            )
+
+            COUNT=$(echo "$IMAGE_IDS" | jq 'length')
+
+            echo "Images remaining: $COUNT"
+
+            if [[ "$COUNT" -eq 0 ]]
+            then
+
+              echo "ECR repository is empty."
+
+              break
+
+            fi
+
+            echo "$IMAGE_IDS" > /tmp/ecr-images.json
+
+            aws ecr batch-delete-image \
+              --repository-name "$ECR_REPOSITORY" \
+              --image-ids file:///tmp/ecr-images.json \
+              --region "$AWS_REGION" \
+              --no-cli-pager \
+              || true
+
+          done
+
+
+      # ======================================================
+      # STEP 14
+      # DELETE STANDALONE ECS/ECR STACK
+      # ======================================================
+      #
+      # THIS IS THE OTHER MAJOR FIX.
+      #
+      # Your old workflow never explicitly deleted:
+      #
+      #   CharlieCafe-ECS-Stack
+      #
+      # This step does.
+      #
+      # CloudFormation will now delete:
+      #
+      #   ECS Service
+      #   ECS Cluster
+      #   ALB
+      #   Target Group
+      #   ECR Repository
+      #   Task Definition
+      #   Security Groups
+      #   other resources owned by this stack
+      # ======================================================
+
+      - name: "Step 14 - Delete Standalone ECS ECR Stack"
+
+        if: steps.ecs_stack.outputs.exists == 'true'
+
+        id: delete_ecs_stack
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "DELETE STANDALONE ECS/ECR STACK"
+          echo "=================================================="
+
+          echo "Stack:"
+          echo "  $ECS_STACK_NAME"
+
+          STATUS=$(
+            aws cloudformation describe-stacks \
+              --stack-name "$ECS_STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query "Stacks[0].StackStatus" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || echo "NOT_FOUND"
+          )
+
+          echo "Current status: $STATUS"
+
+          if [[ "$STATUS" == "NOT_FOUND" ]]
+          then
+
+            echo "ECS/ECR stack already deleted."
+
+            exit 0
+
+          fi
+
+          if [[ "$STATUS" == "DELETE_COMPLETE" ]]
+          then
+
+            echo "ECS/ECR stack already deleted."
+
+            exit 0
+
+          fi
+
+          if [[ "$STATUS" == "DELETE_FAILED" ]]
+          then
+
+            echo "Stack is already DELETE_FAILED."
+
+            echo "Retrying normal deletion first."
+
+          fi
+
+          aws cloudformation delete-stack \
+            --stack-name "$ECS_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --no-cli-pager \
+            || true
+
+          echo ""
+
+          echo "Waiting for ECS/ECR stack deletion..."
+
+          for ATTEMPT in $(seq 1 80)
+          do
+
+            STATUS=$(
+              aws cloudformation describe-stacks \
+                --stack-name "$ECS_STACK_NAME" \
+                --region "$AWS_REGION" \
+                --query "Stacks[0].StackStatus" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || echo "NOT_FOUND"
+            )
+
+            echo "Attempt $ATTEMPT / 80"
+
+            echo "Status: $STATUS"
+
+            if [[ "$STATUS" == "NOT_FOUND" ]]
+            then
+
+              echo "ECS/ECR stack successfully deleted."
+
+              exit 0
+
+            fi
+
+            if [[ "$STATUS" == "DELETE_COMPLETE" ]]
+            then
+
+              echo "ECS/ECR stack successfully deleted."
+
+              exit 0
+
+            fi
+
+            if [[ "$STATUS" == "DELETE_FAILED" ]]
+            then
+
+              echo ""
+
+              echo "WARNING: ECS/ECR stack DELETE_FAILED."
+
+              break
+
+            fi
+
+            sleep 15
+
+          done
+
+          echo ""
+
+          echo "ECS/ECR stack deletion requires further cleanup."
+
+
+      # ======================================================
+      # STEP 15
+      # DISCOVER EC2 INSTANCES FROM ROOT STACK
+      # ======================================================
+
+      - name: "Step 15 - Discover EC2 Instances"
+
+        if: steps.root.outputs.exists == 'true'
+
+        id: ec2
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "DISCOVER EC2 INSTANCES"
+          echo "=================================================="
+
+          INSTANCE_IDS=$(
+            aws cloudformation list-stack-resources \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query "StackResourceSummaries[?ResourceType=='AWS::EC2::Instance'].PhysicalResourceId" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )
+
+          echo "EC2 Instances:"
+
+          echo "$INSTANCE_IDS"
+
+          {
+            echo "instances<<EOF"
+            echo "$INSTANCE_IDS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+
+      # ======================================================
+      # STEP 16
+      # CLEAN DOCKER ON EC2
+      # ======================================================
+
+      - name: "Step 16 - Clean Docker Containers And Images On EC2"
+
+        if: steps.ec2.outputs.instances != ''
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "DOCKER CLEANUP ON EC2"
+          echo "=================================================="
+
+          INSTANCE_IDS="${{ steps.ec2.outputs.instances }}"
+
+          for INSTANCE_ID in $INSTANCE_IDS
+          do
+
+            [[ -z "$INSTANCE_ID" || "$INSTANCE_ID" == "None" ]] && continue
+
+            echo ""
+
+            echo "EC2 Instance: $INSTANCE_ID"
+
+            PING_STATUS=$(
+              aws ssm describe-instance-information \
+                --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
+                --region "$AWS_REGION" \
+                --query "InstanceInformationList[0].PingStatus" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || echo "NOT_FOUND"
+            )
+
+            echo "SSM status: $PING_STATUS"
+
+            if [[ "$PING_STATUS" != "Online" ]]
+            then
+
+              echo "Instance is not SSM Online."
+
+              echo "Skipping Docker cleanup."
+
+              continue
+
+            fi
+
+            COMMAND_ID=$(
+              aws ssm send-command \
+                --instance-ids "$INSTANCE_ID" \
+                --document-name "AWS-RunShellScript" \
+                --comment "Charlie Cafe complete Docker cleanup" \
+                --parameters 'commands=[
+                  "echo === DOCKER CLEANUP START ===",
+                  "if command -v docker >/dev/null 2>&1; then",
+                  "  echo Docker detected.",
+                  "  echo Stopping containers...",
+                  "  docker stop $(docker ps -q) 2>/dev/null || true",
+                  "  echo Removing containers...",
+                  "  docker rm -f $(docker ps -aq) 2>/dev/null || true",
+                  "  echo Removing images...",
+                  "  docker image prune -af || true",
+                  "  echo Removing containers...",
+                  "  docker container prune -f || true",
+                  "  echo Removing volumes...",
+                  "  docker volume prune -f || true",
+                  "  echo Removing networks...",
+                  "  docker network prune -f || true",
+                  "  echo Removing build cache...",
+                  "  docker builder prune -af || true",
+                  "  echo === DOCKER CLEANUP COMPLETE ===",
+                  "else",
+                  "  echo Docker is not installed.",
+                  "fi"
+                ]' \
+                --region "$AWS_REGION" \
+                --query "Command.CommandId" \
+                --output text \
+                --no-cli-pager
+            )
+
+            echo "SSM Command ID: $COMMAND_ID"
+
+            for ATTEMPT in $(seq 1 30)
+            do
+
+              COMMAND_STATUS=$(
+                aws ssm get-command-invocation \
+                  --command-id "$COMMAND_ID" \
+                  --instance-id "$INSTANCE_ID" \
+                  --region "$AWS_REGION" \
+                  --query "Status" \
+                  --output text \
+                  --no-cli-pager \
+                  2>/dev/null || echo "Pending"
+              )
+
+              echo "Attempt $ATTEMPT / 30"
+
+              echo "SSM status: $COMMAND_STATUS"
+
+              case "$COMMAND_STATUS" in
+
+                Success)
+
+                  echo "Docker cleanup succeeded."
+
+                  break
+
+                  ;;
+
+                Failed|Cancelled|TimedOut|Cancelling)
+
+                  echo "WARNING: Docker cleanup failed."
+
+                  break
+
+                  ;;
+
+                *)
+
+                  sleep 5
+
+                  ;;
+
+              esac
+
+            done
+
+          done
+
+
+      # ======================================================
+      # STEP 17
+      # DISCOVER TEMPLATE S3 BUCKET STACK
+      # ======================================================
+
+      - name: "Step 17 - Discover Template Bucket"
+
+        id: template_s3
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "DISCOVER TEMPLATE S3 BUCKET"
+          echo "=================================================="
+
+          if ! aws cloudformation describe-stacks \
+            --stack-name "$TEMPLATE_BUCKET_STACK" \
+            --region "$AWS_REGION" \
+            --no-cli-pager \
+            >/dev/null 2>&1
+          then
+
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+
+            echo "bucket=" >> "$GITHUB_OUTPUT"
+
+            echo "Template bucket stack does not exist."
+
+            exit 0
+
+          fi
+
+          BUCKET=$(
+            aws cloudformation list-stack-resources \
+              --stack-name "$TEMPLATE_BUCKET_STACK" \
+              --region "$AWS_REGION" \
+              --query "StackResourceSummaries[?ResourceType=='AWS::S3::Bucket'].PhysicalResourceId | [0]" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )
+
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+
+          echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
+
+          echo "Template bucket: $BUCKET"
+
+
+      # ======================================================
+      # STEP 18
+      # EMPTY VERSIONED S3 BUCKET
+      # ======================================================
+
+      - name: "Step 18 - Empty Versioned S3 Bucket"
+
+        if: steps.template_s3.outputs.bucket != ''
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          BUCKET="${{ steps.template_s3.outputs.bucket }}"
+
+          echo "=================================================="
+          echo "EMPTY S3 BUCKET"
+          echo "=================================================="
+
+          while true
+          do
+
+            DATA=$(
+              aws s3api list-object-versions \
+                --bucket "$BUCKET" \
+                --region "$AWS_REGION" \
+                --output json \
+                --no-cli-pager
+            )
+
+            VERSION_COUNT=$(echo "$DATA" | jq '(.Versions // []) | length')
+
+            MARKER_COUNT=$(echo "$DATA" | jq '(.DeleteMarkers // []) | length')
+
+            TOTAL=$((VERSION_COUNT + MARKER_COUNT))
+
+            echo "Versions       : $VERSION_COUNT"
+
+            echo "Delete markers : $MARKER_COUNT"
+
+            echo "Total          : $TOTAL"
+
+            if [[ "$TOTAL" -eq 0 ]]
+            then
+
+              echo "S3 bucket is empty."
+
+              break
+
+            fi
+
+            echo "$DATA" |
+              jq '{
+                Objects:
+                  (
+                    ((.Versions // []) + (.DeleteMarkers // []))
+                    | map({
+                        Key: .Key,
+                        VersionId: .VersionId
+                      })
+                    | .[0:1000]
+                  ),
+                Quiet: true
+              }' > /tmp/s3-delete.json
+
+            aws s3api delete-objects \
+              --bucket "$BUCKET" \
+              --delete file:///tmp/s3-delete.json \
+              --region "$AWS_REGION" \
+              --no-cli-pager
+
+          done
+
+
+      # ======================================================
+      # STEP 19
+      # DELETE TEMPLATE BUCKET STACK
+      # ======================================================
+
+      - name: "Step 19 - Delete Template Bucket Stack"
+
+        if: steps.template_s3.outputs.exists == 'true'
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "DELETE TEMPLATE BUCKET STACK"
+          echo "=================================================="
+
+          aws cloudformation delete-stack \
+            --stack-name "$TEMPLATE_BUCKET_STACK" \
+            --region "$AWS_REGION" \
+            --no-cli-pager
+
+          echo "Waiting for Template Bucket stack deletion..."
+
+          aws cloudformation wait stack-delete-complete \
+            --stack-name "$TEMPLATE_BUCKET_STACK" \
+            --region "$AWS_REGION"
+
+          echo "Template Bucket stack deleted."
+
+
+      # ======================================================
+      # STEP 20
+      # DISCOVER RDS NESTED STACK
+      # ======================================================
+
+      - name: "Step 20 - Discover RDS Nested Stack"
+
         if: steps.root.outputs.exists == 'true'
 
         id: rds_nested
@@ -287,7 +1227,7 @@ jobs:
             aws cloudformation list-stack-resources \
               --stack-name "$STACK_NAME" \
               --region "$AWS_REGION" \
-              --query "StackResourceSummaries[?LogicalResourceId=='RDSNestedStack'].PhysicalResourceId" \
+              --query "StackResourceSummaries[?LogicalResourceId=='RDSNestedStack'].PhysicalResourceId | [0]" \
               --output text \
               --no-cli-pager \
               2>/dev/null || true
@@ -309,11 +1249,12 @@ jobs:
 
 
       # ======================================================
-      # STEP 7
-      # Discover RDS instance
+      # STEP 21
+      # DISCOVER RDS INSTANCE
       # ======================================================
 
-      - name: "Step 7 - Discover RDS Instance"
+      - name: "Step 21 - Discover RDS Instance"
+
         if: steps.rds_nested.outputs.nested != ''
 
         id: rds
@@ -351,11 +1292,12 @@ jobs:
 
 
       # ======================================================
-      # STEP 8
-      # Disable RDS deletion protection
+      # STEP 22
+      # DISABLE RDS DELETION PROTECTION
       # ======================================================
 
-      - name: "Step 8 - Disable RDS Deletion Protection"
+      - name: "Step 22 - Disable RDS Deletion Protection"
+
         if: steps.rds.outputs.instance != ''
 
         shell: bash
@@ -380,13 +1322,14 @@ jobs:
               2>/dev/null || echo "NOT_FOUND"
           )
 
-          echo "Instance: $RDS_INSTANCE"
-          echo "Protection: $PROTECTION"
+          echo "RDS instance: $RDS_INSTANCE"
+
+          echo "Deletion protection: $PROTECTION"
 
           if [[ "$PROTECTION" == "True" ]]
           then
 
-            echo "Disabling RDS deletion protection..."
+            echo "Disabling deletion protection..."
 
             aws rds modify-db-instance \
               --db-instance-identifier "$RDS_INSTANCE" \
@@ -403,14 +1346,25 @@ jobs:
 
 
       # ======================================================
-      # STEP 9
-      # Discover ECS nested stack
+      # STEP 23
+      # DISCOVER NESTED ECS STACK
+      # ======================================================
+      #
+      # IMPORTANT:
+      #
+      # We ONLY discover it.
+      #
+      # We do NOT directly delete it.
+      #
+      # If ECSStack is genuinely nested under the root stack,
+      # CloudFormation will delete it as part of root deletion.
       # ======================================================
 
-      - name: "Step 9 - Discover ECS Nested Stack"
+      - name: "Step 23 - Discover Nested ECS Stack"
+
         if: steps.root.outputs.exists == 'true'
 
-        id: ecs_nested
+        id: nested_ecs
 
         shell: bash
 
@@ -422,13 +1376,13 @@ jobs:
             aws cloudformation list-stack-resources \
               --stack-name "$STACK_NAME" \
               --region "$AWS_REGION" \
-              --query "StackResourceSummaries[?LogicalResourceId=='ECSStack'].PhysicalResourceId" \
+              --query "StackResourceSummaries[?LogicalResourceId=='ECSStack'].PhysicalResourceId | [0]" \
               --output text \
               --no-cli-pager \
               2>/dev/null || true
           )
 
-          echo "ECS nested stack: $ECS_NESTED_STACK_ID"
+          echo "Nested ECS stack: $ECS_NESTED_STACK_ID"
 
           if [[ -n "$ECS_NESTED_STACK_ID" &&
                 "$ECS_NESTED_STACK_ID" != "None" ]]
@@ -436,774 +1390,27 @@ jobs:
 
             echo "nested=$ECS_NESTED_STACK_ID" >> "$GITHUB_OUTPUT"
 
+            echo ""
+            echo "Nested ECS stack detected."
+
+            echo "It will be deleted by the ROOT stack."
+
           else
 
             echo "nested=" >> "$GITHUB_OUTPUT"
 
-          fi
-
-
-      # ======================================================
-      # STEP 10
-      # Discover ECS cluster
-      # ======================================================
-
-      - name: "Step 10 - Discover ECS Cluster"
-        if: steps.ecs_nested.outputs.nested != ''
-
-        id: ecs_cluster
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          ECS_CLUSTER=$(
-            aws cloudformation list-stack-resources \
-              --stack-name "${{ steps.ecs_nested.outputs.nested }}" \
-              --region "$AWS_REGION" \
-              --query "StackResourceSummaries[?ResourceType=='AWS::ECS::Cluster'].PhysicalResourceId" \
-              --output text \
-              --no-cli-pager \
-              2>/dev/null || true
-          )
-
-          echo "ECS cluster: $ECS_CLUSTER"
-
-          if [[ -n "$ECS_CLUSTER" &&
-                "$ECS_CLUSTER" != "None" ]]
-          then
-
-            echo "cluster=$ECS_CLUSTER" >> "$GITHUB_OUTPUT"
-
-          else
-
-            echo "cluster=" >> "$GITHUB_OUTPUT"
+            echo "No nested ECS stack found."
 
           fi
-
-
-      # ======================================================
-      # STEP 11
-      # Discover ECS service
-      # ======================================================
-
-      - name: "Step 11 - Discover ECS Service"
-        if: steps.ecs_nested.outputs.nested != ''
-
-        id: ecs_service
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          ECS_SERVICE=$(
-            aws cloudformation list-stack-resources \
-              --stack-name "${{ steps.ecs_nested.outputs.nested }}" \
-              --region "$AWS_REGION" \
-              --query "StackResourceSummaries[?ResourceType=='AWS::ECS::Service'].PhysicalResourceId" \
-              --output text \
-              --no-cli-pager \
-              2>/dev/null || true
-          )
-
-          echo "ECS service: $ECS_SERVICE"
-
-          if [[ -n "$ECS_SERVICE" &&
-                "$ECS_SERVICE" != "None" ]]
-          then
-
-            echo "service=$ECS_SERVICE" >> "$GITHUB_OUTPUT"
-
-          else
-
-            echo "service=" >> "$GITHUB_OUTPUT"
-
-          fi
-
-
-      # ======================================================
-      # STEP 12
-      # Discover ECR repository
-      # ======================================================
-
-      - name: "Step 12 - Discover ECR Repository"
-        if: steps.ecs_nested.outputs.nested != ''
-
-        id: ecr
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          ECR_REPOSITORY=$(
-            aws cloudformation list-stack-resources \
-              --stack-name "${{ steps.ecs_nested.outputs.nested }}" \
-              --region "$AWS_REGION" \
-              --query "StackResourceSummaries[?ResourceType=='AWS::ECR::Repository'].PhysicalResourceId" \
-              --output text \
-              --no-cli-pager \
-              2>/dev/null || true
-          )
-
-          echo "ECR repository: $ECR_REPOSITORY"
-
-          if [[ -n "$ECR_REPOSITORY" &&
-                "$ECR_REPOSITORY" != "None" ]]
-          then
-
-            echo "repository=$ECR_REPOSITORY" >> "$GITHUB_OUTPUT"
-
-          else
-
-            echo "repository=" >> "$GITHUB_OUTPUT"
-
-          fi
-
-
-      # ======================================================
-      # STEP 13
-      # Discover ALB
-      # ======================================================
-
-      - name: "Step 13 - Discover ALB"
-        if: steps.ecs_nested.outputs.nested != ''
-
-        id: alb
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          ALB_ARN=$(
-            aws cloudformation list-stack-resources \
-              --stack-name "${{ steps.ecs_nested.outputs.nested }}" \
-              --region "$AWS_REGION" \
-              --query "StackResourceSummaries[?ResourceType=='AWS::ElasticLoadBalancingV2::LoadBalancer'].PhysicalResourceId" \
-              --output text \
-              --no-cli-pager \
-              2>/dev/null || true
-          )
-
-          echo "ALB: $ALB_ARN"
-
-          if [[ -n "$ALB_ARN" &&
-                "$ALB_ARN" != "None" ]]
-          then
-
-            echo "arn=$ALB_ARN" >> "$GITHUB_OUTPUT"
-
-          else
-
-            echo "arn=" >> "$GITHUB_OUTPUT"
-
-          fi
-
-
-      # ======================================================
-      # STEP 14
-      # Discover target group
-      # ======================================================
-
-      - name: "Step 14 - Discover Target Group"
-        if: steps.ecs_nested.outputs.nested != ''
-
-        id: target_group
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          TARGET_GROUP_ARN=$(
-            aws cloudformation list-stack-resources \
-              --stack-name "${{ steps.ecs_nested.outputs.nested }}" \
-              --region "$AWS_REGION" \
-              --query "StackResourceSummaries[?ResourceType=='AWS::ElasticLoadBalancingV2::TargetGroup'].PhysicalResourceId" \
-              --output text \
-              --no-cli-pager \
-              2>/dev/null || true
-          )
-
-          echo "Target group: $TARGET_GROUP_ARN"
-
-          if [[ -n "$TARGET_GROUP_ARN" &&
-                "$TARGET_GROUP_ARN" != "None" ]]
-          then
-
-            echo "arn=$TARGET_GROUP_ARN" >> "$GITHUB_OUTPUT"
-
-          else
-
-            echo "arn=" >> "$GITHUB_OUTPUT"
-
-          fi
-
-
-      # ======================================================
-      # STEP 15
-      # Discover EC2 instances
-      #
-      # Used for Docker cleanup through SSM.
-      # ======================================================
-
-      - name: "Step 15 - Discover EC2 Instances"
-        if: steps.root.outputs.exists == 'true'
-
-        id: ec2
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          echo "=================================================="
-          echo "DISCOVER EC2 INSTANCES"
-          echo "=================================================="
-
-          INSTANCE_IDS=$(
-            aws cloudformation list-stack-resources \
-              --stack-name "$STACK_NAME" \
-              --region "$AWS_REGION" \
-              --query "StackResourceSummaries[?ResourceType=='AWS::EC2::Instance'].PhysicalResourceId" \
-              --output text \
-              --no-cli-pager \
-              2>/dev/null || true
-          )
-
-          echo "Instances:"
-          echo "$INSTANCE_IDS"
-
-          {
-            echo "instances<<EOF"
-            echo "$INSTANCE_IDS"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-
-      # ======================================================
-      # STEP 16
-      # Stop ECS service
-      # ======================================================
-
-      - name: "Step 16 - Stop ECS Service"
-        if: |
-          steps.ecs_cluster.outputs.cluster != '' &&
-          steps.ecs_service.outputs.service != ''
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          ECS_CLUSTER="${{ steps.ecs_cluster.outputs.cluster }}"
-          ECS_SERVICE="${{ steps.ecs_service.outputs.service }}"
-
-          echo "=================================================="
-          echo "STOP ECS SERVICE"
-          echo "=================================================="
-
-          if aws ecs describe-services \
-            --cluster "$ECS_CLUSTER" \
-            --services "$ECS_SERVICE" \
-            --region "$AWS_REGION" \
-            --no-cli-pager \
-            >/dev/null 2>&1
-          then
-
-            aws ecs update-service \
-              --cluster "$ECS_CLUSTER" \
-              --service "$ECS_SERVICE" \
-              --desired-count 0 \
-              --region "$AWS_REGION" \
-              --no-cli-pager \
-              || true
-
-            echo "ECS service scaled to zero."
-
-          else
-
-            echo "ECS service already absent."
-
-          fi
-
-
-      # ======================================================
-      # STEP 17
-      # Wait for ECS tasks
-      #
-      # IMPORTANT:
-      # This step does NOT fail the entire workflow merely
-      # because ECS takes a long time.
-      # ======================================================
-
-      - name: "Step 17 - Wait For ECS Tasks"
-        if: |
-          steps.ecs_cluster.outputs.cluster != '' &&
-          steps.ecs_service.outputs.service != ''
-
-        shell: bash
-
-        run: |
-
-          set -u
-
-          ECS_CLUSTER="${{ steps.ecs_cluster.outputs.cluster }}"
-          ECS_SERVICE="${{ steps.ecs_service.outputs.service }}"
-
-          echo "=================================================="
-          echo "WAIT FOR ECS TASKS"
-          echo "=================================================="
-
-          for ATTEMPT in $(seq 1 36)
-          do
-
-            RUNNING=$(
-              aws ecs describe-services \
-                --cluster "$ECS_CLUSTER" \
-                --services "$ECS_SERVICE" \
-                --region "$AWS_REGION" \
-                --query "services[0].runningCount" \
-                --output text \
-                --no-cli-pager \
-                2>/dev/null || echo "0"
-            )
-
-            echo "Attempt $ATTEMPT / 36"
-            echo "Running tasks: $RUNNING"
-
-            if [[ "$RUNNING" == "0" ]]
-            then
-
-              echo "All ECS tasks stopped."
-              exit 0
-
-            fi
-
-            sleep 10
-
-          done
-
-          echo ""
-          echo "WARNING:"
-          echo "ECS tasks did not reach zero within the wait period."
-          echo "Continuing cleanup."
-
-
-      # ======================================================
-      # STEP 18
-      # Delete ECS service
-      # ======================================================
-
-      - name: "Step 18 - Delete ECS Service"
-        if: |
-          steps.ecs_cluster.outputs.cluster != '' &&
-          steps.ecs_service.outputs.service != ''
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          ECS_CLUSTER="${{ steps.ecs_cluster.outputs.cluster }}"
-          ECS_SERVICE="${{ steps.ecs_service.outputs.service }}"
-
-          echo "=================================================="
-          echo "DELETE ECS SERVICE"
-          echo "=================================================="
-
-          if aws ecs describe-services \
-            --cluster "$ECS_CLUSTER" \
-            --services "$ECS_SERVICE" \
-            --region "$AWS_REGION" \
-            --no-cli-pager \
-            >/dev/null 2>&1
-          then
-
-            aws ecs delete-service \
-              --cluster "$ECS_CLUSTER" \
-              --service "$ECS_SERVICE" \
-              --force \
-              --region "$AWS_REGION" \
-              --no-cli-pager \
-              || true
-
-            echo "ECS service deletion requested."
-
-          else
-
-            echo "ECS service already absent."
-
-          fi
-
-
-      # ======================================================
-      # STEP 19
-      # Clean Docker containers/images on EC2
-      #
-      # IMPORTANT:
-      # This uses SSM.
-      #
-      # It does NOT affect the GitHub runner Docker daemon.
-      # ======================================================
-
-      - name: "Step 19 - Clean Docker Containers And Images On EC2"
-        if: steps.ec2.outputs.instances != ''
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          echo "=================================================="
-          echo "DOCKER CLEANUP ON EC2"
-          echo "=================================================="
-
-          INSTANCE_IDS="${{ steps.ec2.outputs.instances }}"
-
-          for INSTANCE_ID in $INSTANCE_IDS
-          do
-
-            [[ -z "$INSTANCE_ID" || "$INSTANCE_ID" == "None" ]] && continue
-
-            echo ""
-            echo "EC2 Instance: $INSTANCE_ID"
-
-            PING_STATUS=$(
-              aws ssm describe-instance-information \
-                --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
-                --region "$AWS_REGION" \
-                --query "InstanceInformationList[0].PingStatus" \
-                --output text \
-                --no-cli-pager \
-                2>/dev/null || echo "NOT_FOUND"
-            )
-
-            echo "SSM status: $PING_STATUS"
-
-            if [[ "$PING_STATUS" != "Online" ]]
-            then
-
-              echo "Instance is not SSM Online."
-              echo "Skipping Docker cleanup for this instance."
-
-              continue
-
-            fi
-
-            COMMAND_ID=$(
-              aws ssm send-command \
-                --instance-ids "$INSTANCE_ID" \
-                --document-name "AWS-RunShellScript" \
-                --comment "Charlie Cafe CloudFormation lab Docker cleanup" \
-                --parameters 'commands=[
-                  "echo === DOCKER CLEANUP START ===",
-                  "if command -v docker >/dev/null 2>&1; then",
-                  "  echo Docker detected.",
-                  "  docker ps -aq || true",
-                  "  docker stop $(docker ps -q) 2>/dev/null || true",
-                  "  docker rm -f $(docker ps -aq) 2>/dev/null || true",
-                  "  docker image prune -af || true",
-                  "  docker container prune -f || true",
-                  "  docker volume prune -f || true",
-                  "  docker network prune -f || true",
-                  "  echo === DOCKER CLEANUP COMPLETE ===",
-                  "else",
-                  "  echo Docker is not installed.",
-                  "fi"
-                ]' \
-                --region "$AWS_REGION" \
-                --query "Command.CommandId" \
-                --output text \
-                --no-cli-pager
-            )
-
-            echo "SSM command: $COMMAND_ID"
-
-            for ATTEMPT in $(seq 1 30)
-            do
-
-              COMMAND_STATUS=$(
-                aws ssm get-command-invocation \
-                  --command-id "$COMMAND_ID" \
-                  --instance-id "$INSTANCE_ID" \
-                  --region "$AWS_REGION" \
-                  --query "Status" \
-                  --output text \
-                  --no-cli-pager \
-                  2>/dev/null || echo "Pending"
-              )
-
-              echo "Attempt $ATTEMPT / 30"
-              echo "SSM status: $COMMAND_STATUS"
-
-              case "$COMMAND_STATUS" in
-
-                Success)
-                  echo "Docker cleanup succeeded."
-                  break
-                  ;;
-
-                Failed|Cancelled|TimedOut|Cancelling)
-                  echo "WARNING: Docker cleanup did not succeed."
-                  break
-                  ;;
-
-                *)
-                  sleep 5
-                  ;;
-
-              esac
-
-            done
-
-          done
-
-
-      # ======================================================
-      # STEP 20
-      # Empty ECR images
-      #
-      # We DO NOT delete the repository here if CloudFormation
-      # owns the repository.
-      #
-      # CloudFormation should delete the repository itself.
-      # ======================================================
-
-      - name: "Step 20 - Empty ECR Repository"
-        if: steps.ecr.outputs.repository != ''
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          ECR_REPOSITORY="${{ steps.ecr.outputs.repository }}"
-
-          echo "=================================================="
-          echo "EMPTY ECR REPOSITORY"
-          echo "=================================================="
-
-          if ! aws ecr describe-repositories \
-            --repository-names "$ECR_REPOSITORY" \
-            --region "$AWS_REGION" \
-            --no-cli-pager \
-            >/dev/null 2>&1
-          then
-
-            echo "ECR repository already absent."
-            exit 0
-
-          fi
-
-          while true
-          do
-
-            IMAGE_IDS=$(
-              aws ecr list-images \
-                --repository-name "$ECR_REPOSITORY" \
-                --region "$AWS_REGION" \
-                --query "imageIds[*]" \
-                --output json \
-                --no-cli-pager
-            )
-
-            COUNT=$(echo "$IMAGE_IDS" | jq 'length')
-
-            echo "Images remaining: $COUNT"
-
-            if [[ "$COUNT" -eq 0 ]]
-            then
-
-              echo "ECR repository is empty."
-              break
-
-            fi
-
-            echo "$IMAGE_IDS" > /tmp/ecr-images.json
-
-            aws ecr batch-delete-image \
-              --repository-name "$ECR_REPOSITORY" \
-              --image-ids file:///tmp/ecr-images.json \
-              --region "$AWS_REGION" \
-              --no-cli-pager \
-              || true
-
-          done
-
-
-      # ======================================================
-      # STEP 21
-      # Discover Template Bucket
-      # ======================================================
-
-      - name: "Step 21 - Discover Template Bucket"
-        id: template_s3
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          if ! aws cloudformation describe-stacks \
-            --stack-name "$TEMPLATE_BUCKET_STACK" \
-            --region "$AWS_REGION" \
-            --no-cli-pager \
-            >/dev/null 2>&1
-          then
-
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "bucket=" >> "$GITHUB_OUTPUT"
-
-            echo "Template bucket stack does not exist."
-
-            exit 0
-
-          fi
-
-          BUCKET=$(
-            aws cloudformation list-stack-resources \
-              --stack-name "$TEMPLATE_BUCKET_STACK" \
-              --region "$AWS_REGION" \
-              --query "StackResourceSummaries[?ResourceType=='AWS::S3::Bucket'].PhysicalResourceId" \
-              --output text \
-              --no-cli-pager \
-              2>/dev/null || true
-          )
-
-          echo "exists=true" >> "$GITHUB_OUTPUT"
-          echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
-
-          echo "Template bucket: $BUCKET"
-
-
-      # ======================================================
-      # STEP 22
-      # Empty versioned S3 bucket
-      # ======================================================
-
-      - name: "Step 22 - Empty Versioned S3 Bucket"
-        if: steps.template_s3.outputs.bucket != ''
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          BUCKET="${{ steps.template_s3.outputs.bucket }}"
-
-          echo "=================================================="
-          echo "EMPTY VERSIONED S3 BUCKET"
-          echo "=================================================="
-
-          while true
-          do
-
-            DATA=$(
-              aws s3api list-object-versions \
-                --bucket "$BUCKET" \
-                --region "$AWS_REGION" \
-                --output json \
-                --no-cli-pager
-            )
-
-            VERSION_COUNT=$(echo "$DATA" | jq '(.Versions // []) | length')
-            MARKER_COUNT=$(echo "$DATA" | jq '(.DeleteMarkers // []) | length')
-
-            TOTAL=$((VERSION_COUNT + MARKER_COUNT))
-
-            echo "Versions       : $VERSION_COUNT"
-            echo "Delete markers : $MARKER_COUNT"
-            echo "Total          : $TOTAL"
-
-            if [[ "$TOTAL" -eq 0 ]]
-            then
-
-              echo "S3 bucket is empty."
-              break
-
-            fi
-
-            echo "$DATA" |
-              jq '{
-                Objects:
-                  (
-                    ((.Versions // []) + (.DeleteMarkers // []))
-                    | map({
-                        Key: .Key,
-                        VersionId: .VersionId
-                      })
-                    | .[0:1000]
-                  ),
-                Quiet: true
-              }' > /tmp/s3-delete.json
-
-            aws s3api delete-objects \
-              --bucket "$BUCKET" \
-              --delete file:///tmp/s3-delete.json \
-              --region "$AWS_REGION" \
-              --no-cli-pager
-
-          done
-
-
-      # ======================================================
-      # STEP 23
-      # Delete separate Template Bucket stack
-      #
-      # This stack is independent from the root stack.
-      # ======================================================
-
-      - name: "Step 23 - Delete Template Bucket Stack"
-        if: steps.template_s3.outputs.exists == 'true'
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          echo "=================================================="
-          echo "DELETE TEMPLATE BUCKET STACK"
-          echo "=================================================="
-
-          aws cloudformation delete-stack \
-            --stack-name "$TEMPLATE_BUCKET_STACK" \
-            --region "$AWS_REGION" \
-            --no-cli-pager
-
-          echo "Waiting for Template Bucket stack..."
-
-          aws cloudformation wait stack-delete-complete \
-            --stack-name "$TEMPLATE_BUCKET_STACK" \
-            --region "$AWS_REGION"
-
-          echo "Template Bucket stack deleted."
 
 
       # ======================================================
       # STEP 24
-      # Disable root termination protection
-      #
-      # A protected root stack cannot be deleted.
+      # DISABLE ROOT TERMINATION PROTECTION
       # ======================================================
 
       - name: "Step 24 - Disable Root Termination Protection"
+
         if: steps.root.outputs.exists == 'true'
 
         shell: bash
@@ -1213,7 +1420,7 @@ jobs:
           set -euo pipefail
 
           echo "=================================================="
-          echo "DISABLE TERMINATION PROTECTION"
+          echo "DISABLE ROOT TERMINATION PROTECTION"
           echo "=================================================="
 
           aws cloudformation update-termination-protection \
@@ -1224,19 +1431,27 @@ jobs:
             2>/dev/null \
             || true
 
-          echo "Termination protection disabled or already disabled."
+          echo "Root termination protection disabled or already disabled."
 
 
       # ======================================================
       # STEP 25
-      # Delete ROOT stack
+      # DELETE ROOT STACK
+      # ======================================================
       #
-      # This is the correct point where CloudFormation removes
-      # nested ECS/RDS/S3 stacks and their CloudFormation-owned
-      # resources.
+      # At this point:
+      #
+      # - Standalone ECS/ECR stack was deleted
+      # - ECR images were deleted
+      # - Docker was cleaned
+      # - Template S3 stack was deleted
+      # - RDS deletion protection was disabled
+      #
+      # NOW the root stack can delete its nested stacks.
       # ======================================================
 
       - name: "Step 25 - Delete Root CloudFormation Stack"
+
         if: steps.root.outputs.exists == 'true'
 
         id: root_delete
@@ -1248,29 +1463,51 @@ jobs:
           set -euo pipefail
 
           echo "=================================================="
-          echo "DELETE ROOT STACK"
+          echo "DELETE ROOT CLOUDFORMATION STACK"
           echo "=================================================="
 
-          STATUS="${{ steps.root.outputs.status }}"
+          STATUS=$(
+            aws cloudformation describe-stacks \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query "Stacks[0].StackStatus" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || echo "NOT_FOUND"
+          )
 
-          echo "Root stack status: $STATUS"
+          echo "Current root status: $STATUS"
+
+          if [[ "$STATUS" == "NOT_FOUND" ]]
+          then
+
+            echo "Root stack already deleted."
+
+            exit 0
+
+          fi
+
+          if [[ "$STATUS" == "DELETE_IN_PROGRESS" ]]
+          then
+
+            echo "Root stack deletion already in progress."
+
+            exit 0
+
+          fi
 
           if [[ "$STATUS" == "DELETE_FAILED" ]]
           then
 
-            echo "Root stack already DELETE_FAILED."
-            echo "Starting FORCE_DELETE_STACK."
+            echo "Root stack is DELETE_FAILED."
+
+            echo "Attempting FORCE_DELETE_STACK."
 
             aws cloudformation delete-stack \
               --stack-name "$STACK_NAME" \
               --deletion-mode FORCE_DELETE_STACK \
               --region "$AWS_REGION" \
               --no-cli-pager
-
-          elif [[ "$STATUS" == "DELETE_IN_PROGRESS" ]]
-          then
-
-            echo "Root stack deletion is already in progress."
 
           else
 
@@ -1279,20 +1516,18 @@ jobs:
               --region "$AWS_REGION" \
               --no-cli-pager
 
-            echo "Root stack deletion started."
+            echo "Root deletion started."
 
           fi
 
 
       # ======================================================
       # STEP 26
-      # Wait for root deletion
-      #
-      # Custom polling is used instead of AWS wait so that
-      # we can diagnose DELETE_FAILED properly.
+      # MONITOR ROOT DELETION
       # ======================================================
 
       - name: "Step 26 - Monitor Root Stack Deletion"
+
         if: steps.root.outputs.exists == 'true'
 
         id: root_wait
@@ -1304,10 +1539,11 @@ jobs:
           set -u
 
           echo "=================================================="
-          echo "MONITOR ROOT STACK"
+          echo "MONITOR ROOT STACK DELETION"
           echo "=================================================="
 
           MAX_SECONDS="$ROOT_DELETE_WAIT_SECONDS"
+
           ELAPSED=0
 
           while [[ "$ELAPSED" -lt "$MAX_SECONDS" ]]
@@ -1324,16 +1560,20 @@ jobs:
             )
 
             echo ""
-            echo "Elapsed : ${ELAPSED}s"
-            echo "Status  : $STATUS"
+
+            echo "Elapsed: ${ELAPSED}s"
+
+            echo "Status : $STATUS"
 
             if [[ "$STATUS" == "NOT_FOUND" ]]
             then
 
               echo "deleted=true" >> "$GITHUB_OUTPUT"
+
               echo "status=NOT_FOUND" >> "$GITHUB_OUTPUT"
 
               echo "ROOT STACK DELETED."
+
               exit 0
 
             fi
@@ -1343,42 +1583,51 @@ jobs:
               DELETE_COMPLETE)
 
                 echo "deleted=true" >> "$GITHUB_OUTPUT"
+
                 echo "status=$STATUS" >> "$GITHUB_OUTPUT"
 
                 echo "ROOT STACK DELETED."
+
                 exit 0
+
                 ;;
 
               DELETE_FAILED)
 
                 echo "deleted=false" >> "$GITHUB_OUTPUT"
+
                 echo "status=$STATUS" >> "$GITHUB_OUTPUT"
 
                 echo "ROOT STACK DELETE_FAILED."
+
                 exit 0
+
                 ;;
 
             esac
 
             sleep 15
+
             ELAPSED=$((ELAPSED + 15))
 
           done
 
           echo "deleted=false" >> "$GITHUB_OUTPUT"
+
           echo "status=TIMEOUT" >> "$GITHUB_OUTPUT"
 
           echo ""
-          echo "WARNING:"
-          echo "Root deletion is still in progress after timeout."
+
+          echo "Root deletion timed out."
 
 
       # ======================================================
       # STEP 27
-      # Inspect DELETE_FAILED resources
+      # INSPECT DELETE FAILED RESOURCES
       # ======================================================
 
-      - name: "Step 27 - Inspect Root DELETE_FAILED Resources"
+      - name: "Step 27 - Inspect DELETE_FAILED Resources"
+
         if: |
           steps.root.outputs.exists == 'true' &&
           steps.root_wait.outputs.deleted == 'false'
@@ -1390,7 +1639,7 @@ jobs:
           set +e
 
           echo "=================================================="
-          echo "DELETE FAILED RESOURCES"
+          echo "ROOT DELETE FAILED RESOURCES"
           echo "=================================================="
 
           aws cloudformation describe-stack-events \
@@ -1401,6 +1650,7 @@ jobs:
             --no-cli-pager
 
           echo ""
+
           echo "CURRENT ROOT RESOURCES"
 
           aws cloudformation list-stack-resources \
@@ -1413,15 +1663,14 @@ jobs:
 
       # ======================================================
       # STEP 28
-      # Retry ECS service cleanup
+      # RETRY ECS SERVICE CLEANUP
       # ======================================================
 
-      - name: "Step 28 - Retry ECS Service Cleanup"
+      - name: "Step 28 - Retry Nested ECS Service Cleanup"
+
         if: |
           steps.root.outputs.exists == 'true' &&
-          steps.root_wait.outputs.deleted == 'false' &&
-          steps.ecs_cluster.outputs.cluster != '' &&
-          steps.ecs_service.outputs.service != ''
+          steps.root_wait.outputs.deleted == 'false'
 
         shell: bash
 
@@ -1429,72 +1678,130 @@ jobs:
 
           set -u
 
-          ECS_CLUSTER="${{ steps.ecs_cluster.outputs.cluster }}"
-          ECS_SERVICE="${{ steps.ecs_service.outputs.service }}"
-
           echo "=================================================="
-          echo "RETRY ECS CLEANUP"
+          echo "RETRY NESTED ECS CLEANUP"
           echo "=================================================="
 
-          aws ecs update-service \
-            --cluster "$ECS_CLUSTER" \
-            --service "$ECS_SERVICE" \
-            --desired-count 0 \
-            --region "$AWS_REGION" \
-            --no-cli-pager \
-            || true
+          if [[ -z "${{ steps.nested_ecs.outputs.nested }}" ]]
+          then
 
-          sleep 20
+            echo "No nested ECS stack."
 
-          aws ecs delete-service \
-            --cluster "$ECS_CLUSTER" \
-            --service "$ECS_SERVICE" \
-            --force \
-            --region "$AWS_REGION" \
-            --no-cli-pager \
-            || true
+            exit 0
+
+          fi
+
+          NESTED_STACK="${{ steps.nested_ecs.outputs.nested }}"
+
+          ECS_CLUSTER=$(
+            aws cloudformation list-stack-resources \
+              --stack-name "$NESTED_STACK" \
+              --region "$AWS_REGION" \
+              --query "StackResourceSummaries[?ResourceType=='AWS::ECS::Cluster'].PhysicalResourceId | [0]" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )
+
+          ECS_SERVICE=$(
+            aws cloudformation list-stack-resources \
+              --stack-name "$NESTED_STACK" \
+              --region "$AWS_REGION" \
+              --query "StackResourceSummaries[?ResourceType=='AWS::ECS::Service'].PhysicalResourceId | [0]" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )
+
+          echo "Cluster: $ECS_CLUSTER"
+
+          echo "Service: $ECS_SERVICE"
+
+          if [[ -n "$ECS_CLUSTER" &&
+                "$ECS_CLUSTER" != "None" &&
+                -n "$ECS_SERVICE" &&
+                "$ECS_SERVICE" != "None" ]]
+          then
+
+            aws ecs update-service \
+              --cluster "$ECS_CLUSTER" \
+              --service "$ECS_SERVICE" \
+              --desired-count 0 \
+              --region "$AWS_REGION" \
+              --no-cli-pager \
+              || true
+
+            sleep 20
+
+          fi
 
 
       # ======================================================
       # STEP 29
-      # Retry ALB cleanup
+      # RETRY ALB CLEANUP
       # ======================================================
 
       - name: "Step 29 - Retry ALB Cleanup"
+
         if: |
           steps.root.outputs.exists == 'true' &&
-          steps.root_wait.outputs.deleted == 'false' &&
-          steps.alb.outputs.arn != ''
+          steps.root_wait.outputs.deleted == 'false'
 
         shell: bash
 
         run: |
 
           set -u
-
-          ALB_ARN="${{ steps.alb.outputs.arn }}"
 
           echo "=================================================="
           echo "RETRY ALB CLEANUP"
           echo "=================================================="
 
-          aws elbv2 delete-load-balancer \
-            --load-balancer-arn "$ALB_ARN" \
-            --region "$AWS_REGION" \
-            --no-cli-pager \
-            || true
+          ALB_ARN=""
+
+          if [[ -n "${{ steps.nested_ecs.outputs.nested }}" ]]
+          then
+
+            ALB_ARN=$(
+              aws cloudformation list-stack-resources \
+                --stack-name "${{ steps.nested_ecs.outputs.nested }}" \
+                --region "$AWS_REGION" \
+                --query "StackResourceSummaries[?ResourceType=='AWS::ElasticLoadBalancingV2::LoadBalancer'].PhysicalResourceId | [0]" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )
+
+          fi
+
+          echo "ALB: $ALB_ARN"
+
+          if [[ -n "$ALB_ARN" && "$ALB_ARN" != "None" ]]
+          then
+
+            aws elbv2 delete-load-balancer \
+              --load-balancer-arn "$ALB_ARN" \
+              --region "$AWS_REGION" \
+              --no-cli-pager \
+              || true
+
+          else
+
+            echo "No ALB found."
+
+          fi
 
 
       # ======================================================
       # STEP 30
-      # Retry Target Group cleanup
+      # RETRY TARGET GROUP CLEANUP
       # ======================================================
 
       - name: "Step 30 - Retry Target Group Cleanup"
+
         if: |
           steps.root.outputs.exists == 'true' &&
-          steps.root_wait.outputs.deleted == 'false' &&
-          steps.target_group.outputs.arn != ''
+          steps.root_wait.outputs.deleted == 'false'
 
         shell: bash
 
@@ -1502,25 +1809,53 @@ jobs:
 
           set -u
 
-          TARGET_GROUP_ARN="${{ steps.target_group.outputs.arn }}"
-
           echo "=================================================="
-          echo "RETRY TARGET GROUP"
+          echo "RETRY TARGET GROUP CLEANUP"
           echo "=================================================="
 
-          aws elbv2 delete-target-group \
-            --target-group-arn "$TARGET_GROUP_ARN" \
-            --region "$AWS_REGION" \
-            --no-cli-pager \
-            || true
+          TARGET_GROUP_ARN=""
+
+          if [[ -n "${{ steps.nested_ecs.outputs.nested }}" ]]
+          then
+
+            TARGET_GROUP_ARN=$(
+              aws cloudformation list-stack-resources \
+                --stack-name "${{ steps.nested_ecs.outputs.nested }}" \
+                --region "$AWS_REGION" \
+                --query "StackResourceSummaries[?ResourceType=='AWS::ElasticLoadBalancingV2::TargetGroup'].PhysicalResourceId | [0]" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )
+
+          fi
+
+          echo "Target Group: $TARGET_GROUP_ARN"
+
+          if [[ -n "$TARGET_GROUP_ARN" &&
+                "$TARGET_GROUP_ARN" != "None" ]]
+          then
+
+            aws elbv2 delete-target-group \
+              --target-group-arn "$TARGET_GROUP_ARN" \
+              --region "$AWS_REGION" \
+              --no-cli-pager \
+              || true
+
+          else
+
+            echo "No target group found."
+
+          fi
 
 
       # ======================================================
       # STEP 31
-      # Retry root deletion
+      # RETRY ROOT STACK DELETION
       # ======================================================
 
       - name: "Step 31 - Retry Root Stack Deletion"
+
         if: |
           steps.root.outputs.exists == 'true' &&
           steps.root_wait.outputs.deleted == 'false'
@@ -1545,8 +1880,21 @@ jobs:
               2>/dev/null || echo "NOT_FOUND"
           )
 
+          echo "Current status: $STATUS"
+
+          if [[ "$STATUS" == "NOT_FOUND" ]]
+          then
+
+            echo "Root stack already deleted."
+
+            exit 0
+
+          fi
+
           if [[ "$STATUS" == "DELETE_FAILED" ]]
           then
+
+            echo "Retrying with FORCE_DELETE_STACK."
 
             aws cloudformation delete-stack \
               --stack-name "$STACK_NAME" \
@@ -1573,10 +1921,11 @@ jobs:
 
       # ======================================================
       # STEP 32
-      # Final root wait
+      # FINAL ROOT DELETION WAIT
       # ======================================================
 
       - name: "Step 32 - Final Root Deletion Wait"
+
         if: |
           steps.root.outputs.exists == 'true' &&
           steps.root_wait.outputs.deleted == 'false'
@@ -1591,50 +1940,8 @@ jobs:
           echo "FINAL ROOT DELETION WAIT"
           echo "=================================================="
 
-          aws cloudformation wait stack-delete-complete \
-            --stack-name "$STACK_NAME" \
-            --region "$AWS_REGION" \
-            --no-cli-pager
-
-          RESULT=$?
-
-          if [[ "$RESULT" -eq 0 ]]
-          then
-
-            echo "Root stack finally deleted."
-
-          else
-
-            echo "WARNING:"
-            echo "Root stack still has deletion problems."
-
-          fi
-
-
-      # ======================================================
-      # STEP 33
-      # Final CloudFormation verification
-      # ======================================================
-
-      - name: "Step 33 - Verify Root Stack"
-        id: final_root
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          echo "=================================================="
-          echo "FINAL ROOT STACK VERIFICATION"
-          echo "=================================================="
-
-          if aws cloudformation describe-stacks \
-            --stack-name "$STACK_NAME" \
-            --region "$AWS_REGION" \
-            --no-cli-pager \
-            >/dev/null 2>&1
-          then
+          for ATTEMPT in $(seq 1 80)
+          do
 
             STATUS=$(
               aws cloudformation describe-stacks \
@@ -1642,29 +1949,97 @@ jobs:
                 --region "$AWS_REGION" \
                 --query "Stacks[0].StackStatus" \
                 --output text \
-                --no-cli-pager
+                --no-cli-pager \
+                2>/dev/null || echo "NOT_FOUND"
             )
 
-            echo "Root stack still exists."
+            echo "Attempt $ATTEMPT / 80"
+
             echo "Status: $STATUS"
 
-            echo "exists=true" >> "$GITHUB_OUTPUT"
+            if [[ "$STATUS" == "NOT_FOUND" ]]
+            then
+
+              echo "ROOT STACK DELETED."
+
+              exit 0
+
+            fi
+
+            if [[ "$STATUS" == "DELETE_COMPLETE" ]]
+            then
+
+              echo "ROOT STACK DELETED."
+
+              exit 0
+
+            fi
+
+            if [[ "$STATUS" == "DELETE_FAILED" ]]
+            then
+
+              echo "Root stack still DELETE_FAILED."
+
+              exit 0
+
+            fi
+
+            sleep 15
+
+          done
+
+          echo "Final root deletion wait completed."
+
+
+      # ======================================================
+      # STEP 33
+      # VERIFY STANDALONE ECS STACK
+      # ======================================================
+
+      - name: "Step 33 - Verify Standalone ECS Stack"
+
+        shell: bash
+
+        run: |
+
+          set +e
+
+          echo "=================================================="
+          echo "VERIFY STANDALONE ECS STACK"
+          echo "=================================================="
+
+          if aws cloudformation describe-stacks \
+            --stack-name "$ECS_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --no-cli-pager \
+            >/dev/null 2>&1
+          then
+
+            aws cloudformation describe-stacks \
+              --stack-name "$ECS_STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query "Stacks[0].[StackName,StackStatus]" \
+              --output table \
+              --no-cli-pager
+
+            echo ""
+
+            echo "WARNING: Standalone ECS/ECR stack still exists."
 
           else
 
-            echo "Root stack no longer exists."
-
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Standalone ECS/ECR stack deleted."
 
           fi
 
 
       # ======================================================
       # STEP 34
-      # Final ECS verification
+      # VERIFY ECS
       # ======================================================
 
       - name: "Step 34 - Verify ECS"
+
         shell: bash
 
         run: |
@@ -1681,26 +2056,18 @@ jobs:
             --no-cli-pager
 
           echo ""
-          echo "ECS services associated with discovered cluster:"
 
-          if [[ -n "${{ steps.ecs_cluster.outputs.cluster }}" ]]
-          then
-
-            aws ecs list-services \
-              --cluster "${{ steps.ecs_cluster.outputs.cluster }}" \
-              --region "$AWS_REGION" \
-              --output table \
-              --no-cli-pager
-
-          fi
+          echo "If the Charlie Cafe ECS cluster was deleted, it should"
+          echo "no longer appear in the list above."
 
 
       # ======================================================
       # STEP 35
-      # Final ECR verification
+      # VERIFY ECR
       # ======================================================
 
       - name: "Step 35 - Verify ECR"
+
         shell: bash
 
         run: |
@@ -1717,13 +2084,18 @@ jobs:
             --output table \
             --no-cli-pager
 
+          echo ""
+
+          echo "If charlie-cafe is absent, the ECR repository was deleted."
+
 
       # ======================================================
       # STEP 36
-      # Final S3 verification
+      # VERIFY TEMPLATE BUCKET STACK
       # ======================================================
 
       - name: "Step 36 - Verify Template Bucket Stack"
+
         shell: bash
 
         run: |
@@ -1731,7 +2103,7 @@ jobs:
           set +e
 
           echo "=================================================="
-          echo "FINAL TEMPLATE BUCKET VERIFICATION"
+          echo "FINAL S3 STACK VERIFICATION"
           echo "=================================================="
 
           if aws cloudformation describe-stacks \
@@ -1759,10 +2131,55 @@ jobs:
 
       # ======================================================
       # STEP 37
-      # Final CloudFormation verification
+      # VERIFY ROOT STACK
       # ======================================================
 
-      - name: "Step 37 - Final CloudFormation Verification"
+      - name: "Step 37 - Verify Root Stack"
+
+        shell: bash
+
+        run: |
+
+          set +e
+
+          echo "=================================================="
+          echo "FINAL ROOT STACK VERIFICATION"
+          echo "=================================================="
+
+          if aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --no-cli-pager \
+            >/dev/null 2>&1
+          then
+
+            STATUS=$(
+              aws cloudformation describe-stacks \
+                --stack-name "$STACK_NAME" \
+                --region "$AWS_REGION" \
+                --query "Stacks[0].StackStatus" \
+                --output text \
+                --no-cli-pager
+            )
+
+            echo "WARNING: Root stack still exists."
+
+            echo "Status: $STATUS"
+
+          else
+
+            echo "Root stack deleted successfully."
+
+          fi
+
+
+      # ======================================================
+      # STEP 38
+      # FINAL CLOUDFORMATION VERIFICATION
+      # ======================================================
+
+      - name: "Step 38 - Final CloudFormation Verification"
+
         shell: bash
 
         run: |
@@ -1789,67 +2206,116 @@ jobs:
               UPDATE_ROLLBACK_COMPLETE \
               DELETE_IN_PROGRESS \
               DELETE_FAILED \
-            --query "StackSummaries[?contains(StackName, 'Lab01-CloudFormation')].[StackName,StackStatus]" \
+            --query "StackSummaries[?contains(StackName, 'Lab01-CloudFormation') || contains(StackName, 'CharlieCafe-ECS-Stack')].[StackName,StackStatus]" \
             --output table \
             --no-cli-pager
 
 
       # ======================================================
-      # STEP 38
-      # Final summary
+      # STEP 39
+      # FINAL CLEANUP SUMMARY
       # ======================================================
 
-      - name: "Step 38 - Final Cleanup Summary"
+      - name: "Step 39 - Final Cleanup Summary"
+
         shell: bash
 
         run: |
 
           echo ""
+
           echo "=========================================================="
+
           echo "              AWS LAB CLEANUP SUMMARY"
+
           echo "=========================================================="
 
           echo ""
+
           echo "AWS Region:"
           echo "  $AWS_REGION"
 
           echo ""
+
+          echo "Standalone ECS/ECR Stack:"
+          echo "  $ECS_STACK_NAME"
+
+          echo ""
+
           echo "Root Stack:"
           echo "  $STACK_NAME"
 
           echo ""
+
           echo "Template Bucket Stack:"
           echo "  $TEMPLATE_BUCKET_STACK"
 
           echo ""
+
           echo "=========================================================="
-          echo "DELETION STRATEGY"
+
+          echo "FINAL DELETION ORDER"
+
           echo "=========================================================="
 
           echo ""
-          echo "  1. Discover root stack"
-          echo "  2. Discover nested resources"
-          echo "  3. Disable RDS deletion protection"
-          echo "  4. Stop ECS service"
-          echo "  5. Wait for ECS tasks"
-          echo "  6. Delete ECS service"
-          echo "  7. Clean Docker on EC2 through SSM"
-          echo "  8. Empty ECR images"
-          echo "  9. Empty Template S3 bucket"
-          echo " 10. Delete separate Template Bucket stack"
-          echo " 11. Delete ROOT CloudFormation stack"
-          echo " 12. CloudFormation deletes nested stacks"
-          echo " 13. Inspect DELETE_FAILED resources"
-          echo " 14. Retry ECS cleanup"
-          echo " 15. Retry ALB cleanup"
-          echo " 16. Retry Target Group cleanup"
-          echo " 17. FORCE_DELETE_STACK if required"
-          echo " 18. Verify CloudFormation"
-          echo " 19. Verify ECS"
-          echo " 20. Verify ECR"
-          echo " 21. Verify S3"
-          echo " 22. Verify Docker cleanup"
+
+          echo "  1. Discover Root Stack"
+
+          echo "  2. Discover CharlieCafe-ECS-Stack"
+
+          echo "  3. Stop ECS Service"
+
+          echo "  4. Wait for ECS Tasks"
+
+          echo "  5. Delete ECR Images"
+
+          echo "  6. Delete CharlieCafe-ECS-Stack"
+
+          echo "  7. Clean Docker Containers"
+
+          echo "  8. Clean Docker Images"
+
+          echo "  9. Clean Docker Volumes"
+
+          echo " 10. Clean Docker Networks"
+
+          echo " 11. Empty S3 Template Bucket"
+
+          echo " 12. Delete Template Bucket Stack"
+
+          echo " 13. Disable RDS Deletion Protection"
+
+          echo " 14. Discover Nested ECS Stack"
+
+          echo " 15. Delete ROOT Stack"
+
+          echo " 16. CloudFormation Deletes Nested Stacks"
+
+          echo " 17. Monitor Root Deletion"
+
+          echo " 18. Inspect DELETE_FAILED Resources"
+
+          echo " 19. Retry ECS Cleanup"
+
+          echo " 20. Retry ALB Cleanup"
+
+          echo " 21. Retry Target Group Cleanup"
+
+          echo " 22. FORCE_DELETE_STACK if required"
+
+          echo " 23. Verify ECS"
+
+          echo " 24. Verify ECR"
+
+          echo " 25. Verify S3"
+
+          echo " 26. Verify CloudFormation"
+
           echo ""
+
           echo "=========================================================="
-          echo "                 CLEANUP WORKFLOW FINISHED"
+
+          echo "           CLEANUP WORKFLOW FINISHED"
+
           echo "=========================================================="
