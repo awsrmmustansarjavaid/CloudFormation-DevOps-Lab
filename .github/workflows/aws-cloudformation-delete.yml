@@ -2206,7 +2206,7 @@ jobs:
               UPDATE_ROLLBACK_COMPLETE \
               DELETE_IN_PROGRESS \
               DELETE_FAILED \
-            --query "StackSummaries[?contains(StackName, 'Lab01-CloudFormation') || contains(StackName, 'CharlieCafe-ECS-Stack')].[StackName,StackStatus]" \
+            --query "StackSummaries[?contains(StackName, 'Main-CloudFormation') || contains(StackName, 'CharlieCafe-ECS-Stack')].[StackName,StackStatus]" \
             --output table \
             --no-cli-pager
 
