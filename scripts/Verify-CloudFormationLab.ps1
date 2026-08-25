@@ -34,7 +34,7 @@
 # 1. Configuration
 # =================================================================
 
-$MainStack = "CloudFormation-DevOps-Lab"
+$MainStack = "Main-CloudFormation"
 $EcsStack = "CharlieCafe-ECS-Stack"
 
 $EcrRepository = "charlie-cafe"

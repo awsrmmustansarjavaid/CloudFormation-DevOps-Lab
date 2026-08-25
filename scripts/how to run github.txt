@@ -1,0 +1,6 @@
+GITHUB_USERNAME="awsrmmustansarjavaid" \
+GITHUB_REPOSITORY="CloudFormation-DevOps-Lab" \
+GITHUB_BRANCH="main" \
+GIT_USER_NAME="awsrmmustansarjavaid" \
+GIT_USER_EMAIL="aws.rmmustansarjavaid@gmail.com" \
+./github-ec2-setup.sh
