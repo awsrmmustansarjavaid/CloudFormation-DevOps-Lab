@@ -1,33 +1,53 @@
-# =========================================================
+# ============================================================
 # Charlie Cafe
 # Terraform Infrastructure
 #
 # File:
 #   ecs_ecr.tf
 #
-# CloudFormation equivalent:
-#   aws-ecs-ecr.yaml
-#
 # Purpose:
-#   Creates the standalone ECS Fargate + ECR infrastructure
-#   for the Charlie Cafe application.
+#   Creates the ECS Fargate + ECR infrastructure for the
+#   Charlie Cafe application.
 #
 # IMPORTANT:
 #
-# This Terraform configuration assumes that the following
-# networking resources already exist:
+#   Networking resources are NOT created in this file.
 #
-#   - VPC
-#   - Public Subnet 1
-#   - Public Subnet 2
-#   - Private Subnet 1
-#   - Private Subnet 2
-#   - Private Route Table
+#   They are already created by network.tf:
 #
-# These resources can be created by your Terraform network
-# configuration.
+#     - VPC
+#     - Public Subnet 1
+#     - Public Subnet 2
+#     - Private Subnet 1
+#     - Private Subnet 2
+#     - Private Route Table
 #
-# =========================================================
+#   Therefore this file directly references those Terraform
+#   resources instead of using undefined networking variables.
+#
+# ============================================================
+#
+# NETWORK RESOURCE REFERENCES
+#
+#   VPC:
+#     aws_vpc.lab.id
+#
+#   Public subnets:
+#     aws_subnet.public[0].id
+#     aws_subnet.public[1].id
+#
+#   Private subnets:
+#     aws_subnet.private[0].id
+#     aws_subnet.private[1].id
+#
+#   Private route table:
+#     aws_route_table.private.id
+#
+#   Private subnet CIDRs:
+#     aws_subnet.private[0].cidr_block
+#     aws_subnet.private[1].cidr_block
+#
+# ============================================================
 #
 # ARCHITECTURE
 #
@@ -49,8 +69,8 @@
 #                             |
 #                             v
 #                    +----------------+
-#                    | Docker Image   |
 #                    |      ECR       |
+#                    | Docker Image   |
 #                    +----------------+
 #
 #
@@ -66,15 +86,31 @@
 #    |
 #    +---- CloudWatch Logs Endpoint
 #
-# No NAT Gateway is required for these AWS service
-# connections.
+# This allows ECS tasks to communicate with the required
+# AWS services without requiring a NAT Gateway for those
+# AWS service connections.
 #
-# =========================================================
+# ============================================================
 
 
-# =========================================================
-# 1. VPC ENDPOINT SECURITY GROUP
-# =========================================================
+# ============================================================
+# 1. AWS REGION DATA SOURCE
+# ============================================================
+#
+# The AWS provider already determines the active region.
+#
+# Using aws_region.current.name avoids requiring an additional
+# aws_region Terraform variable.
+#
+# ============================================================
+
+data "aws_region" "current" {}
+
+
+
+# ============================================================
+# 2. VPC ENDPOINT SECURITY GROUP
+# ============================================================
 #
 # This security group is attached to the INTERFACE VPC
 # endpoints:
@@ -83,26 +119,34 @@
 #   - ECR Docker Registry
 #   - CloudWatch Logs
 #
-# ECS tasks communicate with these endpoints using HTTPS
-# on TCP port 443.
+# ECS tasks communicate with these endpoints over HTTPS
+# using TCP port 443.
 #
-# =========================================================
+# The source CIDRs are taken directly from the private
+# subnets created in network.tf.
+#
+# ============================================================
 
 resource "aws_security_group" "vpc_endpoint" {
 
   name = "${var.application_name}-VPC-Endpoint-SG"
 
-  description = "Allow HTTPS from ECS private subnets to AWS VPC endpoints"
+  description = "Allow HTTPS from Charlie Cafe private subnets to AWS VPC endpoints"
 
-  vpc_id = var.vpc_id
+  # ----------------------------------------------------------
+  # Existing VPC from network.tf
+  # ----------------------------------------------------------
+
+  vpc_id = aws_vpc.lab.id
 
 
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
   # HTTPS from Private Subnet 1
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
 
   ingress {
-    description = "HTTPS from Private Subnet 1"
+
+    description = "HTTPS from Charlie Cafe Private Subnet 1"
 
     protocol = "tcp"
 
@@ -110,16 +154,19 @@ resource "aws_security_group" "vpc_endpoint" {
 
     to_port = 443
 
-    cidr_blocks = [var.private_subnet_1_cidr]
+    cidr_blocks = [
+      aws_subnet.private[0].cidr_block
+    ]
   }
 
 
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
   # HTTPS from Private Subnet 2
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
 
   ingress {
-    description = "HTTPS from Private Subnet 2"
+
+    description = "HTTPS from Charlie Cafe Private Subnet 2"
 
     protocol = "tcp"
 
@@ -127,15 +174,18 @@ resource "aws_security_group" "vpc_endpoint" {
 
     to_port = 443
 
-    cidr_blocks = [var.private_subnet_2_cidr]
+    cidr_blocks = [
+      aws_subnet.private[1].cidr_block
+    ]
   }
 
 
-  # -------------------------------------------------------
-  # Allow outbound traffic
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
+  # Outbound traffic
+  # ----------------------------------------------------------
 
   egress {
+
     description = "Allow outbound traffic"
 
     protocol = "-1"
@@ -144,46 +194,53 @@ resource "aws_security_group" "vpc_endpoint" {
 
     to_port = 0
 
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [
+      "0.0.0.0/0"
+    ]
   }
 
 
   tags = {
-    Name    = "${var.application_name}-VPC-Endpoint-SG"
+
+    Name = "${var.application_name}-VPC-Endpoint-SG"
+
     Project = var.application_name
   }
 }
 
 
-# =========================================================
-# 2. ECR API VPC ENDPOINT
-# =========================================================
+
+# ============================================================
+# 3. ECR API VPC ENDPOINT
+# ============================================================
 #
-# Allows ECS tasks to communicate privately with the
+# Allows ECS/Fargate tasks to communicate privately with the
 # Amazon ECR API.
 #
-# CloudFormation:
+# AWS service:
 #
-#   com.amazonaws.${AWS::Region}.ecr.api
+#   com.amazonaws.<region>.ecr.api
 #
-# Terraform automatically builds the regional endpoint
-# using the current AWS provider region.
+# This is an INTERFACE endpoint.
 #
-# =========================================================
+# ============================================================
 
 resource "aws_vpc_endpoint" "ecr_api" {
 
-  vpc_id = var.vpc_id
+  # Existing VPC from network.tf
+  vpc_id = aws_vpc.lab.id
 
-  service_name = "com.amazonaws.${var.aws_region}.ecr.api"
+  # Build regional ECR API service name automatically.
+  service_name = "com.amazonaws.${data.aws_region.current.name}.ecr.api"
 
   vpc_endpoint_type = "Interface"
 
   private_dns_enabled = true
 
+  # Existing private subnets from network.tf.
   subnet_ids = [
-    var.private_subnet_1_id,
-    var.private_subnet_2_id
+    aws_subnet.private[0].id,
+    aws_subnet.private[1].id
   ]
 
   security_group_ids = [
@@ -191,34 +248,45 @@ resource "aws_vpc_endpoint" "ecr_api" {
   ]
 
   tags = {
-    Name    = "${var.application_name}-ECR-API-VPC-Endpoint"
+
+    Name = "${var.application_name}-ECR-API-VPC-Endpoint"
+
     Project = var.application_name
   }
 }
 
 
-# =========================================================
-# 3. ECR DOCKER REGISTRY VPC ENDPOINT
-# =========================================================
+
+# ============================================================
+# 4. ECR DOCKER REGISTRY VPC ENDPOINT
+# ============================================================
 #
-# ECS/Fargate uses this endpoint when communicating with
-# the ECR Docker registry.
+# ECS/Fargate uses the ECR Docker Registry endpoint when
+# communicating with the Docker registry.
 #
-# =========================================================
+# AWS service:
+#
+#   com.amazonaws.<region>.ecr.dkr
+#
+# This is an INTERFACE endpoint.
+#
+# ============================================================
 
 resource "aws_vpc_endpoint" "ecr_dkr" {
 
-  vpc_id = var.vpc_id
+  # Existing VPC from network.tf
+  vpc_id = aws_vpc.lab.id
 
-  service_name = "com.amazonaws.${var.aws_region}.ecr.dkr"
+  service_name = "com.amazonaws.${data.aws_region.current.name}.ecr.dkr"
 
   vpc_endpoint_type = "Interface"
 
   private_dns_enabled = true
 
+  # Existing private subnets from network.tf.
   subnet_ids = [
-    var.private_subnet_1_id,
-    var.private_subnet_2_id
+    aws_subnet.private[0].id,
+    aws_subnet.private[1].id
   ]
 
   security_group_ids = [
@@ -226,74 +294,87 @@ resource "aws_vpc_endpoint" "ecr_dkr" {
   ]
 
   tags = {
-    Name    = "${var.application_name}-ECR-DKR-VPC-Endpoint"
+
+    Name = "${var.application_name}-ECR-DKR-VPC-Endpoint"
+
     Project = var.application_name
   }
 }
 
 
-# =========================================================
-# 4. S3 GATEWAY VPC ENDPOINT
-# =========================================================
+
+# ============================================================
+# 5. S3 GATEWAY VPC ENDPOINT
+# ============================================================
 #
-# ECR uses Amazon S3 for Docker image layers.
+# ECR stores Docker image layers in Amazon S3.
 #
-# Therefore ECS tasks pulling images from ECR also require
-# access to S3.
+# Therefore private ECS tasks pulling images from ECR also
+# require access to S3.
 #
-# This is a GATEWAY endpoint rather than an interface
-# endpoint.
+# This is a GATEWAY endpoint.
 #
-# The endpoint is associated with the private route table.
+# Gateway endpoints are associated with route tables rather
+# than subnets.
 #
-# =========================================================
+# The private route table is created in network.tf.
+#
+# ============================================================
 
 resource "aws_vpc_endpoint" "s3" {
 
-  vpc_id = var.vpc_id
+  # Existing VPC from network.tf
+  vpc_id = aws_vpc.lab.id
 
-  service_name = "com.amazonaws.${var.aws_region}.s3"
+  service_name = "com.amazonaws.${data.aws_region.current.name}.s3"
 
   vpc_endpoint_type = "Gateway"
 
+  # Existing private route table from network.tf.
   route_table_ids = [
-    var.private_route_table_id
+    aws_route_table.private.id
   ]
 
   tags = {
-    Name    = "${var.application_name}-S3-Gateway-VPC-Endpoint"
+
+    Name = "${var.application_name}-S3-Gateway-VPC-Endpoint"
+
     Project = var.application_name
   }
 }
 
 
-# =========================================================
-# 5. CLOUDWATCH LOGS VPC ENDPOINT
-# =========================================================
+
+# ============================================================
+# 6. CLOUDWATCH LOGS VPC ENDPOINT
+# ============================================================
 #
-# ECS uses the awslogs logging driver.
+# ECS containers use the awslogs logging driver.
 #
 # Container stdout/stderr is sent to CloudWatch Logs.
 #
-# Because the ECS tasks run in private subnets and this lab
-# intentionally does not use a NAT Gateway, we provide a
-# private interface endpoint for CloudWatch Logs.
+# Because ECS tasks run in private subnets and this
+# architecture does not require a NAT Gateway for AWS service
+# connectivity, a private CloudWatch Logs interface endpoint
+# is provided.
 #
-# =========================================================
+# ============================================================
 
 resource "aws_vpc_endpoint" "cloudwatch_logs" {
 
-  vpc_id = var.vpc_id
+  # Existing VPC from network.tf
+  vpc_id = aws_vpc.lab.id
 
-  service_name = "com.amazonaws.${var.aws_region}.logs"
+  service_name = "com.amazonaws.${data.aws_region.current.name}.logs"
 
   vpc_endpoint_type = "Interface"
 
   private_dns_enabled = true
 
+  # Existing private subnets from network.tf.
   subnet_ids = [
-    var.private_subnet_1_id,
-    var.private_subnet_2_id
+    aws_subnet.private[0].id,
+    aws_subnet.private[1].id
   ]
 
   security_group_ids = [
@@ -301,123 +382,136 @@ resource "aws_vpc_endpoint" "cloudwatch_logs" {
   ]
 
   tags = {
-    Name    = "${var.application_name}-CloudWatch-Logs-VPC-Endpoint"
+
+    Name = "${var.application_name}-CloudWatch-Logs-VPC-Endpoint"
+
     Project = var.application_name
   }
 }
 
 
-# =========================================================
-# 6. ECR REPOSITORY
-# =========================================================
+
+# ============================================================
+# 7. ECR REPOSITORY
+# ============================================================
 #
-# This repository stores the Charlie Cafe Docker image.
-#
-# IMPORTANT:
+# Stores the Charlie Cafe Docker image.
 #
 # Terraform creates the repository.
 #
-# Terraform does NOT need to build the Docker image.
+# Terraform does NOT build or push the Docker image.
 #
-# Your GitHub Actions pipeline will later:
+# GitHub Actions is responsible for:
 #
-#   1. Build Docker image
-#   2. Authenticate with ECR
-#   3. Tag image
-#   4. Push image to ECR
-#   5. ECS pulls the image
+#   1. Building the Docker image
+#   2. Authenticating with ECR
+#   3. Tagging the image
+#   4. Pushing the image to ECR
+#   5. Triggering the ECS deployment
 #
-# =========================================================
+# ============================================================
 
 resource "aws_ecr_repository" "charlie_cafe" {
 
   name = var.ecr_repository_name
 
 
-  # -------------------------------------------------------
-  # Scan images when they are pushed
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
+  # Scan images when pushed
+  # ----------------------------------------------------------
 
   image_scanning_configuration {
+
     scan_on_push = true
   }
 
 
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
   # Mutable image tags
   #
-  # This preserves the current CloudFormation behavior:
+  # This allows:
   #
   #   latest
   #
-  # can point to a newer image.
+  # to be updated by the CI/CD pipeline.
   #
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
 
   image_tag_mutability = "MUTABLE"
 
 
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
   # Server-side encryption
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
 
   encryption_configuration {
+
     encryption_type = "AES256"
   }
 
 
   tags = {
-    Name    = "${var.application_name}-ECR"
+
+    Name = "${var.application_name}-ECR"
+
     Project = var.application_name
   }
 }
 
 
-# =========================================================
-# 7. ECS CLUSTER
-# =========================================================
+
+# ============================================================
+# 8. ECS CLUSTER
+# ============================================================
+#
+# Creates the ECS cluster used by the Charlie Cafe application.
 #
 # ECS Fargate is serverless container infrastructure.
 #
-# We do not create EC2 instances for the cluster.
+# No EC2 instances are required.
 #
 # AWS manages the underlying compute infrastructure.
 #
-# =========================================================
+# ============================================================
 
 resource "aws_ecs_cluster" "charlie_cafe" {
 
   name = var.ecs_cluster_name
 
 
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
   # Enable CloudWatch Container Insights
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
 
   setting {
-    name  = "containerInsights"
+
+    name = "containerInsights"
+
     value = "enabled"
   }
 
 
   tags = {
-    Name    = var.ecs_cluster_name
+
+    Name = var.ecs_cluster_name
+
     Project = var.application_name
   }
 }
 
 
-# =========================================================
-# 8. CLOUDWATCH LOG GROUP
-# =========================================================
+
+# ============================================================
+# 9. CLOUDWATCH LOG GROUP
+# ============================================================
 #
-# ECS container logs are written to this log group.
+# ECS container logs are written here.
 #
-# CloudFormation equivalent:
+# Log group:
 #
 #   /ecs/charlie-cafe
 #
-# =========================================================
+# ============================================================
 
 resource "aws_cloudwatch_log_group" "ecs" {
 
@@ -425,39 +519,43 @@ resource "aws_cloudwatch_log_group" "ecs" {
 
   retention_in_days = 30
 
+
   tags = {
+
     Project = var.application_name
   }
 }
 
 
-# =========================================================
-# 9. ECS TASK EXECUTION IAM ROLE
-# =========================================================
+
+# ============================================================
+# 10. ECS TASK EXECUTION IAM ROLE
+# ============================================================
 #
 # This role is used by the ECS/Fargate platform.
 #
 # It allows ECS to:
 #
-#   - Pull images from ECR
+#   - Pull container images from ECR
 #   - Send container logs to CloudWatch Logs
 #
 # IMPORTANT:
 #
-# This is different from the ECS TASK ROLE.
+# The execution role is NOT the same as the application
+# task role.
 #
-# =========================================================
+# ============================================================
 
 resource "aws_iam_role" "ecs_task_execution" {
 
   name = "${var.application_name}-ECSTaskExecutionRole"
 
 
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
   # Trust policy
   #
-  # Allows ECS tasks service to assume this role.
-  # -------------------------------------------------------
+  # Allows ECS tasks to assume this role.
+  # ----------------------------------------------------------
 
   assume_role_policy = jsonencode({
 
@@ -466,29 +564,41 @@ resource "aws_iam_role" "ecs_task_execution" {
     Statement = [
 
       {
+
         Effect = "Allow"
 
         Principal = {
+
           Service = "ecs-tasks.amazonaws.com"
         }
 
         Action = "sts:AssumeRole"
       }
-
     ]
   })
 
 
   tags = {
-    Name    = "${var.application_name}-ECSTaskExecutionRole"
+
+    Name = "${var.application_name}-ECSTaskExecutionRole"
+
     Project = var.application_name
   }
 }
 
 
-# ---------------------------------------------------------
-# Attach AWS managed ECS execution policy
-# ---------------------------------------------------------
+
+# ============================================================
+# 11. ECS TASK EXECUTION POLICY
+# ============================================================
+#
+# AWS managed policy providing the standard permissions
+# required by ECS/Fargate for:
+#
+#   - ECR image pulling
+#   - CloudWatch Logs
+#
+# ============================================================
 
 resource "aws_iam_role_policy_attachment" "ecs_task_execution" {
 
@@ -498,28 +608,35 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution" {
 }
 
 
-# =========================================================
-# 10. ECS TASK IAM ROLE
-# =========================================================
+
+# ============================================================
+# 12. ECS TASK IAM ROLE
+# ============================================================
 #
 # This role belongs to the application running INSIDE the
 # Docker container.
 #
-# Currently it has no additional permissions.
+# It is intentionally created with no additional permissions
+# for the current ECS/ECR lab.
 #
-# Later this can be extended for:
+# Additional permissions can later be attached if the
+# application needs AWS APIs such as:
 #
 #   - S3
 #   - DynamoDB
 #   - Secrets Manager
 #   - KMS
 #
-# =========================================================
+# ============================================================
 
 resource "aws_iam_role" "ecs_task" {
 
   name = "${var.application_name}-ECSTaskRole"
 
+
+  # ----------------------------------------------------------
+  # Trust policy
+  # ----------------------------------------------------------
 
   assume_role_policy = jsonencode({
 
@@ -528,37 +645,44 @@ resource "aws_iam_role" "ecs_task" {
     Statement = [
 
       {
+
         Effect = "Allow"
 
         Principal = {
+
           Service = "ecs-tasks.amazonaws.com"
         }
 
         Action = "sts:AssumeRole"
       }
-
     ]
   })
 
 
   tags = {
-    Name    = "${var.application_name}-ECSTaskRole"
+
+    Name = "${var.application_name}-ECSTaskRole"
+
     Project = var.application_name
   }
 }
 
 
-# =========================================================
-# 11. ALB SECURITY GROUP
-# =========================================================
+
+# ============================================================
+# 13. ALB SECURITY GROUP
+# ============================================================
 #
 # Internet
-#    |
-#    | TCP 80
-#    v
-#   ALB
+#     |
+#     | TCP 80
+#     v
+#    ALB
 #
-# =========================================================
+# The Application Load Balancer accepts HTTP traffic from
+# the internet.
+#
+# ============================================================
 
 resource "aws_security_group" "alb" {
 
@@ -566,8 +690,13 @@ resource "aws_security_group" "alb" {
 
   description = "Allow HTTP traffic to Charlie Cafe Application Load Balancer"
 
-  vpc_id = var.vpc_id
+  # Existing VPC from network.tf.
+  vpc_id = aws_vpc.lab.id
 
+
+  # ----------------------------------------------------------
+  # HTTP from Internet
+  # ----------------------------------------------------------
 
   ingress {
 
@@ -579,9 +708,15 @@ resource "aws_security_group" "alb" {
 
     to_port = 80
 
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [
+      "0.0.0.0/0"
+    ]
   }
 
+
+  # ----------------------------------------------------------
+  # Outbound traffic
+  # ----------------------------------------------------------
 
   egress {
 
@@ -593,22 +728,27 @@ resource "aws_security_group" "alb" {
 
     to_port = 0
 
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [
+      "0.0.0.0/0"
+    ]
   }
 
 
   tags = {
-    Name    = "${var.application_name}-ALB-SG"
+
+    Name = "${var.application_name}-ALB-SG"
+
     Project = var.application_name
   }
 }
 
 
-# =========================================================
-# 12. ECS TASK SECURITY GROUP
-# =========================================================
+
+# ============================================================
+# 14. ECS TASK SECURITY GROUP
+# ============================================================
 #
-# IMPORTANT SECURITY DESIGN:
+# Security flow:
 #
 # Internet
 #     |
@@ -617,13 +757,14 @@ resource "aws_security_group" "alb" {
 #     |
 #     | Container Port
 #     v
-#    ECS
+#    ECS Task
 #
-# ECS does NOT allow direct internet access.
+# ECS tasks do NOT allow direct inbound internet traffic.
 #
-# Only the ALB security group can access the ECS task.
+# Only the ALB security group can access the ECS task on the
+# application container port.
 #
-# =========================================================
+# ============================================================
 
 resource "aws_security_group" "ecs_task" {
 
@@ -631,8 +772,13 @@ resource "aws_security_group" "ecs_task" {
 
   description = "Allow application traffic only from the ALB"
 
-  vpc_id = var.vpc_id
+  # Existing VPC from network.tf.
+  vpc_id = aws_vpc.lab.id
 
+
+  # ----------------------------------------------------------
+  # Application traffic from ALB
+  # ----------------------------------------------------------
 
   ingress {
 
@@ -650,6 +796,10 @@ resource "aws_security_group" "ecs_task" {
   }
 
 
+  # ----------------------------------------------------------
+  # Outbound traffic
+  # ----------------------------------------------------------
+
   egress {
 
     description = "Allow outbound traffic"
@@ -660,28 +810,37 @@ resource "aws_security_group" "ecs_task" {
 
     to_port = 0
 
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [
+      "0.0.0.0/0"
+    ]
   }
 
 
   tags = {
-    Name    = "${var.application_name}-ECS-Task-SG"
+
+    Name = "${var.application_name}-ECS-Task-SG"
+
     Project = var.application_name
   }
 }
 
 
-# =========================================================
-# 13. APPLICATION LOAD BALANCER
-# =========================================================
+
+# ============================================================
+# 15. APPLICATION LOAD BALANCER
+# ============================================================
 #
-# Internet-facing ALB.
+# Creates an internet-facing Application Load Balancer.
 #
-# ALB is deployed into PUBLIC subnets.
+# ALB:
 #
-# ECS tasks remain in PRIVATE subnets.
+#   - Runs in public subnets
+#   - Accepts internet traffic
+#   - Forwards traffic to ECS tasks
 #
-# =========================================================
+# ECS tasks remain in private subnets.
+#
+# ============================================================
 
 resource "aws_lb" "charlie_cafe" {
 
@@ -691,36 +850,46 @@ resource "aws_lb" "charlie_cafe" {
 
   load_balancer_type = "application"
 
+
+  # ALB security group.
   security_groups = [
     aws_security_group.alb.id
   ]
 
+
+  # Existing public subnets from network.tf.
   subnets = [
-    var.public_subnet_1_id,
-    var.public_subnet_2_id
+    aws_subnet.public[0].id,
+    aws_subnet.public[1].id
   ]
 
 
   tags = {
-    Name    = "${var.application_name}-ALB"
+
+    Name = "${var.application_name}-ALB"
+
     Project = var.application_name
   }
 }
 
 
-# =========================================================
-# 14. ALB TARGET GROUP
-# =========================================================
+
+# ============================================================
+# 16. ALB TARGET GROUP
+# ============================================================
 #
 # Fargate uses awsvpc networking.
 #
-# Therefore:
+# Therefore ECS tasks receive their own ENI/private IP.
+#
+# The target group must therefore use:
 #
 #   target_type = "ip"
 #
-# ECS registers the private IP address of each task.
+# ECS automatically registers task private IP addresses with
+# this target group.
 #
-# =========================================================
+# ============================================================
 
 resource "aws_lb_target_group" "charlie_cafe" {
 
@@ -730,14 +899,15 @@ resource "aws_lb_target_group" "charlie_cafe" {
 
   protocol = "HTTP"
 
-  vpc_id = var.vpc_id
+  # Existing VPC from network.tf.
+  vpc_id = aws_vpc.lab.id
 
   target_type = "ip"
 
 
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
   # Health check
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
 
   health_check {
 
@@ -760,22 +930,29 @@ resource "aws_lb_target_group" "charlie_cafe" {
 
 
   tags = {
-    Name    = "${var.application_name}-TG"
+
+    Name = "${var.application_name}-TG"
+
     Project = var.application_name
   }
 }
 
 
-# =========================================================
-# 15. ALB HTTP LISTENER
-# =========================================================
+
+# ============================================================
+# 17. ALB HTTP LISTENER
+# ============================================================
 #
-# HTTP :80
+# HTTP:
 #
-# HTTPS + ACM intentionally remain outside this beginner
+#   Port 80
+#
+# The listener forwards requests to the ECS target group.
+#
+# HTTPS/ACM is intentionally outside this beginner Terraform
 # configuration.
 #
-# =========================================================
+# ============================================================
 
 resource "aws_lb_listener" "http" {
 
@@ -786,6 +963,10 @@ resource "aws_lb_listener" "http" {
   protocol = "HTTP"
 
 
+  # ----------------------------------------------------------
+  # Forward requests to ECS target group
+  # ----------------------------------------------------------
+
   default_action {
 
     type = "forward"
@@ -795,78 +976,85 @@ resource "aws_lb_listener" "http" {
 }
 
 
-# =========================================================
-# 16. ECS TASK DEFINITION
-# =========================================================
+
+# ============================================================
+# 18. ECS TASK DEFINITION
+# ============================================================
 #
 # Defines the Docker container configuration.
 #
 # Includes:
 #
+#   - Fargate networking
 #   - CPU
 #   - Memory
 #   - Docker image
 #   - Container port
 #   - Execution role
-#   - Task role
+#   - Application task role
 #   - CloudWatch logging
 #
-# =========================================================
+# ============================================================
 
 resource "aws_ecs_task_definition" "charlie_cafe" {
 
   family = var.ecs_task_family
 
 
-  # -------------------------------------------------------
-  # Fargate networking
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
+  # Fargate networking mode
+  # ----------------------------------------------------------
 
   network_mode = "awsvpc"
 
 
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
   # Fargate launch type
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
 
   requires_compatibilities = [
     "FARGATE"
   ]
 
 
-  # -------------------------------------------------------
-  # CPU and memory
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
+  # CPU
+  # ----------------------------------------------------------
 
   cpu = var.task_cpu
+
+
+  # ----------------------------------------------------------
+  # Memory
+  # ----------------------------------------------------------
 
   memory = var.task_memory
 
 
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
   # ECS execution role
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
 
   execution_role_arn = aws_iam_role.ecs_task_execution.arn
 
 
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
   # Application task role
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
 
   task_role_arn = aws_iam_role.ecs_task.arn
 
 
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
   # Container definition
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
   #
-  # Terraform requires container_definitions as JSON.
+  # Terraform requires ECS container definitions as JSON.
   #
-  # jsonencode() converts the Terraform object into the
-  # JSON format expected by ECS.
+  # jsonencode() converts the Terraform object into the JSON
+  # format expected by ECS.
   #
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
 
   container_definitions = jsonencode([
 
@@ -874,39 +1062,40 @@ resource "aws_ecs_task_definition" "charlie_cafe" {
 
       name = "charlie-cafe"
 
-      # ---------------------------------------------------
+
+      # ------------------------------------------------------
       # Docker image
       #
       # GitHub Actions will push:
       #
       #   charlie-cafe:latest
       #
-      # ECS will pull that image from ECR.
-      # ---------------------------------------------------
+      # ECS will pull the image from this ECR repository.
+      # ------------------------------------------------------
 
       image = "${aws_ecr_repository.charlie_cafe.repository_url}:latest"
 
       essential = true
 
 
-      # ---------------------------------------------------
+      # ------------------------------------------------------
       # Container port
-      # ---------------------------------------------------
+      # ------------------------------------------------------
 
       portMappings = [
 
         {
+
           containerPort = var.container_port
 
           protocol = "tcp"
         }
-
       ]
 
 
-      # ---------------------------------------------------
+      # ------------------------------------------------------
       # CloudWatch Logs
-      # ---------------------------------------------------
+      # ------------------------------------------------------
 
       logConfiguration = {
 
@@ -916,33 +1105,42 @@ resource "aws_ecs_task_definition" "charlie_cafe" {
 
           "awslogs-group" = aws_cloudwatch_log_group.ecs.name
 
-          "awslogs-region" = var.aws_region
+          "awslogs-region" = data.aws_region.current.name
 
           "awslogs-stream-prefix" = "ecs"
         }
       }
     }
-
   ])
 
 
   tags = {
-    Name    = var.ecs_task_family
+
+    Name = var.ecs_task_family
+
     Project = var.application_name
   }
 }
 
 
-# =========================================================
-# 17. ECS FARGATE SERVICE
-# =========================================================
+
+# ============================================================
+# 19. ECS FARGATE SERVICE
+# ============================================================
 #
 # The ECS service maintains the desired number of running
 # tasks.
 #
 # If a task fails, ECS attempts to replace it.
 #
-# =========================================================
+# The service:
+#
+#   - Uses Fargate
+#   - Runs in private subnets
+#   - Does NOT receive a public IP
+#   - Registers tasks with the ALB
+#
+# ============================================================
 
 resource "aws_ecs_service" "charlie_cafe" {
 
@@ -957,15 +1155,16 @@ resource "aws_ecs_service" "charlie_cafe" {
   task_definition = aws_ecs_task_definition.charlie_cafe.arn
 
 
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
   # Network configuration
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
   #
-  # Tasks run in private subnets.
+  # ECS tasks run inside the existing private subnets.
   #
-  # Public IP is disabled.
+  # Public IP is disabled because the application is accessed
+  # through the public ALB.
   #
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
 
   network_configuration {
 
@@ -976,15 +1175,15 @@ resource "aws_ecs_service" "charlie_cafe" {
     ]
 
     subnets = [
-      var.private_subnet_1_id,
-      var.private_subnet_2_id
+      aws_subnet.private[0].id,
+      aws_subnet.private[1].id
     ]
   }
 
 
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
   # Connect ECS container to ALB target group
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
 
   load_balancer {
 
@@ -996,18 +1195,29 @@ resource "aws_ecs_service" "charlie_cafe" {
   }
 
 
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
   # Deployment configuration
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
+  #
+  # Maximum 200%:
+  #
+  # ECS can temporarily run additional tasks during deployment.
+  #
+  # Minimum 50%:
+  #
+  # ECS attempts to keep at least half of the desired tasks
+  # healthy during deployment.
+  #
+  # ----------------------------------------------------------
 
   deployment_maximum_percent = 200
 
   deployment_minimum_healthy_percent = 50
 
 
-  # -------------------------------------------------------
-  # Ensure ALB listener exists before ECS service creation.
-  # -------------------------------------------------------
+  # ----------------------------------------------------------
+  # Ensure the ALB listener exists before the ECS service.
+  # ----------------------------------------------------------
 
   depends_on = [
     aws_lb_listener.http
@@ -1015,139 +1225,39 @@ resource "aws_ecs_service" "charlie_cafe" {
 
 
   tags = {
-    Name    = var.ecs_service_name
+
+    Name = var.ecs_service_name
+
     Project = var.application_name
   }
 }
 
 
-# =========================================================
-# OPTIONAL / USEFUL OUTPUTS
-# =========================================================
+
+# ============================================================
+# END OF ecs_ecr.tf
+# ============================================================
 #
-# These outputs correspond to the important CloudFormation
-# stack outputs.
+# IMPORTANT:
 #
-# If you already have outputs.tf, move these blocks there.
+# Outputs should be kept in:
 #
-# =========================================================
-
-
-# ---------------------------------------------------------
-# ECR Repository Name
-# ---------------------------------------------------------
-
-output "ecr_repository_name" {
-
-  description = "Name of the Charlie Cafe ECR repository"
-
-  value = aws_ecr_repository.charlie_cafe.name
-}
-
-
-# ---------------------------------------------------------
-# ECR Repository URI
-# ---------------------------------------------------------
-
-output "ecr_repository_uri" {
-
-  description = "URI of the Charlie Cafe ECR repository"
-
-  value = aws_ecr_repository.charlie_cafe.repository_url
-}
-
-
-# ---------------------------------------------------------
-# ECS Cluster Name
-# ---------------------------------------------------------
-
-output "ecs_cluster_name" {
-
-  description = "Name of the Charlie Cafe ECS cluster"
-
-  value = aws_ecs_cluster.charlie_cafe.name
-}
-
-
-# ---------------------------------------------------------
-# ECS Service Name
-# ---------------------------------------------------------
-
-output "ecs_service_name" {
-
-  description = "Name of the Charlie Cafe ECS service"
-
-  value = aws_ecs_service.charlie_cafe.name
-}
-
-
-# ---------------------------------------------------------
-# ECS Task Definition ARN
-# ---------------------------------------------------------
-
-output "ecs_task_definition_arn" {
-
-  description = "ARN of the Charlie Cafe ECS task definition"
-
-  value = aws_ecs_task_definition.charlie_cafe.arn
-}
-
-
-# ---------------------------------------------------------
-# ALB DNS Name
-# ---------------------------------------------------------
-
-output "alb_dns_name" {
-
-  description = "DNS name of the Charlie Cafe Application Load Balancer"
-
-  value = aws_lb.charlie_cafe.dns_name
-}
-
-
-# ---------------------------------------------------------
-# Application URL
-# ---------------------------------------------------------
-
-output "application_url" {
-
-  description = "Public HTTP URL for the Charlie Cafe ECS application"
-
-  value = "http://${aws_lb.charlie_cafe.dns_name}"
-}
-
-
-# ---------------------------------------------------------
-# ALB Security Group ID
-# ---------------------------------------------------------
-
-output "alb_security_group_id" {
-
-  description = "Security group ID used by the Application Load Balancer"
-
-  value = aws_security_group.alb.id
-}
-
-
-# ---------------------------------------------------------
-# ECS Task Security Group ID
-# ---------------------------------------------------------
-
-output "ecs_task_security_group_id" {
-
-  description = "Security group ID used by ECS Fargate tasks"
-
-  value = aws_security_group.ecs_task.id
-}
-
-
-# ---------------------------------------------------------
-# VPC Endpoint Security Group ID
-# ---------------------------------------------------------
-
-output "vpc_endpoint_security_group_id" {
-
-  description = "Security group ID used by interface VPC endpoints"
-
-  value = aws_security_group.vpc_endpoint.id
-}
+#   outputs.tf
+#
+# Do NOT duplicate output blocks here if outputs.tf already
+# contains them.
+#
+# Expected outputs can include:
+#
+#   - ECR repository name
+#   - ECR repository URI
+#   - ECS cluster name
+#   - ECS service name
+#   - ECS task definition ARN
+#   - ALB DNS name
+#   - Application URL
+#   - ALB security group ID
+#   - ECS task security group ID
+#   - VPC endpoint security group ID
+#
+# ============================================================

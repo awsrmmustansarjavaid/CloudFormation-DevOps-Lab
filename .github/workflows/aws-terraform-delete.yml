@@ -161,7 +161,7 @@ env:
   #
   # Terraform must be initialized before plan/destroy operations.
   # -------------------------------------------------------------------
-  TERRAFORM_VERSION: "1.15.8"
+  TERRAFORM_VERSION: "1.9.8"
 
   # -------------------------------------------------------------------
   # MAXIMUM TERRAFORM DESTROY WAIT

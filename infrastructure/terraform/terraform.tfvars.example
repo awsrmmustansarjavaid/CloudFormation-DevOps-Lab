@@ -1,163 +1,274 @@
-# =======================================================
-# TERRAFORM VARIABLES EXAMPLE
-# =======================================================
+# ============================================================
+# Charlie Cafe
+# Terraform Infrastructure
 #
-# Copy this file to:
+# File:
+#   terraform.tfvars.example
 #
-# terraform.tfvars
-#
-# Then change the values for your environment.
-#
-# IMPORTANT:
-# Do NOT commit terraform.tfvars to Git.
-# =======================================================
-
-
-# =======================================================
-# AWS
-# =======================================================
-
-aws_region = "us-east-1"
-
-
-# =======================================================
-# PROJECT
-# =======================================================
-
-project_name = "AWS-CloudFormation-Lab"
-
-environment = "lab"
-
-
-# =======================================================
-# NETWORK
-# =======================================================
-
-vpc_cidr = "10.0.0.0/16"
-
-availability_zones = [
-  "us-east-1a",
-  "us-east-1b"
-]
-
-public_subnet_cidrs = [
-  "10.0.1.0/24",
-  "10.0.4.0/24"
-]
-
-private_subnet_cidrs = [
-  "10.0.2.0/24",
-  "10.0.3.0/24"
-]
-
-
-# =======================================================
-# EC2
-# =======================================================
-#
-# Replace this with a valid Amazon Linux 2023 AMI ID
-# for your selected AWS region.
-# =======================================================
-
-ami_id = "ami-xxxxxxxxxxxxxxxxx"
-
-instance_type = "t3.micro"
-
-# Replace with your existing EC2 Key Pair name.
-
-key_pair_name = "YOUR-KEY-PAIR-NAME"
-
-
-# =======================================================
-# EC2 USERDATA
-# =======================================================
-
-userdata_script_url = "https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/scripts/ec2-userdata.sh"
-
-
-# =======================================================
-# S3
-# =======================================================
-#
-# S3 bucket names must be globally unique.
-#
-# Leave this empty to let AWS/Terraform generate a name.
-#
-# Or provide something unique, for example:
-#
-# s3_bucket_name = "my-unique-lab-bucket-123456"
-# =======================================================
-
-s3_bucket_name = ""
-
-
-# =======================================================
-# RDS
-# =======================================================
-
-db_name = "labdb"
-
-db_username = "admin"
-
-db_instance_class = "db.t3.micro"
-
-db_engine_version = "8.0"
-
-db_allocated_storage = 20
-
-db_backup_retention_period = 0
-
-db_storage_encrypted = false
-
-db_deletion_protection = false
-
-# =========================================================
-# AWS REGION
-# =========================================================
-
-aws_region = "us-east-1"
-
-
-# =========================================================
-# EC2
-# =========================================================
-
-instance_type = "t3.micro"
-
-key_pair_name = "YOUR-KEY-PAIR"
-
-
-# =========================================================
-# RDS
-# =========================================================
-
-db_master_username = "admin"
-
-
-# =========================================================
-# S3 TEMPLATE BUCKET
-# =========================================================
-#
-# Bucket used to store the CloudFormation nested-stack
-# templates.
+# Purpose:
+#   Example Terraform variable values for the Charlie Cafe
+#   infrastructure.
 #
 # IMPORTANT:
-# S3 bucket names are globally unique.
 #
-# Replace this with your own unique bucket name.
+#   This file is a TEMPLATE.
 #
-# =========================================================
-
-template_bucket_name = "cloudformation-devops-lab-YOUR-UNIQUE-ID"
-
-
-# =========================================================
-# EC2 USERDATA
-# =========================================================
+#   Copy this file to:
 #
-# URL of the EC2 bootstrap script.
+#       terraform.tfvars
 #
-# =========================================================
+#   and customize the values for your environment.
+#
+# ============================================================
+#
+# SECURITY:
+#
+# NEVER put the following into Git:
+#
+#   - AWS access keys
+#   - AWS secret keys
+#   - Database passwords
+#   - API secrets
+#   - Stripe secret keys
+#   - Private tokens
+#   - Other credentials
+#
+# Use AWS IAM, GitHub Actions Secrets, AWS Secrets Manager,
+# environment variables, or another secure secret-management
+# solution for sensitive values.
+#
+# ============================================================
 
-ec2_userdata_script_url = "https://raw.githubusercontent.com/awsrmmustansarjavaid/CloudFormation-DevOps-Lab/main/scripts/ec2-userdata.sh"
 
+
+# ============================================================
+# 1. APPLICATION NAME
+# ============================================================
+#
+# Main application/project name.
+#
+# This value is used for:
+#
+#   - Resource names
+#   - Resource tags
+#   - Security groups
+#   - IAM roles
+#   - ECS resources
+#
+# Keep this value consistent across the project.
+#
+# ============================================================
+
+application_name = "CharlieCafe"
+
+
+
+# ============================================================
+# 2. AWS REGION
+# ============================================================
+#
+# AWS region where the infrastructure will be deployed.
+#
+# Example:
+#
+#   ap-southeast-1
+#   us-east-1
+#   eu-west-1
+#
+# IMPORTANT:
+#
+# Your provider configuration should use this variable if
+# your versions.tf/provider configuration is designed that way.
+#
+# ============================================================
+
+aws_region = "ap-southeast-1"
+
+
+
+# ============================================================
+# 3. ECR REPOSITORY NAME
+# ============================================================
+#
+# Name of the Amazon ECR repository.
+#
+# GitHub Actions will push the Docker image here.
+#
+# Expected image:
+#
+#   charlie-cafe:latest
+#
+# ============================================================
+
+ecr_repository_name = "charlie-cafe"
+
+
+
+# ============================================================
+# 4. ECS CLUSTER NAME
+# ============================================================
+#
+# Name of the ECS cluster.
+#
+# ============================================================
+
+ecs_cluster_name = "CharlieCafe-Cluster"
+
+
+
+# ============================================================
+# 5. ECS SERVICE NAME
+# ============================================================
+#
+# Name of the ECS Fargate service.
+#
+# ============================================================
+
+ecs_service_name = "CharlieCafe-Service"
+
+
+
+# ============================================================
+# 6. ECS TASK FAMILY
+# ============================================================
+#
+# ECS task definition family.
+#
+# Every new revision of the task definition belongs to this
+# family.
+#
+# ============================================================
+
+ecs_task_family = "CharlieCafe-Task"
+
+
+
+# ============================================================
+# 7. CONTAINER PORT
+# ============================================================
+#
+# Port exposed by the Docker container.
+#
+# The Charlie Cafe Docker/Nginx application currently uses
+# port 80 inside the container.
+#
+# Traffic flow:
+#
+#   Internet
+#       |
+#       v
+#      ALB :80
+#       |
+#       v
+#   ECS Container :80
+#
+# ============================================================
+
+container_port = 80
+
+
+
+# ============================================================
+# 8. ECS TASK CPU
+# ============================================================
+#
+# Fargate task CPU units.
+#
+# Current lab configuration:
+#
+#   256 CPU units
+#
+# This corresponds to:
+#
+#   0.25 vCPU
+#
+# ============================================================
+
+task_cpu = 256
+
+
+
+# ============================================================
+# 9. ECS TASK MEMORY
+# ============================================================
+#
+# Fargate task memory in MiB.
+#
+# Current lab configuration:
+#
+#   512 MiB
+#
+# The CPU/memory combination must be supported by AWS Fargate.
+#
+# ============================================================
+
+task_memory = 512
+
+
+
+# ============================================================
+# 10. ECS DESIRED COUNT
+# ============================================================
+#
+# Number of ECS tasks that the service should maintain.
+#
+# Recommended lab value:
+#
+#   1
+#
+# Production environments would normally use multiple tasks
+# for high availability.
+#
+# ============================================================
+
+ecs_desired_count = 1
+
+
+
+# ============================================================
+# OPTIONAL NETWORK VARIABLES
+# ============================================================
+#
+# DO NOT add:
+#
+#   vpc_id
+#   public_subnet_1_id
+#   public_subnet_2_id
+#   private_subnet_1_id
+#   private_subnet_2_id
+#   private_route_table_id
+#
+# to this file if network.tf creates those resources.
+#
+# ecs_ecr.tf now directly references:
+#
+#   aws_vpc.lab.id
+#
+#   aws_subnet.public[0].id
+#   aws_subnet.public[1].id
+#
+#   aws_subnet.private[0].id
+#   aws_subnet.private[1].id
+#
+#   aws_route_table.private.id
+#
+# This avoids duplicating networking configuration.
+#
+# ============================================================
+
+
+
+# ============================================================
+# END OF terraform.tfvars.example
+# ============================================================
+#
+# After copying this file:
+#
+#   terraform.tfvars.example
+#             |
+#             v
+#       terraform.tfvars
+#
+# Then customize the values.
+#
+# ============================================================
