@@ -154,7 +154,7 @@ env:
   #   infra/
   #
   # -------------------------------------------------------------------
-  TERRAFORM_WORKING_DIRECTORY: terraform
+  TERRAFORM_WORKING_DIRECTORY: infrastructure/terraform
 
   # -------------------------------------------------------------------
   # TERRAFORM VERSION
