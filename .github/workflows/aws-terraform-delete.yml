@@ -753,17 +753,31 @@ jobs:
           exit 1
 
 
-      # ==============================================================
+            # ==============================================================
       # STEP 13
       # DELETE ECS SERVICE
       #
       # IMPORTANT:
       #
-      # This is the major correction compared with the old workflow.
+      # AWS ECS service lifecycle:
       #
-      # The old workflow only set desired-count=0.
+      #   ACTIVE
+      #      ↓
+      #   DRAINING
+      #      ↓
+      #   INACTIVE
       #
-      # This workflow actually deletes the ECS service.
+      # INACTIVE means the service has been deleted.
+      #
+      # DescribeServices can continue returning an INACTIVE service
+      # for some time after deletion.
+      #
+      # Therefore:
+      #
+      #   INACTIVE       = SUCCESS
+      #   ServiceNotFound = SUCCESS
+      #   DRAINING       = WAIT
+      #   ACTIVE         = ERROR / WAIT
       # ==============================================================
 
       - name: "Step 13 - Delete ECS Service"
@@ -784,60 +798,205 @@ jobs:
           echo "DELETE ECS SERVICE"
           echo "=========================================================="
 
-          aws ecs delete-service \
-            --cluster "$CLUSTER" \
-            --service "$SERVICE" \
-            --force \
-            --region "$AWS_REGION" \
-            --no-cli-pager
+          echo ""
+          echo "Cluster:"
+          echo "  $CLUSTER"
 
           echo ""
-          echo "ECS service deletion requested."
+          echo "Service:"
+          echo "  $SERVICE"
 
 
           # ----------------------------------------------------------
-          # Wait until service disappears.
+          # Ask AWS to delete the service.
+          #
+          # --force allows deletion after the service is scaled down.
+          # ----------------------------------------------------------
+
+          DELETE_OUTPUT=$(
+            aws ecs delete-service \
+              --cluster "$CLUSTER" \
+              --service "$SERVICE" \
+              --force \
+              --region "$AWS_REGION" \
+              --no-cli-pager
+          )
+
+          echo ""
+          echo "ECS delete-service response:"
+          echo "$DELETE_OUTPUT"
+
+
+          echo ""
+          echo "Waiting for ECS service deletion..."
+
+
+          # ----------------------------------------------------------
+          # Wait for the service to reach INACTIVE.
+          #
+          # IMPORTANT:
+          #
+          # INACTIVE = DELETED
+          #
+          # AWS may continue returning the service through
+          # DescribeServices even after deletion.
           # ----------------------------------------------------------
 
           for ATTEMPT in $(seq 1 36); do
 
-            STATUS=$(
+            RESPONSE=$(
               aws ecs describe-services \
                 --cluster "$CLUSTER" \
                 --services "$SERVICE" \
                 --region "$AWS_REGION" \
-                --query "services[0].status" \
-                --output text \
+                --output json \
                 --no-cli-pager \
                 2>/dev/null || true
             )
 
-            echo ""
-            echo "Attempt: $ATTEMPT / 36"
-            echo "Service status: ${STATUS:-NOT_FOUND}"
 
-            if [[ -z "$STATUS" || "$STATUS" == "None" ]]; then
+            # --------------------------------------------------------
+            # Service no longer exists.
+            #
+            # This is also SUCCESS.
+            # --------------------------------------------------------
+
+            if [[ -z "$RESPONSE" || "$RESPONSE" == "{}" ]]; then
 
               echo ""
-              echo "ECS service has been deleted."
+              echo "=========================================================="
+              echo "✅ ECS SERVICE DELETED"
+              echo "=========================================================="
 
               exit 0
 
             fi
 
+
+            # --------------------------------------------------------
+            # Extract service status.
+            # --------------------------------------------------------
+
+            STATUS=$(
+              echo "$RESPONSE" |
+              jq -r '.services[0].status // empty'
+            )
+
+
+            # --------------------------------------------------------
+            # ServiceNotFound / empty result.
+            # --------------------------------------------------------
+
+            if [[ -z "$STATUS" || "$STATUS" == "null" ]]; then
+
+              echo ""
+              echo "=========================================================="
+              echo "✅ ECS SERVICE DELETED"
+              echo "=========================================================="
+
+              exit 0
+
+            fi
+
+
+            echo ""
+            echo "Attempt: $ATTEMPT / 36"
+            echo "Service status: $STATUS"
+
+
+            # --------------------------------------------------------
+            # INACTIVE means the service has been deleted.
+            # --------------------------------------------------------
+
+            if [[ "$STATUS" == "INACTIVE" ]]; then
+
+              echo ""
+              echo "=========================================================="
+              echo "✅ ECS SERVICE DELETED"
+              echo "=========================================================="
+
+              echo ""
+              echo "AWS reports the ECS service as INACTIVE."
+              echo "INACTIVE is the expected deleted state."
+
+              exit 0
+
+            fi
+
+
+            # --------------------------------------------------------
+            # DRAINING means AWS is still completing deletion.
+            # Continue waiting.
+            # --------------------------------------------------------
+
+            if [[ "$STATUS" == "DRAINING" ]]; then
+
+              echo "ECS service is draining."
+              echo "Waiting for deletion to complete..."
+
+              sleep 10
+
+              continue
+
+            fi
+
+
+            # --------------------------------------------------------
+            # ACTIVE means deletion has not completed yet.
+            # Continue waiting.
+            # --------------------------------------------------------
+
+            if [[ "$STATUS" == "ACTIVE" ]]; then
+
+              echo "ECS service is still ACTIVE."
+              echo "Waiting for AWS to complete deletion..."
+
+              sleep 10
+
+              continue
+
+            fi
+
+
+            # --------------------------------------------------------
+            # Other AWS states.
+            # Continue polling rather than incorrectly declaring
+            # success.
+            # --------------------------------------------------------
+
+            echo "Unexpected ECS service status: $STATUS"
+
             sleep 10
 
           done
 
+
           echo ""
-          echo "ERROR: ECS service still exists."
+          echo "=========================================================="
+          echo "❌ ECS SERVICE DELETION TIMEOUT"
+          echo "=========================================================="
+
+          echo ""
+          echo "The ECS service did not reach INACTIVE within"
+          echo "the allowed waiting period."
 
           exit 1
 
 
-      # ==============================================================
+            # ==============================================================
       # STEP 14
       # DELETE ECS CLUSTER
+      #
+      # ECS cluster lifecycle after deletion:
+      #
+      #   ACTIVE
+      #      ↓
+      #   INACTIVE
+      #
+      # INACTIVE = DELETED
+      #
+      # AWS may continue to expose the INACTIVE cluster record for
+      # some time. Therefore we treat INACTIVE as SUCCESS.
       # ==============================================================
 
       - name: "Step 14 - Delete ECS Cluster"
@@ -852,54 +1011,151 @@ jobs:
 
           CLUSTER="${{ steps.ecs.outputs.cluster }}"
 
+
           echo "=========================================================="
           echo "DELETE ECS CLUSTER"
           echo "=========================================================="
 
-          aws ecs delete-cluster \
-            --cluster "$CLUSTER" \
-            --region "$AWS_REGION" \
-            --no-cli-pager
+          echo ""
+          echo "Cluster:"
+          echo "  $CLUSTER"
+
+
+          # ----------------------------------------------------------
+          # Delete ECS cluster.
+          #
+          # AWS requires services to be deleted first.
+          # ----------------------------------------------------------
+
+          DELETE_OUTPUT=$(
+            aws ecs delete-cluster \
+              --cluster "$CLUSTER" \
+              --region "$AWS_REGION" \
+              --no-cli-pager
+          )
 
           echo ""
-          echo "ECS cluster deletion requested."
+          echo "ECS delete-cluster response:"
+          echo "$DELETE_OUTPUT"
 
 
           # ----------------------------------------------------------
-          # Verify cluster disappears.
+          # Wait for cluster to reach INACTIVE.
           # ----------------------------------------------------------
+
+          echo ""
+          echo "Waiting for ECS cluster deletion..."
+
 
           for ATTEMPT in $(seq 1 36); do
 
-            STATUS=$(
+            RESPONSE=$(
               aws ecs describe-clusters \
                 --clusters "$CLUSTER" \
                 --region "$AWS_REGION" \
-                --query "clusters[0].status" \
-                --output text \
+                --output json \
                 --no-cli-pager \
                 2>/dev/null || true
             )
 
-            echo ""
-            echo "Attempt: $ATTEMPT / 36"
-            echo "Cluster status: ${STATUS:-NOT_FOUND}"
 
-            if [[ -z "$STATUS" || "$STATUS" == "None" ]]; then
+            # --------------------------------------------------------
+            # No response = cluster is no longer discoverable.
+            # SUCCESS.
+            # --------------------------------------------------------
+
+            if [[ -z "$RESPONSE" || "$RESPONSE" == "{}" ]]; then
 
               echo ""
-              echo "ECS cluster has been deleted."
+              echo "=========================================================="
+              echo "✅ ECS CLUSTER DELETED"
+              echo "=========================================================="
 
               exit 0
 
             fi
 
+
+            STATUS=$(
+              echo "$RESPONSE" |
+              jq -r '.clusters[0].status // empty'
+            )
+
+
+            # --------------------------------------------------------
+            # No cluster returned.
+            # SUCCESS.
+            # --------------------------------------------------------
+
+            if [[ -z "$STATUS" || "$STATUS" == "null" ]]; then
+
+              echo ""
+              echo "=========================================================="
+              echo "✅ ECS CLUSTER DELETED"
+              echo "=========================================================="
+
+              exit 0
+
+            fi
+
+
+            echo ""
+            echo "Attempt: $ATTEMPT / 36"
+            echo "Cluster status: $STATUS"
+
+
+            # --------------------------------------------------------
+            # INACTIVE = DELETED
+            # --------------------------------------------------------
+
+            if [[ "$STATUS" == "INACTIVE" ]]; then
+
+              echo ""
+              echo "=========================================================="
+              echo "✅ ECS CLUSTER DELETED"
+              echo "=========================================================="
+
+              echo ""
+              echo "AWS reports the ECS cluster as INACTIVE."
+              echo "INACTIVE is the expected deleted state."
+
+              exit 0
+
+            fi
+
+
+            # --------------------------------------------------------
+            # DEPROVISIONING = AWS is still deleting resources.
+            # --------------------------------------------------------
+
+            if [[ "$STATUS" == "DEPROVISIONING" ]]; then
+
+              echo "ECS cluster is deprovisioning."
+              echo "Waiting..."
+
+              sleep 10
+
+              continue
+
+            fi
+
+
+            # --------------------------------------------------------
+            # ACTIVE / PROVISIONING / other states.
+            # Continue waiting.
+            # --------------------------------------------------------
+
+            echo "ECS cluster is not deleted yet."
+
             sleep 10
 
           done
 
+
           echo ""
-          echo "ERROR: ECS cluster still exists."
+          echo "=========================================================="
+          echo "❌ ECS CLUSTER DELETION TIMEOUT"
+          echo "=========================================================="
 
           exit 1
 
@@ -1393,12 +1649,18 @@ jobs:
           echo "=========================================================="
 
 
-      # ==============================================================
-      # STEP 24
-      # VERIFY ECS IS REALLY DELETED
+            # ==============================================================
+      # FINAL ECS VERIFICATION
+      #
+      # IMPORTANT:
+      #
+      # INACTIVE = DELETED
+      # NOT_FOUND = DELETED
+      # EMPTY      = DELETED
+      # ACTIVE     = NOT DELETED
       # ==============================================================
 
-      - name: "Step 24 - Verify ECS Deletion"
+      - name: "Final Verification - ECS"
 
         shell: bash
 
@@ -1410,35 +1672,67 @@ jobs:
           echo "FINAL ECS VERIFICATION"
           echo "=========================================================="
 
-          STATUS=$(
+
+          RESPONSE=$(
             aws ecs describe-clusters \
               --clusters "$ECS_CLUSTER_NAME" \
               --region "$AWS_REGION" \
-              --query "clusters[0].status" \
-              --output text \
+              --output json \
               --no-cli-pager \
               2>/dev/null || true
           )
 
-          if [[ -z "$STATUS" || "$STATUS" == "None" ]]; then
+
+          # ----------------------------------------------------------
+          # Cluster not found.
+          # ----------------------------------------------------------
+
+          if [[ -z "$RESPONSE" || "$RESPONSE" == "{}" ]]; then
 
             echo ""
-            echo "Charlie Cafe ECS cluster does not exist."
+            echo "✅ ECS cluster not found."
+            echo "ECS cleanup verified."
 
-          else
-
-            echo ""
-            echo "ERROR: ECS cluster still exists."
-
-            echo "Status:"
-            echo "  $STATUS"
-
-            exit 1
+            exit 0
 
           fi
 
+
+          STATUS=$(
+            echo "$RESPONSE" |
+            jq -r '.clusters[0].status // empty'
+          )
+
+
+          # ----------------------------------------------------------
+          # INACTIVE means deleted.
+          # ----------------------------------------------------------
+
+          if [[ "$STATUS" == "INACTIVE" ]]; then
+
+            echo ""
+            echo "✅ ECS cluster status: INACTIVE"
+            echo ""
+            echo "INACTIVE is the AWS deleted state."
+            echo "ECS cleanup verified."
+
+            exit 0
+
+          fi
+
+
+          # ----------------------------------------------------------
+          # Anything else means cleanup is incomplete.
+          # ----------------------------------------------------------
+
           echo ""
-          echo "ECS verification passed."
+          echo "❌ ECS cluster still active."
+
+          echo ""
+          echo "Current status:"
+          echo "  $STATUS"
+
+          exit 1
 
 
       # ==============================================================
