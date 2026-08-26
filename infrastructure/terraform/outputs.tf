@@ -150,3 +150,38 @@ output "rds_master_user_secret_arn" {
   description = "Secrets Manager ARN containing the RDS master credentials."
   value       = aws_db_instance.mysql.master_user_secret[0].secret_arn
 }
+
+# =========================================================
+# TEMPLATE BUCKET OUTPUTS
+# =========================================================
+#
+# These outputs replace the CloudFormation outputs:
+#
+#   BucketName
+#   BucketArn
+#
+# =========================================================
+
+
+# ---------------------------------------------------------
+# Template S3 Bucket Name
+# ---------------------------------------------------------
+
+output "template_bucket_name" {
+
+  description = "Name of the S3 bucket used to store CloudFormation nested templates"
+
+  value = aws_s3_bucket.template_bucket.bucket
+}
+
+
+# ---------------------------------------------------------
+# Template S3 Bucket ARN
+# ---------------------------------------------------------
+
+output "template_bucket_arn" {
+
+  description = "ARN of the S3 bucket used to store CloudFormation nested templates"
+
+  value = aws_s3_bucket.template_bucket.arn
+}

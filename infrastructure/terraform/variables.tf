@@ -248,3 +248,164 @@ variable "db_deletion_protection" {
   type        = bool
   default     = false
 }
+
+# =========================================================
+# S3 TEMPLATE BUCKET
+# =========================================================
+#
+# Name of the S3 bucket used to store CloudFormation
+# nested-stack templates.
+#
+# IMPORTANT:
+# S3 bucket names must be globally unique.
+#
+# Example:
+#
+#   cloudformation-devops-lab-537236558357-us-east-1
+#
+# =========================================================
+
+variable "template_bucket_name" {
+
+  description = "Globally unique S3 bucket name used to store CloudFormation nested templates"
+
+  type = string
+
+  # -------------------------------------------------------
+  # Validation
+  # -------------------------------------------------------
+  #
+  # S3 bucket names:
+  #
+  # - Must be between 3 and 63 characters
+  # - Should use lowercase letters
+  # - Can contain numbers and hyphens
+  #
+  # -------------------------------------------------------
+
+  validation {
+
+    condition = (
+      length(var.template_bucket_name) >= 3 &&
+      length(var.template_bucket_name) <= 63
+    )
+
+    error_message = "The template bucket name must be between 3 and 63 characters."
+  }
+}
+
+# =========================================================
+# ECS / ECR VARIABLES
+# =========================================================
+
+variable "application_name" {
+
+  description = "Application name used for ECS, ECR, ALB and related resources"
+
+  type = string
+
+  default = "CharlieCafe"
+}
+
+
+variable "ecr_repository_name" {
+
+  description = "Name of the ECR repository"
+
+  type = string
+
+  default = "charlie-cafe"
+}
+
+
+variable "ecs_cluster_name" {
+
+  description = "Name of the ECS cluster"
+
+  type = string
+
+  default = "CharlieCafe-Cluster"
+}
+
+
+variable "ecs_service_name" {
+
+  description = "Name of the ECS service"
+
+  type = string
+
+  default = "CharlieCafe-Service"
+}
+
+
+variable "ecs_task_family" {
+
+  description = "ECS task definition family name"
+
+  type = string
+
+  default = "CharlieCafe"
+}
+
+
+variable "container_port" {
+
+  description = "Port exposed by the Docker container"
+
+  type = number
+
+  default = 80
+}
+
+
+variable "task_cpu" {
+
+  description = "Fargate task CPU units"
+
+  type = string
+
+  default = "256"
+}
+
+
+variable "task_memory" {
+
+  description = "Fargate task memory in MB"
+
+  type = string
+
+  default = "512"
+}
+
+
+variable "ecs_desired_count" {
+
+  description = "Number of ECS Fargate tasks to keep running"
+
+  type = number
+
+  default = 0
+}
+
+
+variable "private_subnet_1_cidr" {
+
+  description = "CIDR block of private subnet 1"
+
+  type = string
+
+  default = "10.0.2.0/24"
+}
+
+
+variable "private_subnet_2_cidr" {
+
+  description = "CIDR block of private subnet 2"
+
+  type = string
+
+  default = "10.0.3.0/24"
+}
+
+
+
