@@ -3,4 +3,8 @@ GITHUB_REPOSITORY="CloudFormation-DevOps-Lab" \
 GITHUB_BRANCH="main" \
 GIT_USER_NAME="type your github username" \
 GIT_USER_EMAIL="type your email" \
+<<<<<<< HEAD
 ./github-ec2-setup.sh
+=======
+./github-ec2-setup.sh
+>>>>>>> e106a68 (updating git)
