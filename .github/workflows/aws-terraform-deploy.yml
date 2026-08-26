@@ -576,6 +576,12 @@ jobs:
       # - update
       # - destroy
       #
+      # Important Note : 
+      #
+      # GitHub Secret then : TF_VAR_key_pair_name: ${{ secrets.KEY_PAIR_NAME }} 
+      #
+      # Github global environment variable: TF_VAR_key_pair_name: ${{ env.KEY_PAIR_NAME }}
+      #
       # ======================================================
 
       - name: Terraform Plan
@@ -586,13 +592,20 @@ jobs:
 
         env:
 
-          TF_VAR_key_pair_name: ${{ secrets.KEY_PAIR_NAME }}
+          TF_VAR_key_pair_name: ${{ env.KEY_PAIR_NAME }}
 
         run: |
 
           echo "=============================================="
           echo "TERRAFORM PLAN"
           echo "=============================================="
+
+          if [ -z "$TF_VAR_key_pair_name" ]; then
+            echo "ERROR: KEY_PAIR_NAME is empty."
+            exit 1
+          fi
+
+          echo "EC2 Key Pair variable is configured."  
 
           terraform plan \
             -input=false \
