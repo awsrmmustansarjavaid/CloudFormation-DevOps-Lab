@@ -99,95 +99,37 @@
 # =====================================================================
 
 
-name: Complete AWS Terraform Lab Cleanup
+# =====================================================================
+# CHARLIE CAFE - AWS TERRAFORM DEVOPS LAB
+# COMPLETE TERRAFORM DELETE / CLEANUP WORKFLOW
+# =====================================================================
 
+name: Complete AWS Terraform Lab Cleanup
 
 # =====================================================================
 # MANUAL TRIGGER ONLY
-# =====================================================================
-#
-# This workflow is intentionally manual.
-#
-# Destroying infrastructure is a destructive operation.
-#
-# The workflow will NOT run automatically on:
-#
-#   push
-#   pull_request
-#
-# You must manually select:
-#
-#   GitHub
-#      -> Actions
-#      -> Complete AWS Terraform Lab Cleanup
-#      -> Run workflow
-#
 # =====================================================================
 
 on:
   workflow_dispatch:
 
-
 # =====================================================================
-# GLOBAL ENVIRONMENT VARIABLES
+# GLOBAL VARIABLES
 # =====================================================================
 
 env:
-
-  # -------------------------------------------------------------------
-  # AWS REGION
-  # -------------------------------------------------------------------
   AWS_REGION: us-east-1
 
-  # -------------------------------------------------------------------
-  # TERRAFORM WORKING DIRECTORY
-  #
   # IMPORTANT:
-  #
-  # Change this only if your Terraform root module is located
-  # somewhere else.
-  #
-  # Examples:
-  #
-  #   terraform/
-  #   infrastructure/terraform/
-  #   infra/
-  #
-  # -------------------------------------------------------------------
+  # This MUST be the directory containing your Terraform root module.
   TERRAFORM_WORKING_DIRECTORY: infrastructure/terraform
 
-  # -------------------------------------------------------------------
-  # TERRAFORM VERSION
-  #
-  # Terraform must be initialized before plan/destroy operations.
-  # -------------------------------------------------------------------
   TERRAFORM_VERSION: "1.9.8"
 
-  # -------------------------------------------------------------------
-  # MAXIMUM TERRAFORM DESTROY WAIT
-  #
-  # 40 minutes
-  #
-  # 40 * 60 = 2400 seconds
-  # -------------------------------------------------------------------
-  TERRAFORM_DESTROY_WAIT_SECONDS: 2400
-
-  # -------------------------------------------------------------------
-  # ECS APPLICATION NAME
-  #
-  # These names are used for discovery/verification only.
-  #
-  # Terraform remains responsible for the actual infrastructure
-  # destruction.
-  # -------------------------------------------------------------------
   ECS_CLUSTER_NAME: CharlieCafe-Cluster
   ECS_SERVICE_NAME: CharlieCafe-Service
 
-  # -------------------------------------------------------------------
-  # ECR REPOSITORY NAME
-  # -------------------------------------------------------------------
   ECR_REPOSITORY_NAME: charlie-cafe
-
 
 # =====================================================================
 # JOB
@@ -195,74 +137,45 @@ env:
 
 jobs:
 
-  # ===================================================================
-  # COMPLETE TERRAFORM CLEANUP JOB
-  # ===================================================================
-
   delete-lab:
 
     name: Complete AWS Terraform Lab Cleanup
 
     runs-on: ubuntu-latest
 
-
-    # ================================================================
-    # JOB STEPS
-    # ================================================================
-
     steps:
 
+      # ================================================================
+      # 1. CHECKOUT
+      # ================================================================
 
-      # ==============================================================
-      # STEP 1
-      # CHECKOUT REPOSITORY
-      # ==============================================================
-
-      - name: "Step 1 - Checkout Repository"
-
+      - name: "1. Checkout Repository"
         uses: actions/checkout@v4
 
+      # ================================================================
+      # 2. AWS CREDENTIALS
+      # ================================================================
 
-      # ==============================================================
-      # STEP 2
-      # CONFIGURE AWS CREDENTIALS
-      # ==============================================================
-
-      - name: "Step 2 - Configure AWS Credentials"
-
+      - name: "2. Configure AWS Credentials"
         uses: aws-actions/configure-aws-credentials@v4
-
         with:
-
-          # AWS access key stored in GitHub Secrets.
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-
-          # AWS secret access key stored in GitHub Secrets.
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
-          # AWS region.
           aws-region: ${{ env.AWS_REGION }}
 
+      # ================================================================
+      # 3. VERIFY AWS ACCOUNT
+      # ================================================================
 
-      # ==============================================================
-      # STEP 3
-      # VERIFY AWS ACCOUNT
-      # ==============================================================
-
-      - name: "Step 3 - Verify AWS Account"
-
+      - name: "3. Verify AWS Account"
         shell: bash
-
         run: |
-
           set -euo pipefail
 
           echo "=========================================================="
           echo "AWS ACCOUNT VERIFICATION"
           echo "=========================================================="
 
-          echo ""
-          echo "AWS CLI:"
           aws --version
 
           echo ""
@@ -271,104 +184,59 @@ jobs:
 
           echo ""
           echo "AWS Region:"
-          echo "  $AWS_REGION"
+          echo "$AWS_REGION"
 
           echo ""
-          echo "Terraform Working Directory:"
-          echo "  $TERRAFORM_WORKING_DIRECTORY"
+          echo "Terraform Directory:"
+          echo "$TERRAFORM_WORKING_DIRECTORY"
 
           echo ""
           echo "=========================================================="
-          echo "AWS ACCOUNT VERIFICATION COMPLETE"
+          echo "AWS ACCOUNT VERIFIED"
           echo "=========================================================="
 
+      # ================================================================
+      # 4. SETUP TERRAFORM
+      # ================================================================
 
-      # ==============================================================
-      # STEP 4
-      # INSTALL TERRAFORM
-      # ==============================================================
-
-      - name: "Step 4 - Setup Terraform"
-
+      - name: "4. Setup Terraform"
         uses: hashicorp/setup-terraform@v3
-
         with:
-
-          # Terraform version used by this workflow.
           terraform_version: ${{ env.TERRAFORM_VERSION }}
 
+      # ================================================================
+      # 5. VERIFY TERRAFORM DIRECTORY
+      # ================================================================
 
-      # ==============================================================
-      # STEP 5
-      # VERIFY TERRAFORM
-      # ==============================================================
-
-      - name: "Step 5 - Verify Terraform"
-
+      - name: "5. Verify Terraform Directory"
         shell: bash
-
         run: |
-
-          set -euo pipefail
-
-          echo "=========================================================="
-          echo "TERRAFORM VERIFICATION"
-          echo "=========================================================="
-
-          terraform version
-
-          echo ""
-          echo "Terraform executable:"
-          command -v terraform
-
-          echo ""
-          echo "=========================================================="
-          echo "TERRAFORM VERIFICATION COMPLETE"
-          echo "=========================================================="
-
-
-      # ==============================================================
-      # STEP 6
-      # VERIFY TERRAFORM DIRECTORY
-      # ==============================================================
-
-      - name: "Step 6 - Verify Terraform Directory"
-
-        shell: bash
-
-        run: |
-
           set -euo pipefail
 
           echo "=========================================================="
           echo "VERIFY TERRAFORM DIRECTORY"
           echo "=========================================================="
 
-          if [[ ! -d "$TERRAFORM_WORKING_DIRECTORY" ]]
-          then
-
+          if [[ ! -d "$TERRAFORM_WORKING_DIRECTORY" ]]; then
             echo ""
-            echo "ERROR:"
-            echo "Terraform directory does not exist."
-
+            echo "ERROR: Terraform directory does not exist."
             echo ""
-            echo "Expected directory:"
+            echo "Expected:"
             echo "  $TERRAFORM_WORKING_DIRECTORY"
-
             echo ""
-            echo "Repository contents:"
-            find . -maxdepth 3 -type f | sort
+
+            find . -maxdepth 4 -type f | sort
 
             exit 1
-
           fi
 
           echo ""
-          echo "Terraform directory found:"
+          echo "Terraform directory:"
           echo "  $TERRAFORM_WORKING_DIRECTORY"
 
           echo ""
           echo "Terraform files:"
+
           find "$TERRAFORM_WORKING_DIRECTORY" \
             -maxdepth 2 \
             -type f \
@@ -377,75 +245,40 @@ jobs:
               -o -name "*.tfvars" \
               -o -name ".terraform.lock.hcl" \
             \) \
-            -print \
-            | sort
+            -print | sort
 
           echo ""
           echo "=========================================================="
           echo "TERRAFORM DIRECTORY VERIFIED"
           echo "=========================================================="
 
+      # ================================================================
+      # 6. TERRAFORM INIT
+      # ================================================================
 
-      # ==============================================================
-      # STEP 7
-      # TERRAFORM INIT
-      # ==============================================================
-      #
-      # terraform init:
-      #
-      #   - initializes Terraform
-      #   - initializes backend
-      #   - downloads providers
-      #   - downloads modules
-      #
-      # This is required before validate/plan/destroy.
-      #
-      # ==============================================================
-      #
-      # HashiCorp recommends terraform init before Terraform
-      # operations in a working directory.
-      #
-      # ==============================================================
-      # Reference:
-      # https://developer.hashicorp.com/terraform/cli/commands/init
-      # ==============================================================
-
-      - name: "Step 7 - Terraform Init"
-
+      - name: "6. Initialize Terraform"
         working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
-
         shell: bash
-
         run: |
-
           set -euo pipefail
 
           echo "=========================================================="
           echo "TERRAFORM INIT"
           echo "=========================================================="
 
-          terraform init \
-            -input=false
+          terraform init -input=false
 
           echo ""
-          echo "=========================================================="
-          echo "TERRAFORM INIT COMPLETE"
-          echo "=========================================================="
+          echo "Terraform initialization completed."
 
+      # ================================================================
+      # 7. TERRAFORM VALIDATE
+      # ================================================================
 
-      # ==============================================================
-      # STEP 8
-      # TERRAFORM VALIDATE
-      # ==============================================================
-
-      - name: "Step 8 - Terraform Validate"
-
+      - name: "7. Validate Terraform"
         working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
-
         shell: bash
-
         run: |
-
           set -euo pipefail
 
           echo "=========================================================="
@@ -457,1057 +290,36 @@ jobs:
           echo ""
           echo "Terraform configuration is valid."
 
-          echo ""
-          echo "=========================================================="
-          echo "TERRAFORM VALIDATION COMPLETE"
-          echo "=========================================================="
+      # ================================================================
+      # 8. SHOW CURRENT STATE
+      # ================================================================
 
-
-      # ==============================================================
-      # STEP 9
-      # DISPLAY TERRAFORM STATE
-      # ==============================================================
-
-      - name: "Step 9 - Display Terraform State"
-
+      - name: "8. Display Terraform State"
         working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
-
         shell: bash
-
         run: |
-
           set -euo pipefail
 
           echo "=========================================================="
-          echo "TERRAFORM STATE"
+          echo "CURRENT TERRAFORM STATE"
           echo "=========================================================="
 
           echo ""
-          echo "Terraform state list:"
+          echo "Terraform resources currently managed:"
+
           terraform state list || true
 
           echo ""
-          echo "Terraform state summary:"
-          terraform show -no-color || true
-
-          echo ""
-          echo "=========================================================="
-          echo "TERRAFORM STATE DISPLAY COMPLETE"
           echo "=========================================================="
 
-
-      # ==============================================================
-      # STEP 10
-      # DISCOVER ECS RESOURCES
-      # ==============================================================
-      #
-      # Terraform remains the owner of the resources.
-      #
-      # We only discover the actual AWS resources here so that we can
-      # safely stop running ECS tasks before Terraform destroys them.
-      #
-      # ==============================================================
-      # The discovery is intentionally tolerant.
-      #
-      # If the ECS resources do not exist, cleanup continues.
-      # ==============================================================
-
-      - name: "Step 10 - Discover ECS Resources"
-
-        id: ecs
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          echo "=========================================================="
-          echo "DISCOVER ECS RESOURCES"
-          echo "=========================================================="
-
-          CLUSTER_ARN=""
-
-          SERVICE_NAME=""
-
-          # ----------------------------------------------------------
-          # First try the configured ECS cluster.
-          # ----------------------------------------------------------
-
-          CLUSTER_ARN=$(
-            aws ecs describe-clusters \
-              --clusters "$ECS_CLUSTER_NAME" \
-              --region "$AWS_REGION" \
-              --query "clusters[0].clusterArn" \
-              --output text \
-              --no-cli-pager \
-              2>/dev/null || true
-          )
-
-          # ----------------------------------------------------------
-          # Handle AWS CLI returning "None".
-          # ----------------------------------------------------------
-
-          if [[ "$CLUSTER_ARN" == "None" ]]
-          then
-            CLUSTER_ARN=""
-          fi
-
-          echo ""
-          echo "ECS Cluster:"
-          echo "  ${CLUSTER_ARN:-NOT_FOUND}"
-
-          # ----------------------------------------------------------
-          # Discover service only if cluster exists.
-          # ----------------------------------------------------------
-
-          if [[ -n "$CLUSTER_ARN" ]]
-          then
-
-            SERVICE_STATUS=$(
-              aws ecs describe-services \
-                --cluster "$CLUSTER_ARN" \
-                --services "$ECS_SERVICE_NAME" \
-                --region "$AWS_REGION" \
-                --query "services[0].status" \
-                --output text \
-                --no-cli-pager \
-                2>/dev/null || true
-            )
-
-            if [[ "$SERVICE_STATUS" == "None" ]]
-            then
-              SERVICE_STATUS=""
-            fi
-
-            if [[ -n "$SERVICE_STATUS" ]]
-            then
-              SERVICE_NAME="$ECS_SERVICE_NAME"
-            fi
-
-          fi
-
-          echo ""
-          echo "ECS Service:"
-          echo "  ${SERVICE_NAME:-NOT_FOUND}"
-
-          # ----------------------------------------------------------
-          # Export outputs for later steps.
-          # ----------------------------------------------------------
-
-          echo "cluster=$CLUSTER_ARN" >> "$GITHUB_OUTPUT"
-          echo "service=$SERVICE_NAME" >> "$GITHUB_OUTPUT"
-
-          echo ""
-          echo "=========================================================="
-          echo "ECS DISCOVERY COMPLETE"
-          echo "=========================================================="
-
-
-      # ==============================================================
-      # STEP 11
-      # STOP ECS SERVICE
-      # ==============================================================
-
-      - name: "Step 11 - Stop ECS Service"
-
-        if: |
-          steps.ecs.outputs.cluster != '' &&
-          steps.ecs.outputs.service != ''
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          ECS_CLUSTER="${{ steps.ecs.outputs.cluster }}"
-          ECS_SERVICE="${{ steps.ecs.outputs.service }}"
-
-          echo "=========================================================="
-          echo "STOP ECS SERVICE"
-          echo "=========================================================="
-
-          echo ""
-          echo "Cluster:"
-          echo "  $ECS_CLUSTER"
-
-          echo ""
-          echo "Service:"
-          echo "  $ECS_SERVICE"
-
-          aws ecs update-service \
-            --cluster "$ECS_CLUSTER" \
-            --service "$ECS_SERVICE" \
-            --desired-count 0 \
-            --region "$AWS_REGION" \
-            --no-cli-pager \
-            || true
-
-          echo ""
-          echo "ECS desired count requested: 0."
-
-          echo ""
-          echo "=========================================================="
-          echo "ECS SERVICE STOP REQUEST COMPLETE"
-          echo "=========================================================="
-
-
-      # ==============================================================
-      # STEP 12
-      # WAIT FOR ECS TASKS
-      # ==============================================================
-
-      - name: "Step 12 - Wait For ECS Tasks"
-
-        if: |
-          steps.ecs.outputs.cluster != '' &&
-          steps.ecs.outputs.service != ''
-
-        shell: bash
-
-        run: |
-
-          set -u
-
-          ECS_CLUSTER="${{ steps.ecs.outputs.cluster }}"
-          ECS_SERVICE="${{ steps.ecs.outputs.service }}"
-
-          echo "=========================================================="
-          echo "WAIT FOR ECS TASKS"
-          echo "=========================================================="
-
-          for ATTEMPT in $(seq 1 36)
-          do
-
-            RUNNING=$(
-              aws ecs describe-services \
-                --cluster "$ECS_CLUSTER" \
-                --services "$ECS_SERVICE" \
-                --region "$AWS_REGION" \
-                --query "services[0].runningCount" \
-                --output text \
-                --no-cli-pager \
-                2>/dev/null || echo "0"
-            )
-
-            if [[ "$RUNNING" == "None" ]]
-            then
-              RUNNING="0"
-            fi
-
-            echo ""
-            echo "Attempt: $ATTEMPT / 36"
-            echo "Running tasks: $RUNNING"
-
-            if [[ "$RUNNING" == "0" ]]
-            then
-
-              echo ""
-              echo "All ECS tasks have stopped."
-
-              exit 0
-
-            fi
-
-            sleep 10
-
-          done
-
-          echo ""
-          echo "WARNING:"
-          echo "ECS tasks did not reach zero within the expected time."
-
-          echo ""
-          echo "Terraform destroy will still be attempted."
-
-
-      # ==============================================================
-      # STEP 13
-      # DISCOVER ECR REPOSITORY
-      # ==============================================================
-
-      - name: "Step 13 - Discover ECR Repository"
-
-        id: ecr
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          echo "=========================================================="
-          echo "DISCOVER ECR REPOSITORY"
-          echo "=========================================================="
-
-          REPOSITORY=""
-
-          REPOSITORY=$(
-            aws ecr describe-repositories \
-              --repository-names "$ECR_REPOSITORY_NAME" \
-              --region "$AWS_REGION" \
-              --query "repositories[0].repositoryName" \
-              --output text \
-              --no-cli-pager \
-              2>/dev/null || true
-          )
-
-          if [[ "$REPOSITORY" == "None" ]]
-          then
-            REPOSITORY=""
-          fi
-
-          echo ""
-          echo "ECR Repository:"
-          echo "  ${REPOSITORY:-NOT_FOUND}"
-
-          echo "repository=$REPOSITORY" >> "$GITHUB_OUTPUT"
-
-          echo ""
-          echo "=========================================================="
-          echo "ECR DISCOVERY COMPLETE"
-          echo "=========================================================="
-
-
-      # ==============================================================
-      # STEP 14
-      # DELETE ALL ECR IMAGES
-      # ==============================================================
-      #
-      # This is performed before terraform destroy because ECR
-      # repositories can fail deletion when images remain.
-      #
-      # If the Terraform ECR resource uses:
-      #
-      #   force_delete = true
-      #
-      # Terraform may handle this automatically.
-      #
-      # This step is therefore a defensive cleanup.
-      #
-      # ==============================================================
-      # IMPORTANT:
-      #
-      # Terraform still removes the repository from its state.
-      #
-      # We are only emptying the repository first.
-      # ==============================================================
-
-      - name: "Step 14 - Delete All ECR Images"
-
-        if: steps.ecr.outputs.repository != ''
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          ECR_REPOSITORY="${{ steps.ecr.outputs.repository }}"
-
-          echo "=========================================================="
-          echo "DELETE ALL ECR IMAGES"
-          echo "=========================================================="
-
-          while true
-          do
-
-            IMAGE_IDS=$(
-              aws ecr list-images \
-                --repository-name "$ECR_REPOSITORY" \
-                --region "$AWS_REGION" \
-                --query "imageIds[*]" \
-                --output json \
-                --no-cli-pager
-            )
-
-            COUNT=$(echo "$IMAGE_IDS" | jq 'length')
-
-            echo ""
-            echo "Images remaining: $COUNT"
-
-            if [[ "$COUNT" -eq 0 ]]
-            then
-
-              echo ""
-              echo "ECR repository is empty."
-
-              break
-
-            fi
-
-            echo "$IMAGE_IDS" > /tmp/ecr-images.json
-
-            aws ecr batch-delete-image \
-              --repository-name "$ECR_REPOSITORY" \
-              --image-ids file:///tmp/ecr-images.json \
-              --region "$AWS_REGION" \
-              --no-cli-pager \
-              || true
-
-          done
-
-          echo ""
-          echo "=========================================================="
-          echo "ECR IMAGE CLEANUP COMPLETE"
-          echo "=========================================================="
-
-
-      # ==============================================================
-      # STEP 15
-      # DISCOVER EC2 INSTANCES
-      # ==============================================================
-      #
-      # We use Terraform state to identify EC2 instances where
-      # possible.
-      #
-      # We then use AWS SSM to clean Docker on those instances.
-      #
-      # The GitHub runner is NOT the EC2 Docker host.
-      #
-      # ==============================================================
-      #
-      # IMPORTANT:
-      #
-      # The following Terraform state addresses are common examples:
-      #
-      #   aws_instance.app
-      #   aws_instance.web
-      #   aws_instance.ec2
-      #
-      # The workflow therefore searches Terraform state output for
-      # aws_instance resources.
-      #
-      # ==============================================================
-
-      - name: "Step 15 - Discover EC2 Instances"
-
-        id: ec2
-
+      # ================================================================
+      # 9. TERRAFORM DESTROY PLAN
+      # ================================================================
+
+      - name: "9. Generate Terraform Destroy Plan"
         working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
-
         shell: bash
-
         run: |
-
-          set -euo pipefail
-
-          echo "=========================================================="
-          echo "DISCOVER TERRAFORM MANAGED EC2 INSTANCES"
-          echo "=========================================================="
-
-          INSTANCE_IDS=""
-
-          # ----------------------------------------------------------
-          # Get Terraform state addresses.
-          # ----------------------------------------------------------
-
-          STATE_LIST=$(terraform state list 2>/dev/null || true)
-
-          echo ""
-          echo "Terraform state resources:"
-          echo "$STATE_LIST"
-
-          # ----------------------------------------------------------
-          # Find aws_instance resources.
-          # ----------------------------------------------------------
-
-          while IFS= read -r RESOURCE
-          do
-
-            [[ -z "$RESOURCE" ]] && continue
-
-            if [[ "$RESOURCE" == aws_instance.* ]]
-            then
-
-              echo ""
-              echo "Terraform EC2 resource:"
-              echo "  $RESOURCE"
-
-              INSTANCE_ID=$(
-                terraform state show "$RESOURCE" 2>/dev/null \
-                  | awk -F' = ' '$1 == "id" {print $2; exit}' \
-                  | tr -d '"'
-              )
-
-              if [[ -n "$INSTANCE_ID" ]]
-              then
-
-                echo "EC2 Instance ID:"
-                echo "  $INSTANCE_ID"
-
-                INSTANCE_IDS="$INSTANCE_IDS $INSTANCE_ID"
-
-              fi
-
-            fi
-
-          done <<< "$STATE_LIST"
-
-          INSTANCE_IDS=$(echo "$INSTANCE_IDS" | xargs || true)
-
-          echo ""
-          echo "Discovered EC2 instances:"
-          echo "${INSTANCE_IDS:-NONE}"
-
-          echo "instances=$INSTANCE_IDS" >> "$GITHUB_OUTPUT"
-
-          echo ""
-          echo "=========================================================="
-          echo "EC2 DISCOVERY COMPLETE"
-          echo "=========================================================="
-
-
-      # ==============================================================
-      # STEP 16
-      # CLEAN DOCKER ON EC2 THROUGH SSM
-      # ==============================================================
-
-      - name: "Step 16 - Clean Docker Containers And Images On EC2"
-
-        if: steps.ec2.outputs.instances != ''
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          echo "=========================================================="
-          echo "DOCKER CLEANUP ON EC2"
-          echo "=========================================================="
-
-          INSTANCE_IDS="${{ steps.ec2.outputs.instances }}"
-
-          for INSTANCE_ID in $INSTANCE_IDS
-          do
-
-            [[ -z "$INSTANCE_ID" ]] && continue
-
-            echo ""
-            echo "----------------------------------------------------------"
-            echo "EC2 Instance: $INSTANCE_ID"
-            echo "----------------------------------------------------------"
-
-            # --------------------------------------------------------
-            # Verify SSM connectivity.
-            # --------------------------------------------------------
-
-            PING_STATUS=$(
-              aws ssm describe-instance-information \
-                --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
-                --region "$AWS_REGION" \
-                --query "InstanceInformationList[0].PingStatus" \
-                --output text \
-                --no-cli-pager \
-                2>/dev/null || echo "NOT_FOUND"
-            )
-
-            echo "SSM status: $PING_STATUS"
-
-            if [[ "$PING_STATUS" != "Online" ]]
-            then
-
-              echo ""
-              echo "WARNING:"
-              echo "EC2 instance is not SSM Online."
-
-              echo "Skipping Docker cleanup."
-
-              continue
-
-            fi
-
-            # --------------------------------------------------------
-            # Send Docker cleanup command.
-            # --------------------------------------------------------
-
-            COMMAND_ID=$(
-              aws ssm send-command \
-                --instance-ids "$INSTANCE_ID" \
-                --document-name "AWS-RunShellScript" \
-                --comment "Charlie Cafe Terraform Docker cleanup" \
-                --parameters 'commands=[
-                  "set +e",
-                  "echo === DOCKER CLEANUP START ===",
-                  "if command -v docker >/dev/null 2>&1; then",
-                  "  echo Docker detected.",
-                  "  echo Stopping containers...",
-                  "  docker stop $(docker ps -q) 2>/dev/null || true",
-                  "  echo Removing containers...",
-                  "  docker rm -f $(docker ps -aq) 2>/dev/null || true",
-                  "  echo Removing images...",
-                  "  docker image prune -af || true",
-                  "  echo Removing unused containers...",
-                  "  docker container prune -f || true",
-                  "  echo Removing volumes...",
-                  "  docker volume prune -f || true",
-                  "  echo Removing networks...",
-                  "  docker network prune -f || true",
-                  "  echo Removing build cache...",
-                  "  docker builder prune -af || true",
-                  "  echo === DOCKER CLEANUP COMPLETE ===",
-                  "else",
-                  "  echo Docker is not installed.",
-                  "fi"
-                ]' \
-                --region "$AWS_REGION" \
-                --query "Command.CommandId" \
-                --output text \
-                --no-cli-pager
-            )
-
-            echo ""
-            echo "SSM Command ID:"
-            echo "  $COMMAND_ID"
-
-            # --------------------------------------------------------
-            # Wait for SSM command.
-            # --------------------------------------------------------
-
-            for ATTEMPT in $(seq 1 30)
-            do
-
-              COMMAND_STATUS=$(
-                aws ssm get-command-invocation \
-                  --command-id "$COMMAND_ID" \
-                  --instance-id "$INSTANCE_ID" \
-                  --region "$AWS_REGION" \
-                  --query "Status" \
-                  --output text \
-                  --no-cli-pager \
-                  2>/dev/null || echo "Pending"
-              )
-
-              echo ""
-              echo "Attempt $ATTEMPT / 30"
-              echo "SSM status: $COMMAND_STATUS"
-
-              case "$COMMAND_STATUS" in
-
-                Success)
-
-                  echo ""
-                  echo "Docker cleanup succeeded."
-
-                  break
-
-                  ;;
-
-                Failed|Cancelled|TimedOut|Cancelling)
-
-                  echo ""
-                  echo "WARNING:"
-                  echo "Docker cleanup failed."
-
-                  break
-
-                  ;;
-
-                *)
-
-                  sleep 5
-
-                  ;;
-
-              esac
-
-            done
-
-          done
-
-          echo ""
-          echo "=========================================================="
-          echo "EC2 DOCKER CLEANUP COMPLETE"
-          echo "=========================================================="
-
-
-      # ==============================================================
-      # STEP 17
-      # DISCOVER RDS INSTANCES
-      # ==============================================================
-
-      - name: "Step 17 - Discover RDS Instances"
-
-        id: rds
-
-        working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          echo "=========================================================="
-          echo "DISCOVER TERRAFORM MANAGED RDS INSTANCES"
-          echo "=========================================================="
-
-          RDS_IDS=""
-
-          STATE_LIST=$(terraform state list 2>/dev/null || true)
-
-          while IFS= read -r RESOURCE
-          do
-
-            [[ -z "$RESOURCE" ]] && continue
-
-            if [[ "$RESOURCE" == aws_db_instance.* ]]
-            then
-
-              echo ""
-              echo "Terraform RDS resource:"
-              echo "  $RESOURCE"
-
-              DB_IDENTIFIER=$(
-                terraform state show "$RESOURCE" 2>/dev/null \
-                  | awk -F' = ' '$1 == "identifier" {print $2; exit}' \
-                  | tr -d '"'
-              )
-
-              if [[ -z "$DB_IDENTIFIER" ]]
-              then
-
-                DB_IDENTIFIER=$(
-                  terraform state show "$RESOURCE" 2>/dev/null \
-                    | awk -F' = ' '$1 == "id" {print $2; exit}' \
-                    | tr -d '"'
-                )
-
-              fi
-
-              if [[ -n "$DB_IDENTIFIER" ]]
-              then
-
-                echo "RDS identifier:"
-                echo "  $DB_IDENTIFIER"
-
-                RDS_IDS="$RDS_IDS $DB_IDENTIFIER"
-
-              fi
-
-            fi
-
-          done <<< "$STATE_LIST"
-
-          RDS_IDS=$(echo "$RDS_IDS" | xargs || true)
-
-          echo ""
-          echo "Discovered RDS instances:"
-          echo "${RDS_IDS:-NONE}"
-
-          echo "instances=$RDS_IDS" >> "$GITHUB_OUTPUT"
-
-          echo ""
-          echo "=========================================================="
-          echo "RDS DISCOVERY COMPLETE"
-          echo "=========================================================="
-
-
-      # ==============================================================
-      # STEP 18
-      # DISABLE RDS DELETION PROTECTION
-      # ==============================================================
-
-      - name: "Step 18 - Disable RDS Deletion Protection"
-
-        if: steps.rds.outputs.instances != ''
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          echo "=========================================================="
-          echo "RDS DELETION PROTECTION"
-          echo "=========================================================="
-
-          RDS_IDS="${{ steps.rds.outputs.instances }}"
-
-          for RDS_INSTANCE in $RDS_IDS
-          do
-
-            echo ""
-            echo "RDS instance:"
-            echo "  $RDS_INSTANCE"
-
-            PROTECTION=$(
-              aws rds describe-db-instances \
-                --db-instance-identifier "$RDS_INSTANCE" \
-                --region "$AWS_REGION" \
-                --query "DBInstances[0].DeletionProtection" \
-                --output text \
-                --no-cli-pager \
-                2>/dev/null || echo "NOT_FOUND"
-            )
-
-            echo "Deletion protection:"
-            echo "  $PROTECTION"
-
-            if [[ "$PROTECTION" == "True" ]]
-            then
-
-              echo ""
-              echo "Disabling RDS deletion protection..."
-
-              aws rds modify-db-instance \
-                --db-instance-identifier "$RDS_INSTANCE" \
-                --no-deletion-protection \
-                --apply-immediately \
-                --region "$AWS_REGION" \
-                --no-cli-pager
-
-              echo ""
-              echo "Deletion protection disabled."
-
-            else
-
-              echo ""
-              echo "Deletion protection already disabled."
-
-            fi
-
-          done
-
-          echo ""
-          echo "=========================================================="
-          echo "RDS DELETION PROTECTION CHECK COMPLETE"
-          echo "=========================================================="
-
-
-      # ==============================================================
-      # STEP 19
-      # DISCOVER TERRAFORM MANAGED S3 BUCKETS
-      # ==============================================================
-
-      - name: "Step 19 - Discover Terraform S3 Buckets"
-
-        id: s3
-
-        working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          echo "=========================================================="
-          echo "DISCOVER TERRAFORM MANAGED S3 BUCKETS"
-          echo "=========================================================="
-
-          BUCKETS=""
-
-          STATE_LIST=$(terraform state list 2>/dev/null || true)
-
-          while IFS= read -r RESOURCE
-          do
-
-            [[ -z "$RESOURCE" ]] && continue
-
-            if [[ "$RESOURCE" == aws_s3_bucket.* ]]
-            then
-
-              echo ""
-              echo "Terraform S3 resource:"
-              echo "  $RESOURCE"
-
-              BUCKET_NAME=$(
-                terraform state show "$RESOURCE" 2>/dev/null \
-                  | awk -F' = ' '$1 == "bucket" {print $2; exit}' \
-                  | tr -d '"'
-              )
-
-              if [[ -n "$BUCKET_NAME" ]]
-              then
-
-                echo "Bucket:"
-                echo "  $BUCKET_NAME"
-
-                BUCKETS="$BUCKETS $BUCKET_NAME"
-
-              fi
-
-            fi
-
-          done <<< "$STATE_LIST"
-
-          BUCKETS=$(echo "$BUCKETS" | xargs || true)
-
-          echo ""
-          echo "Discovered S3 buckets:"
-          echo "${BUCKETS:-NONE}"
-
-          echo "buckets=$BUCKETS" >> "$GITHUB_OUTPUT"
-
-          echo ""
-          echo "=========================================================="
-          echo "S3 DISCOVERY COMPLETE"
-          echo "=========================================================="
-
-
-      # ==============================================================
-      # STEP 20
-      # EMPTY VERSIONED S3 BUCKETS
-      # ==============================================================
-      #
-      # Terraform may destroy an S3 bucket only after its contents
-      # are removed.
-      #
-      # This step handles:
-      #
-      #   - normal objects
-      #   - object versions
-      #   - delete markers
-      #
-      # ==============================================================
-      #
-      # This is especially important when versioning is enabled.
-      # ==============================================================
-
-      - name: "Step 20 - Empty Terraform S3 Buckets"
-
-        if: steps.s3.outputs.buckets != ''
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          echo "=========================================================="
-          echo "EMPTY TERRAFORM S3 BUCKETS"
-          echo "=========================================================="
-
-          BUCKETS="${{ steps.s3.outputs.buckets }}"
-
-          for BUCKET in $BUCKETS
-          do
-
-            echo ""
-            echo "----------------------------------------------------------"
-            echo "Bucket: $BUCKET"
-            echo "----------------------------------------------------------"
-
-            # --------------------------------------------------------
-            # Check whether the bucket still exists.
-            # --------------------------------------------------------
-
-            if ! aws s3api head-bucket \
-              --bucket "$BUCKET" \
-              2>/dev/null
-            then
-
-              echo "Bucket does not exist."
-
-              continue
-
-            fi
-
-            # --------------------------------------------------------
-            # Continue until all versions and delete markers are gone.
-            # --------------------------------------------------------
-
-            while true
-            do
-
-              DATA=$(
-                aws s3api list-object-versions \
-                  --bucket "$BUCKET" \
-                  --region "$AWS_REGION" \
-                  --output json \
-                  --no-cli-pager
-              )
-
-              VERSION_COUNT=$(
-                echo "$DATA" |
-                  jq '(.Versions // []) | length'
-              )
-
-              MARKER_COUNT=$(
-                echo "$DATA" |
-                  jq '(.DeleteMarkers // []) | length'
-              )
-
-              TOTAL=$((VERSION_COUNT + MARKER_COUNT))
-
-              echo ""
-              echo "Versions       : $VERSION_COUNT"
-              echo "Delete markers : $MARKER_COUNT"
-              echo "Total          : $TOTAL"
-
-              if [[ "$TOTAL" -eq 0 ]]
-              then
-
-                echo ""
-                echo "S3 bucket is empty."
-
-                break
-
-              fi
-
-              echo "$DATA" |
-                jq '{
-                  Objects:
-                    (
-                      ((.Versions // []) + (.DeleteMarkers // []))
-                      | map({
-                          Key: .Key,
-                          VersionId: .VersionId
-                        })
-                      | .[0:1000]
-                    ),
-                  Quiet: true
-                }' \
-                > /tmp/s3-delete.json
-
-              aws s3api delete-objects \
-                --bucket "$BUCKET" \
-                --delete file:///tmp/s3-delete.json \
-                --region "$AWS_REGION" \
-                --no-cli-pager
-
-            done
-
-          done
-
-          echo ""
-          echo "=========================================================="
-          echo "S3 BUCKET CLEANUP COMPLETE"
-          echo "=========================================================="
-
-
-      # ==============================================================
-      # STEP 21
-      # TERRAFORM DESTROY PLAN
-      # ==============================================================
-      #
-      # IMPORTANT:
-      #
-      # This is a destructive plan preview.
-      #
-      # Terraform will show what it intends to destroy.
-      #
-      # Nothing is destroyed by this step.
-      #
-      # HashiCorp documents:
-      #
-      #   terraform plan -destroy
-      #
-      # as a way to preview infrastructure destruction.
-      #
-      # ==============================================================
-
-      - name: "Step 21 - Terraform Destroy Plan"
-
-        working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
-
-        shell: bash
-
-        run: |
-
           set -euo pipefail
 
           echo "=========================================================="
@@ -1520,44 +332,355 @@ jobs:
             -no-color
 
           echo ""
-          echo "=========================================================="
-          echo "TERRAFORM DESTROY PLAN COMPLETE"
-          echo "=========================================================="
+          echo "Destroy plan generated successfully."
 
+      # ================================================================
+      # 10. DISCOVER ECS
+      # ================================================================
 
-      # ==============================================================
-      # STEP 22
-      # TERRAFORM DESTROY
-      # ==============================================================
-      #
-      # This is the PRIMARY infrastructure deletion step.
-      #
-      # Terraform destroys resources managed by the current
-      # configuration/state.
-      #
-      # ==============================================================
-      #
-      # We use:
-      #
-      #   terraform destroy -auto-approve
-      #
-      # because GitHub Actions cannot interactively answer "yes".
-      #
-      # ==============================================================
-
-      - name: "Step 22 - Terraform Destroy"
-
-        id: terraform_destroy
-
-        working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
-
+      - name: "10. Discover ECS Resources"
+        id: ecs
         shell: bash
-
-        continue-on-error: true
-
         run: |
+          set -euo pipefail
 
-          set -o pipefail
+          echo "=========================================================="
+          echo "DISCOVER ECS RESOURCES"
+          echo "=========================================================="
+
+          CLUSTER_ARN=""
+
+          CLUSTER_ARN=$(
+            aws ecs describe-clusters \
+              --clusters "$ECS_CLUSTER_NAME" \
+              --region "$AWS_REGION" \
+              --query "clusters[0].clusterArn" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )
+
+          if [[ "$CLUSTER_ARN" == "None" ]]; then
+            CLUSTER_ARN=""
+          fi
+
+          echo ""
+          echo "Cluster:"
+          echo "${CLUSTER_ARN:-NOT_FOUND}"
+
+          SERVICE_NAME=""
+
+          if [[ -n "$CLUSTER_ARN" ]]; then
+
+            SERVICE_STATUS=$(
+              aws ecs describe-services \
+                --cluster "$CLUSTER_ARN" \
+                --services "$ECS_SERVICE_NAME" \
+                --region "$AWS_REGION" \
+                --query "services[0].status" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )
+
+            if [[ "$SERVICE_STATUS" != "None" && -n "$SERVICE_STATUS" ]]; then
+              SERVICE_NAME="$ECS_SERVICE_NAME"
+            fi
+
+          fi
+
+          echo ""
+          echo "Service:"
+          echo "${SERVICE_NAME:-NOT_FOUND}"
+
+          echo "cluster=$CLUSTER_ARN" >> "$GITHUB_OUTPUT"
+          echo "service=$SERVICE_NAME" >> "$GITHUB_OUTPUT"
+
+      # ================================================================
+      # 11. STOP ECS SERVICE
+      # ================================================================
+
+      - name: "11. Stop ECS Service"
+        if: steps.ecs.outputs.cluster != '' && steps.ecs.outputs.service != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=========================================================="
+          echo "STOP ECS SERVICE"
+          echo "=========================================================="
+
+          aws ecs update-service \
+            --cluster "${{ steps.ecs.outputs.cluster }}" \
+            --service "${{ steps.ecs.outputs.service }}" \
+            --desired-count 0 \
+            --region "$AWS_REGION" \
+            --no-cli-pager
+
+          echo ""
+          echo "ECS desired count set to zero."
+
+      # ================================================================
+      # 12. WAIT FOR ECS TASKS
+      # ================================================================
+
+      - name: "12. Wait For ECS Tasks"
+        if: steps.ecs.outputs.cluster != '' && steps.ecs.outputs.service != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=========================================================="
+          echo "WAIT FOR ECS TASKS"
+          echo "=========================================================="
+
+          for ATTEMPT in $(seq 1 36); do
+
+            RUNNING=$(
+              aws ecs describe-services \
+                --cluster "${{ steps.ecs.outputs.cluster }}" \
+                --services "${{ steps.ecs.outputs.service }}" \
+                --region "$AWS_REGION" \
+                --query "services[0].runningCount" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || echo "0"
+            )
+
+            [[ "$RUNNING" == "None" ]] && RUNNING="0"
+
+            echo "Attempt $ATTEMPT / 36"
+            echo "Running tasks: $RUNNING"
+
+            if [[ "$RUNNING" == "0" ]]; then
+              echo ""
+              echo "All ECS tasks have stopped."
+              exit 0
+            fi
+
+            sleep 10
+
+          done
+
+          echo ""
+          echo "ERROR: ECS tasks did not stop."
+          exit 1
+
+      # ================================================================
+      # 13. DISCOVER ECR
+      # ================================================================
+
+      - name: "13. Discover ECR Repository"
+        id: ecr
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          REPOSITORY=$(
+            aws ecr describe-repositories \
+              --repository-names "$ECR_REPOSITORY_NAME" \
+              --region "$AWS_REGION" \
+              --query "repositories[0].repositoryName" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )
+
+          [[ "$REPOSITORY" == "None" ]] && REPOSITORY=""
+
+          echo ""
+          echo "ECR Repository:"
+          echo "${REPOSITORY:-NOT_FOUND}"
+
+          echo "repository=$REPOSITORY" >> "$GITHUB_OUTPUT"
+
+      # ================================================================
+      # 14. DELETE ECR REPOSITORY
+      # ================================================================
+
+      - name: "14. Delete ECR Repository"
+        if: steps.ecr.outputs.repository != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=========================================================="
+          echo "DELETE ECR REPOSITORY"
+          echo "=========================================================="
+
+          aws ecr delete-repository \
+            --repository-name "${{ steps.ecr.outputs.repository }}" \
+            --force \
+            --region "$AWS_REGION" \
+            --no-cli-pager
+
+          echo ""
+          echo "ECR repository deletion requested."
+
+      # ================================================================
+      # 15. DISABLE RDS DELETION PROTECTION
+      # ================================================================
+
+      - name: "15. Disable RDS Deletion Protection"
+        working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=========================================================="
+          echo "RDS DELETION PROTECTION CHECK"
+          echo "=========================================================="
+
+          STATE_LIST="$(terraform state list)"
+
+          while IFS= read -r RESOURCE; do
+
+            [[ -z "$RESOURCE" ]] && continue
+
+            if [[ "$RESOURCE" == aws_db_instance.* ]]; then
+
+              DB_IDENTIFIER=$(
+                terraform state show "$RESOURCE" 2>/dev/null |
+                awk -F' = ' '$1 == "identifier" {print $2; exit}' |
+                tr -d '"'
+              )
+
+              if [[ -z "$DB_IDENTIFIER" ]]; then
+                continue
+              fi
+
+              PROTECTION=$(
+                aws rds describe-db-instances \
+                  --db-instance-identifier "$DB_IDENTIFIER" \
+                  --region "$AWS_REGION" \
+                  --query "DBInstances[0].DeletionProtection" \
+                  --output text \
+                  --no-cli-pager \
+                  2>/dev/null || echo "NOT_FOUND"
+              )
+
+              echo ""
+              echo "RDS: $DB_IDENTIFIER"
+              echo "Deletion protection: $PROTECTION"
+
+              if [[ "$PROTECTION" == "True" ]]; then
+
+                aws rds modify-db-instance \
+                  --db-instance-identifier "$DB_IDENTIFIER" \
+                  --no-deletion-protection \
+                  --apply-immediately \
+                  --region "$AWS_REGION" \
+                  --no-cli-pager
+
+                echo "Deletion protection disabled."
+
+              fi
+
+            fi
+
+          done <<< "$STATE_LIST"
+
+      # ================================================================
+      # 16. EMPTY S3 BUCKETS
+      # ================================================================
+
+      - name: "16. Empty Terraform S3 Buckets"
+        working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=========================================================="
+          echo "EMPTY TERRAFORM S3 BUCKETS"
+          echo "=========================================================="
+
+          STATE_LIST="$(terraform state list)"
+
+          while IFS= read -r RESOURCE; do
+
+            [[ -z "$RESOURCE" ]] && continue
+
+            if [[ "$RESOURCE" == aws_s3_bucket.* ]]; then
+
+              BUCKET=$(
+                terraform state show "$RESOURCE" 2>/dev/null |
+                awk -F' = ' '$1 == "bucket" {print $2; exit}' |
+                tr -d '"'
+              )
+
+              if [[ -z "$BUCKET" ]]; then
+                continue
+              fi
+
+              echo ""
+              echo "Bucket: $BUCKET"
+
+              aws s3api head-bucket \
+                --bucket "$BUCKET" \
+                2>/dev/null || continue
+
+              aws s3 rm \
+                "s3://$BUCKET" \
+                --recursive \
+                --region "$AWS_REGION"
+
+              while true; do
+
+                DATA=$(
+                  aws s3api list-object-versions \
+                    --bucket "$BUCKET" \
+                    --region "$AWS_REGION" \
+                    --output json \
+                    --no-cli-pager
+                )
+
+                TOTAL=$(
+                  echo "$DATA" |
+                  jq '((.Versions // []) + (.DeleteMarkers // [])) | length'
+                )
+
+                if [[ "$TOTAL" -eq 0 ]]; then
+                  break
+                fi
+
+                echo "$DATA" |
+                  jq '{
+                    Objects:
+                    (
+                      ((.Versions // []) + (.DeleteMarkers // []))
+                      | map({
+                          Key: .Key,
+                          VersionId: .VersionId
+                        })
+                      | .[0:1000]
+                    ),
+                    Quiet: true
+                  }' > /tmp/s3-delete.json
+
+                aws s3api delete-objects \
+                  --bucket "$BUCKET" \
+                  --delete file:///tmp/s3-delete.json \
+                  --region "$AWS_REGION" \
+                  --no-cli-pager
+
+              done
+
+              echo "S3 bucket is empty."
+
+            fi
+
+          done <<< "$STATE_LIST"
+
+      # ================================================================
+      # 17. TERRAFORM DESTROY
+      # ================================================================
+
+      - name: "17. Execute Terraform Destroy"
+        id: destroy
+        working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
+        shell: bash
+        run: |
+          set +e
 
           echo "=========================================================="
           echo "TERRAFORM DESTROY"
@@ -1575,382 +698,67 @@ jobs:
 
           echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
 
-          exit "$EXIT_CODE"
+          exit 0
 
+      # ================================================================
+      # 18. FINAL TERRAFORM STATE
+      # ================================================================
 
-      # ==============================================================
-      # STEP 23
-      # CHECK WHETHER TERRAFORM DESTROY FAILED
-      # ==============================================================
-
-      - name: "Step 23 - Analyze Terraform Destroy Result"
-
+      - name: "18. Verify Final Terraform State"
+        id: terraform_verify
         if: always()
-
-        shell: bash
-
-        run: |
-
-          echo "=========================================================="
-          echo "TERRAFORM DESTROY RESULT"
-          echo "=========================================================="
-
-          DESTROY_EXIT="${{ steps.terraform_destroy.outputs.exit_code }}"
-
-          echo ""
-          echo "Terraform destroy exit code:"
-          echo "  ${DESTROY_EXIT:-UNKNOWN}"
-
-          if [[ "${DESTROY_EXIT:-1}" == "0" ]]
-          then
-
-            echo ""
-            echo "Terraform destroy completed successfully."
-
-          else
-
-            echo ""
-            echo "WARNING:"
-            echo "Terraform destroy reported an error."
-
-            echo ""
-            echo "Additional cleanup will be attempted."
-
-          fi
-
-
-      # ==============================================================
-      # STEP 24
-      # RETRY ECS CLEANUP
-      # ==============================================================
-      #
-      # This step is only a defensive cleanup.
-      #
-      # Terraform remains responsible for deleting the ECS resources.
-      #
-      # ==============================================================
-
-      - name: "Step 24 - Retry ECS Cleanup"
-
-        if: |
-          steps.terraform_destroy.outputs.exit_code != '0'
-
-        shell: bash
-
-        run: |
-
-          set +e
-
-          echo "=========================================================="
-          echo "RETRY ECS CLEANUP"
-          echo "=========================================================="
-
-          ECS_CLUSTER="${{ steps.ecs.outputs.cluster }}"
-          ECS_SERVICE="${{ steps.ecs.outputs.service }}"
-
-          if [[ -z "$ECS_CLUSTER" || -z "$ECS_SERVICE" ]]
-          then
-
-            echo "No ECS service information available."
-
-            exit 0
-
-          fi
-
-          echo ""
-          echo "Cluster:"
-          echo "  $ECS_CLUSTER"
-
-          echo ""
-          echo "Service:"
-          echo "  $ECS_SERVICE"
-
-          aws ecs update-service \
-            --cluster "$ECS_CLUSTER" \
-            --service "$ECS_SERVICE" \
-            --desired-count 0 \
-            --region "$AWS_REGION" \
-            --no-cli-pager
-
-          echo ""
-          echo "ECS desired count set to zero."
-
-          sleep 20
-
-          echo ""
-          echo "=========================================================="
-          echo "ECS RETRY COMPLETE"
-          echo "=========================================================="
-
-
-      # ==============================================================
-      # STEP 25
-      # RETRY ALB CLEANUP
-      # ==============================================================
-      #
-      # This is a defensive dependency cleanup.
-      #
-      # We do NOT use CloudFormation.
-      #
-      # If an ALB is still present and Terraform's first destroy
-      # failed, we attempt to remove it directly.
-      #
-      # ==============================================================
-      #
-      # IMPORTANT:
-      #
-      # Terraform state may still contain this ALB.
-      #
-      # If we delete it manually, Terraform's next destroy will
-      # detect that the resource no longer exists and reconcile
-      # the state.
-      #
-      # ==============================================================
-
-      - name: "Step 25 - Retry ALB Cleanup"
-
-        if: |
-          steps.terraform_destroy.outputs.exit_code != '0'
-
-        shell: bash
-
-        run: |
-
-          set +e
-
-          echo "=========================================================="
-          echo "RETRY ALB CLEANUP"
-          echo "=========================================================="
-
-          ALB_ARN=""
-
-          # ----------------------------------------------------------
-          # Search Terraform state for ALB resources.
-          # ----------------------------------------------------------
-
-          cd "$TERRAFORM_WORKING_DIRECTORY"
-
-          STATE_LIST=$(terraform state list 2>/dev/null || true)
-
-          while IFS= read -r RESOURCE
-          do
-
-            [[ -z "$RESOURCE" ]] && continue
-
-            if [[ "$RESOURCE" == aws_lb.* ]]
-            then
-
-              echo ""
-              echo "Terraform ALB resource:"
-              echo "  $RESOURCE"
-
-              ALB_ARN=$(
-                terraform state show "$RESOURCE" 2>/dev/null \
-                  | awk -F' = ' '$1 == "arn" {print $2; exit}' \
-                  | tr -d '"'
-              )
-
-              if [[ -n "$ALB_ARN" ]]
-              then
-                break
-              fi
-
-            fi
-
-          done <<< "$STATE_LIST"
-
-          echo ""
-          echo "ALB ARN:"
-          echo "  ${ALB_ARN:-NOT_FOUND}"
-
-          if [[ -n "$ALB_ARN" ]]
-          then
-
-            aws elbv2 delete-load-balancer \
-              --load-balancer-arn "$ALB_ARN" \
-              --region "$AWS_REGION" \
-              --no-cli-pager \
-              || true
-
-            echo ""
-            echo "ALB deletion request sent."
-
-          else
-
-            echo ""
-            echo "No Terraform-managed ALB found."
-
-          fi
-
-
-      # ==============================================================
-      # STEP 26
-      # RETRY TARGET GROUP CLEANUP
-      # ==============================================================
-
-      - name: "Step 26 - Retry Target Group Cleanup"
-
-        if: |
-          steps.terraform_destroy.outputs.exit_code != '0'
-
-        shell: bash
-
-        run: |
-
-          set +e
-
-          echo "=========================================================="
-          echo "RETRY TARGET GROUP CLEANUP"
-          echo "=========================================================="
-
-          cd "$TERRAFORM_WORKING_DIRECTORY"
-
-          STATE_LIST=$(terraform state list 2>/dev/null || true)
-
-          while IFS= read -r RESOURCE
-          do
-
-            [[ -z "$RESOURCE" ]] && continue
-
-            if [[ "$RESOURCE" == aws_lb_target_group.* ]]
-            then
-
-              echo ""
-              echo "Terraform Target Group resource:"
-              echo "  $RESOURCE"
-
-              TARGET_GROUP_ARN=$(
-                terraform state show "$RESOURCE" 2>/dev/null \
-                  | awk -F' = ' '$1 == "arn" {print $2; exit}' \
-                  | tr -d '"'
-              )
-
-              if [[ -n "$TARGET_GROUP_ARN" ]]
-              then
-
-                echo "Target Group ARN:"
-                echo "  $TARGET_GROUP_ARN"
-
-                aws elbv2 delete-target-group \
-                  --target-group-arn "$TARGET_GROUP_ARN" \
-                  --region "$AWS_REGION" \
-                  --no-cli-pager \
-                  || true
-
-              fi
-
-            fi
-
-          done <<< "$STATE_LIST"
-
-          echo ""
-          echo "=========================================================="
-          echo "TARGET GROUP RETRY COMPLETE"
-          echo "=========================================================="
-
-
-      # ==============================================================
-      # STEP 27
-      # SECOND TERRAFORM DESTROY
-      # ==============================================================
-      #
-      # After ECS/ALB/Target Group cleanup, Terraform gets another
-      # opportunity to reconcile and destroy the remaining resources.
-      #
-      # ==============================================================
-
-      - name: "Step 27 - Retry Terraform Destroy"
-
-        id: terraform_destroy_retry
-
-        if: |
-          steps.terraform_destroy.outputs.exit_code != '0'
-
         working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
-
         shell: bash
-
-        continue-on-error: true
-
         run: |
-
-          set -o pipefail
-
-          echo "=========================================================="
-          echo "RETRY TERRAFORM DESTROY"
-          echo "=========================================================="
-
-          terraform destroy \
-            -auto-approve \
-            -input=false \
-            -no-color
-
-          EXIT_CODE=$?
-
-          echo ""
-          echo "Terraform retry exit code: $EXIT_CODE"
-
-          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
-
-          exit "$EXIT_CODE"
-
-
-      # ==============================================================
-      # STEP 28
-      # FINAL TERRAFORM STATE CHECK
-      # ==============================================================
-
-      - name: "Step 28 - Final Terraform State Check"
-
-        if: always()
-
-        working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
-
-        shell: bash
-
-        run: |
-
           set +e
 
           echo "=========================================================="
-          echo "FINAL TERRAFORM STATE CHECK"
+          echo "FINAL TERRAFORM STATE VERIFICATION"
           echo "=========================================================="
 
-          echo ""
-          echo "Remaining Terraform resources:"
-          terraform state list
+          STATE_OUTPUT="$(terraform state list 2>/dev/null)"
+          STATE_EXIT=$?
 
           echo ""
           echo "Terraform state:"
-          terraform show -no-color
 
-          echo ""
-          echo "=========================================================="
-          echo "FINAL TERRAFORM STATE CHECK COMPLETE"
-          echo "=========================================================="
+          if [[ -n "$STATE_OUTPUT" ]]; then
+            echo "$STATE_OUTPUT"
+          else
+            echo "EMPTY"
+          fi
 
+          if [[ $STATE_EXIT -ne 0 ]]; then
+            echo ""
+            echo "ERROR: Unable to read Terraform state."
+            echo "state_empty=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
-      # ==============================================================
-      # STEP 29
-      # VERIFY ECS
-      # ==============================================================
+          if [[ -z "$STATE_OUTPUT" ]]; then
+            echo ""
+            echo "Terraform state is EMPTY."
+            echo "state_empty=true" >> "$GITHUB_OUTPUT"
+          else
+            echo ""
+            echo "ERROR: Terraform still contains resources."
+            echo "state_empty=false" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: "Step 29 - Verify ECS"
+      # ================================================================
+      # 19. VERIFY ECS
+      # ================================================================
 
+      - name: "19. Verify ECS Is Deleted"
+        id: verify_ecs
         if: always()
-
         shell: bash
-
         run: |
-
           set +e
 
           echo "=========================================================="
-          echo "FINAL ECS VERIFICATION"
+          echo "VERIFY ECS DELETION"
           echo "=========================================================="
-
-          echo ""
-          echo "Searching for Charlie Cafe ECS cluster..."
 
           CLUSTER_STATUS=$(
             aws ecs describe-clusters \
@@ -1962,51 +770,32 @@ jobs:
               2>/dev/null
           )
 
-          if [[ -z "$CLUSTER_STATUS" || "$CLUSTER_STATUS" == "None" ]]
-          then
-
-            echo ""
-            echo "Charlie Cafe ECS cluster is not present."
-
+          if [[ -z "$CLUSTER_STATUS" || "$CLUSTER_STATUS" == "None" ]]; then
+            echo "ECS cluster does not exist."
+            echo "deleted=true" >> "$GITHUB_OUTPUT"
           else
-
             echo ""
-            echo "WARNING:"
-            echo "Charlie Cafe ECS cluster still exists."
-
-            echo "Status:"
-            echo "  $CLUSTER_STATUS"
-
+            echo "ERROR: ECS cluster still exists."
+            echo "Status: $CLUSTER_STATUS"
+            echo "deleted=false" >> "$GITHUB_OUTPUT"
           fi
 
-          echo ""
-          echo "All ECS clusters currently visible:"
-          aws ecs list-clusters \
-            --region "$AWS_REGION" \
-            --output table \
-            --no-cli-pager
+      # ================================================================
+      # 20. VERIFY ECR
+      # ================================================================
 
-
-      # ==============================================================
-      # STEP 30
-      # VERIFY ECR
-      # ==============================================================
-
-      - name: "Step 30 - Verify ECR"
-
+      - name: "20. Verify ECR Is Deleted"
+        id: verify_ecr
         if: always()
-
         shell: bash
-
         run: |
-
           set +e
 
           echo "=========================================================="
-          echo "FINAL ECR VERIFICATION"
+          echo "VERIFY ECR DELETION"
           echo "=========================================================="
 
-          REPOSITORY_STATUS=$(
+          REPOSITORY=$(
             aws ecr describe-repositories \
               --repository-names "$ECR_REPOSITORY_NAME" \
               --region "$AWS_REGION" \
@@ -2016,184 +805,26 @@ jobs:
               2>/dev/null
           )
 
-          if [[ -z "$REPOSITORY_STATUS" || "$REPOSITORY_STATUS" == "None" ]]
-          then
-
-            echo ""
-            echo "ECR repository '$ECR_REPOSITORY_NAME' does not exist."
-
+          if [[ -z "$REPOSITORY" || "$REPOSITORY" == "None" ]]; then
+            echo "ECR repository does not exist."
+            echo "deleted=true" >> "$GITHUB_OUTPUT"
           else
-
             echo ""
-            echo "WARNING:"
-            echo "ECR repository still exists."
-
-            echo ""
-            echo "Repository:"
-            echo "  $REPOSITORY_STATUS"
-
+            echo "ERROR: ECR repository still exists."
+            echo "Repository: $REPOSITORY"
+            echo "deleted=false" >> "$GITHUB_OUTPUT"
           fi
 
-          echo ""
-          echo "Current ECR repositories:"
-          aws ecr describe-repositories \
-            --region "$AWS_REGION" \
-            --query "repositories[].[repositoryName,repositoryUri]" \
-            --output table \
-            --no-cli-pager
+      # ================================================================
+      # 21. FINAL TERRAFORM DESTROY PLAN
+      # ================================================================
 
-
-      # ==============================================================
-      # STEP 31
-      # VERIFY S3
-      # ==============================================================
-
-      - name: "Step 31 - Verify S3"
-
+      - name: "21. Final Terraform Destroy Plan"
+        id: final_plan
         if: always()
-
-        shell: bash
-
-        run: |
-
-          set +e
-
-          echo "=========================================================="
-          echo "FINAL S3 VERIFICATION"
-          echo "=========================================================="
-
-          BUCKETS="${{ steps.s3.outputs.buckets }}"
-
-          if [[ -z "$BUCKETS" ]]
-          then
-
-            echo ""
-            echo "No Terraform-managed S3 buckets were discovered."
-
-            exit 0
-
-          fi
-
-          for BUCKET in $BUCKETS
-          do
-
-            echo ""
-            echo "Checking bucket:"
-            echo "  $BUCKET"
-
-            if aws s3api head-bucket \
-              --bucket "$BUCKET" \
-              2>/dev/null
-            then
-
-              echo ""
-              echo "WARNING:"
-              echo "S3 bucket still exists."
-
-            else
-
-              echo ""
-              echo "S3 bucket deleted."
-
-            fi
-
-          done
-
-
-      # ==============================================================
-      # STEP 32
-      # VERIFY EC2
-      # ==============================================================
-
-      - name: "Step 32 - Verify EC2"
-
-        if: always()
-
-        shell: bash
-
-        run: |
-
-          set +e
-
-          echo "=========================================================="
-          echo "FINAL EC2 VERIFICATION"
-          echo "=========================================================="
-
-          INSTANCE_IDS="${{ steps.ec2.outputs.instances }}"
-
-          if [[ -z "$INSTANCE_IDS" ]]
-          then
-
-            echo ""
-            echo "No Terraform-managed EC2 instances were discovered."
-
-            exit 0
-
-          fi
-
-          for INSTANCE_ID in $INSTANCE_IDS
-          do
-
-            echo ""
-            echo "Checking EC2 instance:"
-            echo "  $INSTANCE_ID"
-
-            INSTANCE_STATE=$(
-              aws ec2 describe-instances \
-                --instance-ids "$INSTANCE_ID" \
-                --region "$AWS_REGION" \
-                --query "Reservations[0].Instances[0].State.Name" \
-                --output text \
-                --no-cli-pager \
-                2>/dev/null
-            )
-
-            if [[ -z "$INSTANCE_STATE" || "$INSTANCE_STATE" == "None" ]]
-            then
-
-              echo "EC2 instance no longer exists."
-
-            else
-
-              echo "WARNING:"
-              echo "EC2 instance still exists."
-
-              echo "State:"
-              echo "  $INSTANCE_STATE"
-
-            fi
-
-          done
-
-
-      # ==============================================================
-      # STEP 33
-      # FINAL TERRAFORM DESTROY PLAN
-      # ==============================================================
-      #
-      # This is an excellent final verification.
-      #
-      # If Terraform still has resources requiring destruction,
-      # the plan will show them.
-      #
-      # Ideally the result should be:
-      #
-      #   No changes.
-      #
-      # or no resources remaining in state.
-      #
-      # ==============================================================
-
-      - name: "Step 33 - Final Terraform Destroy Plan"
-
-        if: always()
-
         working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
-
         shell: bash
-
         run: |
-
           set +e
 
           echo "=========================================================="
@@ -2208,163 +839,87 @@ jobs:
           PLAN_EXIT=$?
 
           echo ""
-          echo "Final destroy plan exit code:"
-          echo "  $PLAN_EXIT"
+          echo "Final Terraform destroy plan exit code:"
+          echo "$PLAN_EXIT"
 
+          echo "plan_exit=$PLAN_EXIT" >> "$GITHUB_OUTPUT"
 
-      # ==============================================================
-      # STEP 34
-      # FINAL TERRAFORM STATE LIST
-      # ==============================================================
+      # ================================================================
+      # 22. FINAL SUCCESS / FAILURE GATE
+      # ================================================================
 
-      - name: "Step 34 - Final Terraform State List"
-
+      - name: "22. Final Cleanup Verification"
         if: always()
-
-        working-directory: ${{ env.TERRAFORM_WORKING_DIRECTORY }}
-
         shell: bash
-
-        run: |
-
-          set +e
-
-          echo "=========================================================="
-          echo "FINAL TERRAFORM STATE LIST"
-          echo "=========================================================="
-
-          terraform state list
-
-          echo ""
-          echo "If no resources are listed, Terraform state is empty."
-
-          echo ""
-          echo "=========================================================="
-          echo "FINAL TERRAFORM STATE LIST COMPLETE"
-          echo "=========================================================="
-
-
-      # ==============================================================
-      # STEP 35
-      # FINAL CLEANUP SUMMARY
-      # ==============================================================
-
-      - name: "Step 35 - Final Cleanup Summary"
-
-        if: always()
-
-        shell: bash
-
         run: |
 
           echo ""
-
           echo "================================================================"
-          echo "              CHARLIE CAFE TERRAFORM CLEANUP"
-          echo "                         SUMMARY"
-          echo "================================================================"
-
-          echo ""
-
-          echo "AWS Region:"
-          echo "  $AWS_REGION"
-
-          echo ""
-
-          echo "Terraform Directory:"
-          echo "  $TERRAFORM_WORKING_DIRECTORY"
-
-          echo ""
-
-          echo "Terraform Version:"
-          terraform version | head -n 1
-
-          echo ""
-
-          echo "ECS Cluster:"
-          echo "  $ECS_CLUSTER_NAME"
-
-          echo ""
-
-          echo "ECS Service:"
-          echo "  $ECS_SERVICE_NAME"
-
-          echo ""
-
-          echo "ECR Repository:"
-          echo "  $ECR_REPOSITORY_NAME"
-
-          echo ""
-
-          echo "================================================================"
-          echo "                     CLEANUP ORDER"
+          echo "              CHARLIE CAFE AWS CLEANUP"
+          echo "                 FINAL VERIFICATION"
           echo "================================================================"
 
-          echo ""
-
-          echo "  1. Checkout repository"
-          echo "  2. Configure AWS credentials"
-          echo "  3. Verify AWS account"
-          echo "  4. Install Terraform"
-          echo "  5. Initialize Terraform"
-          echo "  6. Validate Terraform"
-          echo "  7. Display Terraform state"
-          echo "  8. Discover ECS resources"
-          echo "  9. Stop ECS service"
-          echo " 10. Wait for ECS tasks"
-          echo " 11. Discover ECR repository"
-          echo " 12. Delete ECR images"
-          echo " 13. Discover Terraform EC2 resources"
-          echo " 14. Clean Docker containers"
-          echo " 15. Clean Docker images"
-          echo " 16. Clean Docker volumes"
-          echo " 17. Clean Docker networks"
-          echo " 18. Discover Terraform RDS resources"
-          echo " 19. Disable RDS deletion protection"
-          echo " 20. Discover Terraform S3 resources"
-          echo " 21. Empty versioned S3 buckets"
-          echo " 22. Generate Terraform destroy plan"
-          echo " 23. Execute terraform destroy"
-          echo " 24. Retry ECS cleanup if required"
-          echo " 25. Retry ALB cleanup if required"
-          echo " 26. Retry Target Group cleanup if required"
-          echo " 27. Retry terraform destroy"
-          echo " 28. Verify Terraform state"
-          echo " 29. Verify ECS"
-          echo " 30. Verify ECR"
-          echo " 31. Verify S3"
-          echo " 32. Verify EC2"
-          echo " 33. Generate final Terraform destroy plan"
-          echo " 34. Display final Terraform state"
-          echo " 35. Print final cleanup summary"
+          DESTROY_EXIT="${{ steps.destroy.outputs.exit_code }}"
+          STATE_EMPTY="${{ steps.terraform_verify.outputs.state_empty }}"
+          ECS_DELETED="${{ steps.verify_ecs.outputs.deleted }}"
+          ECR_DELETED="${{ steps.verify_ecr.outputs.deleted }}"
+          PLAN_EXIT="${{ steps.final_plan.outputs.plan_exit }}"
 
           echo ""
+          echo "Terraform destroy exit code : ${DESTROY_EXIT:-UNKNOWN}"
+          echo "Terraform state empty       : ${STATE_EMPTY:-UNKNOWN}"
+          echo "ECS deleted                 : ${ECS_DELETED:-UNKNOWN}"
+          echo "ECR deleted                 : ${ECR_DELETED:-UNKNOWN}"
+          echo "Final destroy plan exit     : ${PLAN_EXIT:-UNKNOWN}"
 
+          echo ""
           echo "================================================================"
-          echo "                    TERRAFORM PRINCIPLE"
+          echo "                    CLEANUP RESULT"
+          echo "================================================================"
+
+          if [[ "$DESTROY_EXIT" != "0" ]]; then
+            echo ""
+            echo "❌ CLEANUP FAILED"
+            echo ""
+            echo "Terraform destroy did not complete successfully."
+            exit 1
+          fi
+
+          if [[ "$STATE_EMPTY" != "true" ]]; then
+            echo ""
+            echo "❌ CLEANUP FAILED"
+            echo ""
+            echo "Terraform state still contains resources."
+            exit 1
+          fi
+
+          if [[ "$ECS_DELETED" != "true" ]]; then
+            echo ""
+            echo "❌ CLEANUP FAILED"
+            echo ""
+            echo "ECS resources still exist."
+            exit 1
+          fi
+
+          if [[ "$ECR_DELETED" != "true" ]]; then
+            echo ""
+            echo "❌ CLEANUP FAILED"
+            echo ""
+            echo "ECR repository still exists."
+            exit 1
+          fi
+
+          echo ""
+          echo "================================================================"
+          echo "                 🎉 CLEANUP SUCCESSFUL 🎉"
           echo "================================================================"
 
           echo ""
-
-          echo "Terraform is the infrastructure source of truth."
-
+          echo "All Terraform-managed infrastructure has been destroyed."
+          echo "Terraform state is empty."
+          echo "ECS verification passed."
+          echo "ECR verification passed."
           echo ""
-
-          echo "Primary destruction command:"
-          echo "  terraform destroy -auto-approve"
-
+          echo "Charlie Cafe AWS Terraform Lab cleanup completed successfully."
           echo ""
-
-          echo "Primary verification command:"
-          echo "  terraform plan -destroy"
-
-          echo ""
-
-          echo "Final state command:"
-          echo "  terraform state list"
-
-          echo ""
-
-          echo "================================================================"
-          echo "                 CLEANUP WORKFLOW FINISHED"
           echo "================================================================"
