@@ -811,7 +811,7 @@ Resources:
       Tags:
 
         - Key: Name
-          Value: CharlieCafe-ECSTaskExecutionRole
+          Value: CharlieCafe-CloudFormation-ServiceRole
 
         - Key: Project
           Value: CharlieCafe
