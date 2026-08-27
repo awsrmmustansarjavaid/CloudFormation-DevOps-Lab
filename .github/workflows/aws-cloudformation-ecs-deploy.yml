@@ -145,7 +145,7 @@ env:
   # ----------------------------------------------------------
   # ECS CLUSTER
   # ----------------------------------------------------------
-  ECS_CLUSTER: CharlieCafe-Cluster
+  ECS_CLUSTER: CharlieCafe-CloudFormation-Cluster
 
   # ----------------------------------------------------------
   # ECS SERVICE
