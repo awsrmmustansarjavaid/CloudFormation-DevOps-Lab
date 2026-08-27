@@ -150,7 +150,7 @@ env:
   # ----------------------------------------------------------
   # ECS SERVICE
   # ----------------------------------------------------------
-  ECS_SERVICE: CharlieCafe-Service
+  ECS_SERVICE: CharlieCafe-CloudFormation-Service
 
   # ----------------------------------------------------------
   # CONTAINER PORT
