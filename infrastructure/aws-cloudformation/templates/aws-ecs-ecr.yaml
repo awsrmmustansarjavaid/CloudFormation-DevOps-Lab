@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 
 # ============================================================
-# Charlie Cafe
+# CHARLIE CAFE
 # Standalone ECS Fargate + ECR CloudFormation Stack
 # ============================================================
 #
@@ -11,7 +11,7 @@ AWSTemplateFormatVersion: '2010-09-09'
 # This template creates the ECS/Fargate application layer for
 # Charlie Cafe.
 #
-# It is a STANDALONE CloudFormation stack.
+# This is a STANDALONE CloudFormation stack.
 #
 # It is NOT a nested stack.
 #
@@ -21,84 +21,76 @@ AWSTemplateFormatVersion: '2010-09-09'
 # This stack consumes those existing networking resources.
 #
 # ============================================================
+# IMPORTANT IAM DESIGN
+# ============================================================
 #
-# CLOUDFORMATION SERVICE ROLE
+# THERE ARE TWO DIFFERENT TYPES OF IAM ROLES:
+#
+# ------------------------------------------------------------
+# 1. CLOUDFORMATION SERVICE ROLE
+# ------------------------------------------------------------
+#
+# Existing role:
+#
+#     CharlieCafe-CloudFormation-ServiceRole
+#
+# GitHub Actions passes this role to CloudFormation using:
+#
+#     --role-arn
+#
+# CloudFormation assumes this role to CREATE and MANAGE the
+# infrastructure resources in this template.
+#
+# THIS TEMPLATE DOES NOT CREATE THAT ROLE.
+#
+#
+# ------------------------------------------------------------
+# 2. ECS TASK EXECUTION ROLE
+# ------------------------------------------------------------
+#
+# This template CREATES:
+#
+#     CharlieCafe-CloudFormation-ECSTaskExecutionRole
+#
+# ECS/Fargate assumes this role.
+#
+# It allows ECS/Fargate to:
+#
+#     - Pull Docker images from ECR
+#     - Send container logs to CloudWatch Logs
+#
+#
+# ------------------------------------------------------------
+# 3. ECS APPLICATION TASK ROLE
+# ------------------------------------------------------------
+#
+# This template also creates:
+#
+#     CharlieCafe-CloudFormation-ECSTaskRole
+#
+# This role belongs to the application container itself.
+#
+# Additional permissions can be added later for:
+#
+#     - Secrets Manager
+#     - DynamoDB
+#     - S3
+#     - KMS
+#     - Other AWS services
+#
 # ============================================================
 #
 # IMPORTANT:
 #
-# This template DOES NOT create the CloudFormation service role.
-#
-# The CloudFormation service role already exists:
-#
-#     CharlieCafe-CloudFormation-ServiceRole
-#
-# CloudFormation assumes that role when this stack is created,
-# updated or deleted.
-#
-# The role is supplied from GitHub Actions using:
-#
-#     --role-arn
-#
-# Example:
-#
-#     arn:aws:iam::<ACCOUNT_ID>:role/
-#     CharlieCafe-CloudFormation-ServiceRole
-#
-# ============================================================
-#
-# ECS TASK EXECUTION ROLE
-# ============================================================
-#
-# This is a DIFFERENT IAM role.
-#
-# CloudFormation creates:
+# The following IAM roles are intentionally NEW names:
 #
 #     CharlieCafe-CloudFormation-ECSTaskExecutionRole
+#     CharlieCafe-CloudFormation-ECSTaskRole
 #
-# This role is assumed by:
+# This avoids conflict with older roles such as:
 #
-#     ecs-tasks.amazonaws.com
-#
-# It allows ECS/Fargate to:
-#
-#     - Pull images from ECR
-#     - Send container logs to CloudWatch Logs
-#
-# ============================================================
-#
-# THIS STACK CREATES:
-#
-# 1. ECR Repository
-# 2. ECS Cluster
-# 3. CloudWatch Log Group
-# 4. ECS Task Execution IAM Role
-# 5. ECS Task IAM Role
-# 6. VPC Endpoint Security Group
-# 7. ECR API VPC Endpoint
-# 8. ECR Docker Registry VPC Endpoint
-# 9. S3 Gateway VPC Endpoint
-# 10. CloudWatch Logs VPC Endpoint
-# 11. ALB Security Group
-# 12. ECS Task Security Group
-# 13. Application Load Balancer
-# 14. ALB Target Group
-# 15. ALB Listener
-# 16. ECS Task Definition
-# 17. ECS Fargate Service
-#
-# ============================================================
-#
-# ACM CERTIFICATE
-# ============================================================
-#
-# NOT INCLUDED.
-#
-# This beginner lab intentionally uses:
-#
-#     HTTP :80
-#
-# HTTPS + ACM can be added later.
+#     CharlieCafe-ECSTaskExecutionRole
+#     CharlieCafe-ECSTaskRole
 #
 # ============================================================
 
@@ -107,9 +99,7 @@ AWSTemplateFormatVersion: '2010-09-09'
 # HIGH-LEVEL ARCHITECTURE
 # ============================================================
 #
-#
 #                         INTERNET
-#                             |
 #                             |
 #                         HTTP :80
 #                             |
@@ -119,7 +109,6 @@ AWSTemplateFormatVersion: '2010-09-09'
 #                  | Balancer             |
 #                  | PUBLIC SUBNETS       |
 #                  +----------------------+
-#                             |
 #                             |
 #                       Container Port
 #                             |
@@ -146,13 +135,13 @@ AWSTemplateFormatVersion: '2010-09-09'
 #
 # ECS Fargate Task
 #        |
-#        +------------------> ECR API Endpoint
+#        +----> ECR API VPC Endpoint
 #        |
-#        +------------------> ECR DKR Endpoint
+#        +----> ECR DKR VPC Endpoint
 #        |
-#        +------------------> S3 Gateway Endpoint
+#        +----> S3 Gateway Endpoint
 #        |
-#        +------------------> CloudWatch Logs Endpoint
+#        +----> CloudWatch Logs Endpoint
 #
 #
 # No NAT Gateway is required for these AWS service connections.
@@ -233,10 +222,8 @@ Parameters:
 
 
   # ==========================================================
-  # 7. APPLICATION NAME
+  # 7. GLOBAL APPLICATION NAME
   # ==========================================================
-  #
-  # GLOBAL APPLICATION VARIABLE
   #
   # This parameter is reused throughout the template.
   #
@@ -271,10 +258,10 @@ Parameters:
   ECSClusterName:
     Type: String
 
-    Default: CharlieCafe-Cluster
+    Default: CharlieCafe-CloudFormation-Cluster
 
     Description:
-      ECS cluster name.
+      ECS cluster name managed by this CloudFormation stack.
 
 
   # ==========================================================
@@ -284,24 +271,29 @@ Parameters:
   ECSServiceName:
     Type: String
 
-    Default: CharlieCafe-Service
+    Default: CharlieCafe-CloudFormation-Service
 
     Description:
-      ECS service name.
+      ECS service name managed by this CloudFormation stack.
 
 
   # ==========================================================
   # 11. ECS TASK EXECUTION ROLE NAME
   # ==========================================================
   #
-  # IMPORTANT:
+  # THIS IS THE IMPORTANT IAM CHANGE.
   #
-  # This name is intentionally DIFFERENT from the old
-  # Terraform-managed role:
+  # OLD ROLE:
   #
   #     CharlieCafe-ECSTaskExecutionRole
   #
-  # This prevents CloudFormation/Terraform ownership conflicts.
+  # NEW ROLE:
+  #
+  #     CharlieCafe-CloudFormation-ECSTaskExecutionRole
+  #
+  # CloudFormation creates this role.
+  #
+  # ECS assumes this role at runtime.
   #
   # ==========================================================
 
@@ -311,20 +303,26 @@ Parameters:
     Default: CharlieCafe-CloudFormation-ECSTaskExecutionRole
 
     Description:
-      ECS task execution role created and managed by this CloudFormation stack.
+      New ECS task execution role created and managed by CloudFormation.
 
 
   # ==========================================================
   # 12. ECS TASK ROLE NAME
   # ==========================================================
+  #
+  # This is ALSO given a CloudFormation-specific name so that
+  # an old role with the same name does not cause another
+  # ResourceExistenceCheck failure.
+  #
+  # ==========================================================
 
   ECSTaskRoleName:
     Type: String
 
-    Default: CharlieCafe-ECSTaskRole
+    Default: CharlieCafe-CloudFormation-ECSTaskRole
 
     Description:
-      IAM role used by the Charlie Cafe application container.
+      Application IAM role created and managed by CloudFormation.
 
 
   # ==========================================================
@@ -369,6 +367,14 @@ Parameters:
   # ==========================================================
   # 16. DESIRED TASK COUNT
   # ==========================================================
+  #
+  # Default is 0 because the ECR repository initially has no
+  # Docker image.
+  #
+  # After GitHub Actions pushes the image, you can update this
+  # to 1 or another desired number.
+  #
+  # ==========================================================
 
   DesiredCount:
     Type: Number
@@ -405,32 +411,22 @@ Resources:
       SecurityGroupIngress:
 
         - IpProtocol: tcp
-
           FromPort: 443
-
           ToPort: 443
-
           CidrIp: 10.0.2.0/24
-
           Description:
             HTTPS from Private Subnet 1
 
-
         - IpProtocol: tcp
-
           FromPort: 443
-
           ToPort: 443
-
           CidrIp: 10.0.3.0/24
-
           Description:
             HTTPS from Private Subnet 2
 
       SecurityGroupEgress:
 
         - IpProtocol: -1
-
           CidrIp: 0.0.0.0/0
 
       Tags:
@@ -484,6 +480,9 @@ Resources:
         - Key: Project
           Value: CharlieCafe
 
+        - Key: ManagedBy
+          Value: CloudFormation
+
 
   # ==========================================================
   # 3. ECR DOCKER REGISTRY VPC ENDPOINT
@@ -524,6 +523,9 @@ Resources:
         - Key: Project
           Value: CharlieCafe
 
+        - Key: ManagedBy
+          Value: CloudFormation
+
 
   # ==========================================================
   # 4. S3 GATEWAY VPC ENDPOINT
@@ -555,6 +557,9 @@ Resources:
 
         - Key: Project
           Value: CharlieCafe
+
+        - Key: ManagedBy
+          Value: CloudFormation
 
 
   # ==========================================================
@@ -596,6 +601,9 @@ Resources:
         - Key: Project
           Value: CharlieCafe
 
+        - Key: ManagedBy
+          Value: CloudFormation
+
 
   # ==========================================================
   # 6. ECR REPOSITORY
@@ -611,11 +619,9 @@ Resources:
         !Ref ECRRepositoryName
 
       ImageScanningConfiguration:
-
         ScanOnPush: true
 
       EncryptionConfiguration:
-
         EncryptionType: AES256
 
       ImageTagMutability:
@@ -649,7 +655,6 @@ Resources:
       ClusterSettings:
 
         - Name: containerInsights
-
           Value: enabled
 
       Tags:
@@ -675,7 +680,7 @@ Resources:
     Properties:
 
       LogGroupName:
-        !Sub '/ecs/${ApplicationName}'
+        !Sub '/ecs/${ApplicationName}-cloudformation'
 
       RetentionInDays:
         30
@@ -693,17 +698,15 @@ Resources:
   # 9. ECS TASK EXECUTION ROLE
   # ==========================================================
   #
-  # IMPORTANT:
+  # THIS ROLE IS CREATED BY CLOUDFORMATION.
   #
-  # THIS IS NOT:
+  # Role name:
   #
-  #     CharlieCafe-CloudFormation-ServiceRole
+  #     CharlieCafe-CloudFormation-ECSTaskExecutionRole
   #
-  # This is an ECS task execution role.
+  # ECS/Fargate assumes this role.
   #
-  # CloudFormation creates and manages this role.
-  #
-  # ECS assumes this role.
+  # The CloudFormation service role is NOT used here.
   #
   # ==========================================================
 
@@ -736,12 +739,10 @@ Resources:
               sts:AssumeRole
 
       # ------------------------------------------------------
-      # AWS MANAGED POLICY
+      # AWS MANAGED ECS EXECUTION POLICY
       #
-      # Provides standard ECS task execution permissions:
-      #
-      # - ECR image pulling
-      # - CloudWatch Logs
+      # Provides the standard permissions needed by ECS/Fargate
+      # to pull images from ECR and send logs to CloudWatch.
       # ------------------------------------------------------
 
       ManagedPolicyArns:
@@ -761,20 +762,16 @@ Resources:
 
 
   # ==========================================================
-  # 10. ECS TASK ROLE
+  # 10. ECS APPLICATION TASK ROLE
   # ==========================================================
   #
-  # This role is for the APPLICATION running inside the
-  # container.
+  # NEW ROLE NAME:
   #
-  # It is intentionally empty initially.
+  #     CharlieCafe-CloudFormation-ECSTaskRole
   #
-  # Add permissions here later if the application needs:
+  # This role is assumed by the application container.
   #
-  #     S3
-  #     DynamoDB
-  #     Secrets Manager
-  #     KMS
+  # It currently has no additional permissions.
   #
   # ==========================================================
 
@@ -837,26 +834,21 @@ Resources:
       SecurityGroupIngress:
 
         - IpProtocol: tcp
-
           FromPort: 80
-
           ToPort: 80
-
           CidrIp: 0.0.0.0/0
-
           Description:
             Allow HTTP from Internet
 
       SecurityGroupEgress:
 
         - IpProtocol: -1
-
           CidrIp: 0.0.0.0/0
 
       Tags:
 
         - Key: Name
-          Value: !Sub '${ApplicationName}-ALB-SG'
+          Value: !Sub '${ApplicationName}-CloudFormation-ALB-SG'
 
         - Key: Project
           Value: CharlieCafe
@@ -900,13 +892,12 @@ Resources:
       SecurityGroupEgress:
 
         - IpProtocol: -1
-
           CidrIp: 0.0.0.0/0
 
       Tags:
 
         - Key: Name
-          Value: !Sub '${ApplicationName}-ECS-Task-SG'
+          Value: !Sub '${ApplicationName}-CloudFormation-ECS-Task-SG'
 
         - Key: Project
           Value: CharlieCafe
@@ -926,7 +917,7 @@ Resources:
     Properties:
 
       Name:
-        !Sub '${ApplicationName}-ALB'
+        !Sub '${ApplicationName}-CFN-ALB'
 
       Scheme:
         internet-facing
@@ -946,7 +937,7 @@ Resources:
       Tags:
 
         - Key: Name
-          Value: !Sub '${ApplicationName}-ALB'
+          Value: !Sub '${ApplicationName}-CFN-ALB'
 
         - Key: Project
           Value: CharlieCafe
@@ -966,7 +957,7 @@ Resources:
     Properties:
 
       Name:
-        !Sub '${ApplicationName}-TG'
+        !Sub '${ApplicationName}-CFN-TG'
 
       VpcId:
         !Ref VpcId
@@ -1007,7 +998,7 @@ Resources:
       Tags:
 
         - Key: Name
-          Value: !Sub '${ApplicationName}-TG'
+          Value: !Sub '${ApplicationName}-CFN-TG'
 
         - Key: Project
           Value: CharlieCafe
@@ -1055,7 +1046,7 @@ Resources:
     Properties:
 
       Family:
-        !Ref ApplicationName
+        !Sub '${ApplicationName}-CloudFormation'
 
       NetworkMode:
         awsvpc
@@ -1071,14 +1062,18 @@ Resources:
         !Ref TaskMemory
 
       # ------------------------------------------------------
-      # ECS EXECUTION ROLE
+      # ECS TASK EXECUTION ROLE
+      #
+      # This references the NEW CloudFormation-created role:
+      #
+      # CharlieCafe-CloudFormation-ECSTaskExecutionRole
       # ------------------------------------------------------
 
       ExecutionRoleArn:
         !GetAtt ECSTaskExecutionRole.Arn
 
       # ------------------------------------------------------
-      # APPLICATION ROLE
+      # APPLICATION TASK ROLE
       # ------------------------------------------------------
 
       TaskRoleArn:
@@ -1090,13 +1085,13 @@ Resources:
             charlie-cafe
 
           # --------------------------------------------------
-          # CloudFormation creates ECR.
+          # CloudFormation creates the ECR repository.
           #
           # GitHub Actions pushes:
           #
           #     charlie-cafe:latest
           #
-          # ECS then pulls that image.
+          # ECS then pulls the image.
           # --------------------------------------------------
 
           Image:
@@ -1112,6 +1107,10 @@ Resources:
 
               Protocol:
                 tcp
+
+          # --------------------------------------------------
+          # CLOUDWATCH LOGGING
+          # --------------------------------------------------
 
           LogConfiguration:
 
@@ -1159,6 +1158,10 @@ Resources:
       TaskDefinition:
         !Ref ECSTaskDefinition
 
+      # ------------------------------------------------------
+      # ECS NETWORK CONFIGURATION
+      # ------------------------------------------------------
+
       NetworkConfiguration:
 
         AwsvpcConfiguration:
@@ -1175,6 +1178,10 @@ Resources:
             - !Ref PrivateSubnet1
             - !Ref PrivateSubnet2
 
+      # ------------------------------------------------------
+      # ALB CONNECTION
+      # ------------------------------------------------------
+
       LoadBalancers:
 
         - ContainerName:
@@ -1185,6 +1192,10 @@ Resources:
 
           TargetGroupArn:
             !Ref ALBTargetGroup
+
+      # ------------------------------------------------------
+      # ECS DEPLOYMENT CONFIGURATION
+      # ------------------------------------------------------
 
       DeploymentConfiguration:
 
@@ -1285,7 +1296,7 @@ Outputs:
   ECSTaskExecutionRoleArn:
 
     Description:
-      ARN of the ECS task execution role created by CloudFormation.
+      ARN of the CloudFormation-created ECS task execution role.
 
     Value:
       !GetAtt ECSTaskExecutionRole.Arn
@@ -1298,7 +1309,7 @@ Outputs:
   ECSTaskRoleArn:
 
     Description:
-      ARN of the application task IAM role.
+      ARN of the CloudFormation-created application task role.
 
     Value:
       !GetAtt ECSTaskRole.Arn
