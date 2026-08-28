@@ -1,6 +1,6 @@
 # ============================================================
 
-# CharlieCafe-TF-Lab
+# Charlie Cafe AWS DevOps Lab
 
 # Terraform Deployment Workflow
 
@@ -30,116 +30,6 @@
 
 #
 
-# The workflow performs:
-
-#
-
-# 1. Checkout repository
-
-# 2. Configure AWS credentials
-
-# 3. Verify AWS CLI
-
-# 4. Verify Terraform
-
-# 5. Check required Terraform files
-
-# 6. Initialize Terraform
-
-# 7. Validate Terraform configuration
-
-# 8. Format-check Terraform configuration
-
-# 9. Display Terraform configuration
-
-# 10. Generate Terraform plan
-
-# 11. Apply Terraform infrastructure
-
-# 12. Display Terraform outputs
-
-# 13. Verify AWS resources
-
-#
-
-# Then:
-
-#
-
-# 14. Build and test Docker application
-
-# 15. Trigger ECS/ECR deployment workflow
-
-#
-
-# ============================================================
-
-#
-
-# IMPORTANT RDS SECURITY DESIGN
-
-# ============================================================
-
-#
-
-# This workflow does NOT contain:
-
-#
-
-# DB_MASTER_PASSWORD
-
-# DBMasterPassword
-
-#
-
-# The Terraform RDS configuration should use:
-
-#
-
-# manage_master_user_password = true
-
-#
-
-# Therefore:
-
-#
-
-# GitHub Actions
-
-# |
-
-# v
-
-# Terraform
-
-# |
-
-# v
-
-# Amazon RDS
-
-# |
-
-# v
-
-# AWS Secrets Manager
-
-#
-
-# RDS automatically creates and manages the master password.
-
-#
-
-# GitHub Actions never receives the database password.
-
-#
-
-# ============================================================
-
-# ============================================================
-
-# WORKFLOW NAME
-
 # ============================================================
 
 name: AWS Terraform Deployment
@@ -151,14 +41,9 @@ name: AWS Terraform Deployment
 # ============================================================
 
 on:
-
 push:
-
-```
 branches:
-  - main
-```
-
+- main
 workflow_dispatch:
 
 # ============================================================
@@ -183,30 +68,6 @@ AWS_REGION: us-east-1
 
 # ==========================================================
 
-#
-
-# Recommended repository structure:
-
-#
-
-# infrastructure/
-
-# └── terraform/
-
-# ├── main.tf
-
-# ├── variables.tf
-
-# ├── outputs.tf
-
-# ├── providers.tf
-
-# └── ...
-
-#
-
-# ==========================================================
-
 TERRAFORM_DIR: infrastructure/terraform
 
 # ==========================================================
@@ -223,47 +84,11 @@ TERRAFORM_VERSION: "1.9.8"
 
 # ==========================================================
 
-#
-
-# This replaces the previous CloudFormation:
-
-#
-
-# KEY_PAIR_NAME
-
-#
-
-# Terraform should receive this as a variable.
-
-#
-
-# The value should preferably be stored in GitHub Secrets.
-
-#
-
-# ==========================================================
-
 KEY_PAIR_NAME: Lab-KeyPair
 
 # ==========================================================
 
 # TERRAFORM STATE FILE
-
-# ==========================================================
-
-#
-
-# Terraform state should preferably be stored remotely in:
-
-#
-
-# Amazon S3
-
-#
-
-# DO NOT commit terraform.tfstate to Git.
-
-#
 
 # ==========================================================
 
@@ -286,19 +111,11 @@ jobs:
 # ==========================================================
 
 terraform:
-
-```
 name: Terraform Infrastructure Deployment
-
 runs-on: ubuntu-latest
 
-
-# ========================================================
-# JOB STEPS
-# ========================================================
-
+```
 steps:
-
 
   # ======================================================
   # STEP 1
@@ -306,9 +123,7 @@ steps:
   # ======================================================
 
   - name: Checkout Repository
-
     uses: actions/checkout@v4
-
 
   # ======================================================
   # STEP 2
@@ -316,17 +131,11 @@ steps:
   # ======================================================
 
   - name: Configure AWS Credentials
-
     uses: aws-actions/configure-aws-credentials@v4
-
     with:
-
       aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-
       aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
       aws-region: ${{ env.AWS_REGION }}
-
 
   # ======================================================
   # STEP 3
@@ -334,34 +143,23 @@ steps:
   # ======================================================
 
   - name: Verify AWS CLI
-
     shell: bash
-
     run: |
-
       echo "=============================================="
-
       echo "AWS CLI INFORMATION"
-
       echo "=============================================="
-
       aws --version
-
       echo ""
 
       echo "=============================================="
-
       echo "AWS ACCOUNT INFORMATION"
-
       echo "=============================================="
 
       aws sts get-caller-identity \
         --no-cli-pager
 
       echo ""
-
       echo "AWS authentication successful."
-
 
   # ======================================================
   # STEP 4
@@ -369,13 +167,9 @@ steps:
   # ======================================================
 
   - name: Setup Terraform
-
     uses: hashicorp/setup-terraform@v3
-
     with:
-
       terraform_version: ${{ env.TERRAFORM_VERSION }}
-
 
   # ======================================================
   # STEP 5
@@ -383,23 +177,14 @@ steps:
   # ======================================================
 
   - name: Verify Terraform
-
     shell: bash
-
     run: |
-
       echo "=============================================="
-
       echo "TERRAFORM VERSION"
-
       echo "=============================================="
-
       terraform version
-
       echo ""
-
       echo "Terraform installation successful."
-
 
   # ======================================================
   # STEP 6
@@ -407,39 +192,25 @@ steps:
   # ======================================================
 
   - name: Check Terraform Files
-
     shell: bash
-
     run: |
-
       echo "=============================================="
-
       echo "CHECKING TERRAFORM FILES"
-
       echo "=============================================="
 
       if [ ! -d "$TERRAFORM_DIR" ]; then
-
         echo "ERROR: Terraform directory does not exist."
-
         echo "Expected:"
-
         echo "$TERRAFORM_DIR"
-
         exit 1
-
       fi
 
       echo ""
-
       echo "Terraform directory found:"
-
       echo "$TERRAFORM_DIR"
-
       echo ""
 
       echo "Terraform files:"
-
       find "$TERRAFORM_DIR" \
         -maxdepth 2 \
         -type f \
@@ -455,19 +226,13 @@ steps:
         | wc -l)
 
       if [ "$TF_FILE_COUNT" -eq 0 ]; then
-
         echo "ERROR: No Terraform .tf files were found."
-
         exit 1
-
       fi
 
       echo ""
-
       echo "Terraform configuration files found:"
-
       echo "$TF_FILE_COUNT"
-
 
   # ======================================================
   # STEP 7
@@ -475,26 +240,18 @@ steps:
   # ======================================================
 
   - name: Terraform Init
-
     shell: bash
-
     working-directory: ${{ env.TERRAFORM_DIR }}
-
     run: |
-
       echo "=============================================="
-
       echo "TERRAFORM INIT"
-
       echo "=============================================="
 
       terraform init \
         -input=false
 
       echo ""
-
       echo "Terraform initialization completed successfully."
-
 
   # ======================================================
   # STEP 8
@@ -502,17 +259,11 @@ steps:
   # ======================================================
 
   - name: Terraform Format Check
-
     shell: bash
-
     working-directory: ${{ env.TERRAFORM_DIR }}
-
     run: |
-
       echo "=============================================="
-
       echo "TERRAFORM FORMAT CHECK"
-
       echo "=============================================="
 
       terraform fmt \
@@ -520,9 +271,7 @@ steps:
         -recursive
 
       echo ""
-
       echo "Terraform formatting check passed."
-
 
   # ======================================================
   # STEP 9
@@ -530,25 +279,17 @@ steps:
   # ======================================================
 
   - name: Terraform Validate
-
     shell: bash
-
     working-directory: ${{ env.TERRAFORM_DIR }}
-
     run: |
-
       echo "=============================================="
-
       echo "TERRAFORM VALIDATE"
-
       echo "=============================================="
 
       terraform validate
 
       echo ""
-
       echo "Terraform validation completed successfully."
-
 
   # ======================================================
   # STEP 10
@@ -556,97 +297,40 @@ steps:
   # ======================================================
 
   - name: Display Terraform Environment
-
     shell: bash
-
     run: |
-
       echo "=============================================="
-
       echo "TERRAFORM DEPLOYMENT ENVIRONMENT"
-
       echo "=============================================="
-
-      echo ""
-
-      echo "Project:"
-
-      echo "CharlieCafe-TF-Lab"
-
-      echo ""
-
-      echo "Application:"
-
-      echo "CharlieCafe-TF"
-
-      echo ""
-
-      echo "ECR Repository:"
-
-      echo "charlie-cafe-tf"
-
-      echo ""
-
-      echo "ECS Cluster:"
-
-      echo "CharlieCafe-TF-Cluster"
-
-      echo ""
-
-      echo "ECS Service:"
-
-      echo "CharlieCafe-TF-Service"
-
-      echo ""
-
-      echo "ECS Task Family:"
-
-      echo "CharlieCafe-TF"
-
       echo ""
 
       echo "AWS Region:"
-
       echo "$AWS_REGION"
-
       echo ""
 
       echo "Terraform Directory:"
-
       echo "$TERRAFORM_DIR"
-
       echo ""
 
       echo "Terraform Version:"
-
       terraform version
-
       echo ""
 
       echo "EC2 Key Pair:"
-
       echo "$KEY_PAIR_NAME"
-
       echo ""
 
       echo "RDS Password Management:"
-
       echo "AWS Secrets Manager"
-
       echo ""
 
       echo "IMPORTANT:"
-
       echo "RDS password is NOT stored in GitHub Actions."
-
       echo ""
 
       echo "=============================================="
-
       echo "END TERRAFORM ENVIRONMENT"
-
       echo "=============================================="
-
 
   # ======================================================
   # STEP 11
@@ -654,29 +338,18 @@ steps:
   # ======================================================
 
   - name: Terraform Plan
-
     shell: bash
-
     working-directory: ${{ env.TERRAFORM_DIR }}
-
     env:
-
       TF_VAR_key_pair_name: ${{ env.KEY_PAIR_NAME }}
-
     run: |
-
       echo "=============================================="
-
       echo "TERRAFORM PLAN"
-
       echo "=============================================="
 
       if [ -z "$TF_VAR_key_pair_name" ]; then
-
         echo "ERROR: KEY_PAIR_NAME is empty."
-
         exit 1
-
       fi
 
       echo "EC2 Key Pair variable is configured."
@@ -686,9 +359,7 @@ steps:
         -out=tfplan
 
       echo ""
-
       echo "Terraform plan completed successfully."
-
 
   # ======================================================
   # STEP 12
@@ -696,17 +367,11 @@ steps:
   # ======================================================
 
   - name: Terraform Apply
-
     shell: bash
-
     working-directory: ${{ env.TERRAFORM_DIR }}
-
     run: |
-
       echo "=============================================="
-
       echo "TERRAFORM APPLY"
-
       echo "=============================================="
 
       terraform apply \
@@ -715,13 +380,9 @@ steps:
         tfplan
 
       echo ""
-
       echo "=============================================="
-
       echo "TERRAFORM APPLY COMPLETED"
-
       echo "=============================================="
-
 
   # ======================================================
   # STEP 13
@@ -729,25 +390,17 @@ steps:
   # ======================================================
 
   - name: Display Terraform Outputs
-
     shell: bash
-
     working-directory: ${{ env.TERRAFORM_DIR }}
-
     run: |
-
       echo "=============================================="
-
       echo "TERRAFORM OUTPUTS"
-
       echo "=============================================="
 
       terraform output
 
       echo ""
-
       echo "Terraform outputs displayed."
-
 
   # ======================================================
   # STEP 14
@@ -755,36 +408,24 @@ steps:
   # ======================================================
 
   - name: Verify AWS Infrastructure
-
     shell: bash
-
     working-directory: ${{ env.TERRAFORM_DIR }}
-
     run: |
-
       echo "=============================================="
-
       echo "AWS INFRASTRUCTURE VERIFICATION"
-
       echo "=============================================="
-
       echo ""
 
       echo "Terraform-managed AWS resources:"
-
       terraform state list || true
-
       echo ""
 
       echo "AWS identity:"
-
       aws sts get-caller-identity \
         --no-cli-pager
 
       echo ""
-
       echo "AWS infrastructure verification completed."
-
 
   # ======================================================
   # STEP 15
@@ -792,25 +433,17 @@ steps:
   # ======================================================
 
   - name: Display Terraform State
-
     shell: bash
-
     working-directory: ${{ env.TERRAFORM_DIR }}
-
     run: |
-
       echo "=============================================="
-
       echo "TERRAFORM STATE RESOURCES"
-
       echo "=============================================="
 
       terraform state list || true
 
       echo ""
-
       echo "Terraform state inspection completed."
-
 
   # ======================================================
   # STEP 16
@@ -818,93 +451,38 @@ steps:
   # ======================================================
 
   - name: Terraform Deployment Complete
-
     shell: bash
-
     run: |
-
       echo ""
-
       echo "=============================================="
-
       echo "TERRAFORM DEPLOYMENT COMPLETED"
-
       echo "=============================================="
-
-      echo ""
-
-      echo "Project:"
-
-      echo "CharlieCafe-TF-Lab"
-
-      echo ""
-
-      echo "Application:"
-
-      echo "CharlieCafe-TF"
-
-      echo ""
-
-      echo "ECR Repository:"
-
-      echo "charlie-cafe-tf"
-
-      echo ""
-
-      echo "ECS Cluster:"
-
-      echo "CharlieCafe-TF-Cluster"
-
-      echo ""
-
-      echo "ECS Service:"
-
-      echo "CharlieCafe-TF-Service"
-
-      echo ""
-
-      echo "ECS Task Family:"
-
-      echo "CharlieCafe-TF"
-
       echo ""
 
       echo "AWS Region:"
-
       echo "$AWS_REGION"
-
       echo ""
 
       echo "Terraform Directory:"
-
       echo "$TERRAFORM_DIR"
-
       echo ""
 
       echo "Infrastructure deployment:"
-
       echo "SUCCESS"
-
       echo ""
 
       echo "RDS Password Management:"
-
       echo "AWS Secrets Manager"
-
       echo ""
 
       echo "The RDS master password was NOT stored"
-
       echo "in GitHub Actions."
-
       echo ""
 
       echo "=============================================="
-
       echo "TERRAFORM STAGE COMPLETE"
-
       echo "=============================================="
-```
+
 
 # ==========================================================
 
@@ -915,22 +493,15 @@ steps:
 # ==========================================================
 
 docker:
-
-```
 name: Build and Test Docker
+
 
 needs:
   - terraform
 
 runs-on: ubuntu-latest
 
-
-# ========================================================
-# DOCKER STEPS
-# ========================================================
-
 steps:
-
 
   # ======================================================
   # DOCKER STEP 1
@@ -938,9 +509,7 @@ steps:
   # ======================================================
 
   - name: Checkout Repository
-
     uses: actions/checkout@v4
-
 
   # ======================================================
   # DOCKER STEP 2
@@ -948,29 +517,20 @@ steps:
   # ======================================================
 
   - name: Verify Docker
-
     shell: bash
-
     run: |
-
       echo "=============================================="
-
       echo "DOCKER VERSION"
-
       echo "=============================================="
 
       docker --version
 
       echo ""
-
       echo "=============================================="
-
       echo "DOCKER COMPOSE VERSION"
-
       echo "=============================================="
 
       docker compose version
-
 
   # ======================================================
   # DOCKER STEP 3
@@ -978,55 +538,35 @@ steps:
   # ======================================================
 
   - name: Check Docker Files
-
     shell: bash
-
     run: |
-
       echo "=============================================="
-
       echo "CHECKING DOCKER FILES"
-
       echo "=============================================="
-
       echo ""
 
       if [ ! -f "docker/Dockerfile" ]; then
-
         echo "ERROR: Dockerfile was not found."
-
         echo "Expected:"
-
         echo "docker/Dockerfile"
-
         exit 1
-
       fi
 
       echo "Dockerfile found:"
-
       echo "docker/Dockerfile"
-
       echo ""
 
       if [ ! -f "docker-compose.yml" ]; then
-
         echo "ERROR: docker-compose.yml was not found."
-
         echo "Expected:"
-
         echo "docker-compose.yml"
-
         exit 1
-
       fi
 
       echo "docker-compose.yml found."
-
       echo ""
 
       echo "Docker files are ready."
-
 
   # ======================================================
   # DOCKER STEP 4
@@ -1034,23 +574,16 @@ steps:
   # ======================================================
 
   - name: Validate Docker Compose
-
     shell: bash
-
     run: |
-
       echo "=============================================="
-
       echo "VALIDATING DOCKER COMPOSE"
-
       echo "=============================================="
 
       docker compose config
 
       echo ""
-
       echo "Docker Compose configuration is valid."
-
 
   # ======================================================
   # DOCKER STEP 5
@@ -1058,23 +591,16 @@ steps:
   # ======================================================
 
   - name: Build Docker Image
-
     shell: bash
-
     run: |
-
       echo "=============================================="
-
       echo "BUILDING DOCKER IMAGE"
-
       echo "=============================================="
 
       docker compose build
 
       echo ""
-
       echo "Docker image build completed."
-
 
   # ======================================================
   # DOCKER STEP 6
@@ -1082,23 +608,16 @@ steps:
   # ======================================================
 
   - name: Verify Docker Image
-
     shell: bash
-
     run: |
-
       echo "=============================================="
-
       echo "DOCKER IMAGES"
-
       echo "=============================================="
 
       docker images
 
       echo ""
-
       echo "Docker image verification completed."
-
 
   # ======================================================
   # DOCKER STEP 7
@@ -1106,39 +625,27 @@ steps:
   # ======================================================
 
   - name: Start Docker Container
-
     shell: bash
-
     run: |
-
       echo "=============================================="
-
       echo "STARTING DOCKER CONTAINER"
-
       echo "=============================================="
 
       docker compose up -d
 
       echo ""
-
       echo "=============================================="
-
       echo "DOCKER COMPOSE STATUS"
-
       echo "=============================================="
 
       docker compose ps -a
 
       echo ""
-
       echo "=============================================="
-
       echo "DOCKER CONTAINER STATUS"
-
       echo "=============================================="
 
       docker ps -a
-
 
   # ======================================================
   # DOCKER STEP 8
@@ -1146,45 +653,31 @@ steps:
   # ======================================================
 
   - name: Check Docker Container
-
     shell: bash
-
     run: |
-
       echo "=============================================="
-
       echo "CHECKING DOCKER CONTAINER"
-
       echo "=============================================="
-
       echo ""
 
       docker compose ps -a
-
       echo ""
 
       CONTAINER_ID=$(docker compose ps -q)
 
       if [ -z "$CONTAINER_ID" ]; then
-
         echo "ERROR: Docker Compose did not create a container."
-
         echo ""
 
         docker compose ps -a
-
         echo ""
 
         docker ps -a
-
         exit 1
-
       fi
 
       echo "Container ID:"
-
       echo "$CONTAINER_ID"
-
       echo ""
 
       CONTAINER_STATUS=$(docker inspect \
@@ -1192,25 +685,17 @@ steps:
         "$CONTAINER_ID")
 
       echo "Container status:"
-
       echo "$CONTAINER_STATUS"
-
       echo ""
 
       if [ "$CONTAINER_STATUS" = "running" ]; then
-
         echo "Docker container is running."
-
       else
-
         echo "ERROR: Docker container is not running."
-
         echo ""
 
         echo "=============================================="
-
         echo "CONTAINER LOGS"
-
         echo "=============================================="
 
         docker logs "$CONTAINER_ID" || true
@@ -1218,17 +703,13 @@ steps:
         echo ""
 
         echo "=============================================="
-
         echo "CONTAINER INSPECTION"
-
         echo "=============================================="
 
         docker inspect "$CONTAINER_ID"
 
         exit 1
-
       fi
-
 
   # ======================================================
   # DOCKER STEP 9
@@ -1236,23 +717,16 @@ steps:
   # ======================================================
 
   - name: Wait for Application
-
     shell: bash
-
     run: |
-
       echo "=============================================="
-
       echo "WAITING FOR APPLICATION"
-
       echo "=============================================="
 
       sleep 5
 
       echo ""
-
       echo "Application startup wait completed."
-
 
   # ======================================================
   # DOCKER STEP 10
@@ -1260,23 +734,15 @@ steps:
   # ======================================================
 
   - name: Test Docker Container
-
     shell: bash
-
     run: |
-
       echo "=============================================="
-
       echo "TESTING DOCKER APPLICATION"
-
       echo "=============================================="
-
       echo ""
 
       echo "Testing:"
-
       echo "http://localhost:8080"
-
       echo ""
 
       curl \
@@ -1288,13 +754,9 @@ steps:
         http://localhost:8080
 
       echo ""
-
       echo "=============================================="
-
       echo "DOCKER CONTAINER TEST PASSED"
-
       echo "=============================================="
-
 
   # ======================================================
   # DOCKER STEP 11
@@ -1302,22 +764,15 @@ steps:
   # ======================================================
 
   - name: Display Container Logs
-
     if: always()
-
     shell: bash
-
     run: |
-
       echo "=============================================="
-
       echo "DOCKER CONTAINER LOGS"
-
       echo "=============================================="
 
       docker compose logs \
         --no-color || true
-
 
   # ======================================================
   # DOCKER STEP 12
@@ -1325,29 +780,20 @@ steps:
   # ======================================================
 
   - name: Display Final Docker Status
-
     if: always()
-
     shell: bash
-
     run: |
-
       echo "=============================================="
-
       echo "FINAL DOCKER STATUS"
-
       echo "=============================================="
 
       docker compose ps -a || true
-
       echo ""
 
       docker ps -a || true
-
       echo ""
 
       docker images || true
-
 
   # ======================================================
   # DOCKER STEP 13
@@ -1355,26 +801,18 @@ steps:
   # ======================================================
 
   - name: Stop Docker Container
-
     if: always()
-
     shell: bash
-
     run: |
-
       echo "=============================================="
-
       echo "STOPPING DOCKER CONTAINER"
-
       echo "=============================================="
 
       docker compose down \
         --remove-orphans || true
 
       echo ""
-
       echo "Docker resources cleaned up."
-
 
   # ======================================================
   # DOCKER STEP 14
@@ -1382,55 +820,29 @@ steps:
   # ======================================================
 
   - name: Docker Job Complete
-
     shell: bash
-
     run: |
-
       echo ""
-
       echo "=============================================="
-
       echo "DOCKER BUILD AND TEST COMPLETED"
-
       echo "=============================================="
-
-      echo ""
-
-      echo "Application:"
-
-      echo "CharlieCafe-TF"
-
-      echo ""
-
-      echo "ECR Repository Target:"
-
-      echo "charlie-cafe-tf"
-
       echo ""
 
       echo "Docker build:"
-
       echo "SUCCESS"
-
       echo ""
 
       echo "Docker container:"
-
       echo "STARTED"
-
       echo ""
 
       echo "Docker HTTP test:"
-
       echo "PASSED"
-
       echo ""
 
       echo "Docker job completed successfully."
-
       echo "=============================================="
-```
+
 
 # ==========================================================
 
@@ -1441,40 +853,20 @@ steps:
 # ==========================================================
 
 ecs-deploy:
-
-```
 name: Trigger ECS Deployment
+
 
 needs:
   - docker
-
 
 # ========================================================
 # CALL REUSABLE ECS WORKFLOW
 # ========================================================
 
-#
-# The referenced workflow must contain:
-#
-# on:
-#   workflow_call:
-#
-# ========================================================
-
 uses: ./.github/workflows/aws-terraform-ecs-deploy.yml
-
 
 # ========================================================
 # PASS GITHUB SECRETS
-# ========================================================
-
-#
-# This allows the reusable ECS workflow to access:
-#
-# AWS_ACCESS_KEY_ID
-# AWS_SECRET_ACCESS_KEY
-# AWS_REGION
-#
 # ========================================================
 
 secrets: inherit
