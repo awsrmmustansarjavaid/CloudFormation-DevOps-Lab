@@ -1,1264 +1,1212 @@
 # ============================================================
-
 # Charlie Cafe AWS DevOps Lab
-
 # Terraform CI/CD Deployment Workflow
-
 # ============================================================
-
 #
-
 # File:
-
 # .github/workflows/aws-terraform-deploy.yml
-
 #
-
-# Deployment flow:
-
+# Deployment Flow:
 #
-
 # GitHub Push / Manual Run
-
-# |
-
-# v
-
+#        |
+#        v
 # AWS Authentication
-
-# |
-
-# v
-
+#        |
+#        v
 # Terraform Init
-
-# |
-
-# v
-
+#        |
+#        v
 # Terraform Format Check
-
-# |
-
-# v
-
+#        |
+#        v
 # Terraform Validate
-
-# |
-
-# v
-
+#        |
+#        v
 # Terraform Plan
-
-# |
-
-# v
-
+#        |
+#        v
 # Terraform Apply
-
-# |
-
-# v
-
+#        |
+#        v
 # AWS Infrastructure
-
-# |
-
-# v
-
+#        |
+#        v
 # Docker Build
-
-# |
-
-# v
-
+#        |
+#        v
 # Local Docker Test
-
-# |
-
-# v
-
+#        |
+#        v
 # Amazon ECR Push
-
-# |
-
-# v
-
+#        |
+#        v
 # ECS Force New Deployment
-
-# |
-
-# v
-
+#        |
+#        v
 # ECS Stability Check
-
-# |
-
-# v
-
+#        |
+#        v
 # ALB Verification
-
+#        |
+#        v
+# Application HTTP Test
 #
-
+# ============================================================
+#
 # IMPORTANT:
-
 #
-
-# Terraform state must be persistent between GitHub Actions runs.
-
-# The recommended solution is an S3 remote backend.
-
+# Terraform state must be persistent between GitHub Actions
+# runs.
 #
-
+# Recommended:
+# Configure an S3 remote backend in the Terraform configuration.
+#
+# Existing AWS resources that are already deployed but are not
+# present in Terraform state must be imported before Terraform
+# can manage them.
+#
+# Example:
+#
+# terraform -chdir=infrastructure/terraform import ...
+#
 # This workflow intentionally does NOT use:
-
 #
-
 # terraform apply -refresh-only
-
 #
-
 # because refresh-only does not import AWS resources that are
-
 # absent from Terraform state.
-
 #
-
-# Existing AWS resources must already be represented in Terraform
-
-# state, either by:
-
-#
-
-# terraform import
-
-#
-
-# or by migrating an existing local state file into the remote
-
-# backend.
-
-#
-
 # ============================================================
 
 name: AWS Terraform Deployment
 
 # ============================================================
-
 # WORKFLOW TRIGGERS
-
 # ============================================================
 
 on:
+  # Automatically deploy whenever changes are pushed to main.
+  push:
+    branches:
+      - main
 
-push:
-branches:
-- main
-
-workflow_dispatch:
+  # Allow the workflow to be started manually from GitHub.
+  workflow_dispatch:
 
 # ============================================================
-
-# GLOBAL ENVIRONMENT
-
+# GLOBAL ENVIRONMENT VARIABLES
 # ============================================================
 
 env:
+  # AWS deployment region.
+  AWS_REGION: us-east-1
 
-AWS_REGION: us-east-1
+  # Terraform configuration directory.
+  TERRAFORM_DIR: infrastructure/terraform
 
-TERRAFORM_DIR: infrastructure/terraform
+  # Terraform version used by GitHub Actions.
+  TERRAFORM_VERSION: "1.9.8"
 
-TERRAFORM_VERSION: "1.9.8"
+  # Existing EC2 key pair name used by Terraform.
+  KEY_PAIR_NAME: Lab-KeyPair
 
-KEY_PAIR_NAME: Lab-KeyPair
+  # Terraform-managed ECR repository.
+  ECR_REPOSITORY: charlie-cafe-tf
 
-ECR_REPOSITORY: charlie-cafe-tf
+  # Terraform-managed ECS cluster.
+  ECS_CLUSTER: CharlieCafe-TF-Cluster
 
-ECS_CLUSTER: CharlieCafe-TF-Cluster
+  # Terraform-managed ECS service.
+  ECS_SERVICE: CharlieCafe-TF-Service
 
-ECS_SERVICE: CharlieCafe-TF-Service
+  # ECS container name.
+  ECS_CONTAINER: charlie-cafe-tf
 
-ECS_CONTAINER: charlie-cafe-tf
+  # Docker/ECR image tag.
+  IMAGE_TAG: latest
 
-IMAGE_TAG: latest
+  # Terraform automation mode.
+  TF_IN_AUTOMATION: "true"
 
-TF_IN_AUTOMATION: "true"
-
-ECS_DESIRED_COUNT: "1"
+  # Number of ECS tasks that should remain running.
+  ECS_DESIRED_COUNT: "1"
 
 # ============================================================
-
 # CONCURRENCY
-
 # ============================================================
-
 #
-
 # Prevent two Terraform deployments from modifying the same
-
 # infrastructure simultaneously.
-
 #
-
 # ============================================================
 
 concurrency:
-
-group: charlie-cafe-terraform-${{ github.ref }}
-
-cancel-in-progress: false
+  group: charlie-cafe-terraform-${{ github.ref }}
+  cancel-in-progress: false
 
 # ============================================================
-
 # JOBS
-
 # ============================================================
 
 jobs:
 
-# ==========================================================
-
-# JOB 1
-
-# TERRAFORM INFRASTRUCTURE
-
-# ==========================================================
-
-terraform:
-
-
-name: Terraform Infrastructure Deployment
-
-runs-on: ubuntu-latest
-
-timeout-minutes: 45
-
-permissions:
-  contents: read
-
-steps:
-
-  # ======================================================
-  # STEP 1
-  # CHECKOUT
-  # ======================================================
-
-  - name: Checkout Repository
-    uses: actions/checkout@v4
-
-  # ======================================================
-  # STEP 2
-  # VERIFY AWS SECRETS
-  # ======================================================
-
-  - name: Verify AWS Secrets
-    shell: bash
-    env:
-      AWS_ACCESS_KEY_ID_VALUE: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY_VALUE: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "VERIFYING AWS CREDENTIALS"
-      echo "=============================================="
-
-      if [ -z "$AWS_ACCESS_KEY_ID_VALUE" ]; then
-        echo "ERROR: AWS_ACCESS_KEY_ID is missing."
-        exit 1
-      fi
-
-      if [ -z "$AWS_SECRET_ACCESS_KEY_VALUE" ]; then
-        echo "ERROR: AWS_SECRET_ACCESS_KEY is missing."
-        exit 1
-      fi
-
-      echo "AWS credentials are configured."
-
-  # ======================================================
-  # STEP 3
-  # CONFIGURE AWS
-  # ======================================================
-
-  - name: Configure AWS Credentials
-    uses: aws-actions/configure-aws-credentials@v4
-    with:
-      aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      aws-region: ${{ env.AWS_REGION }}
-
-  # ======================================================
-  # STEP 4
-  # VERIFY AWS
-  # ======================================================
-
-  - name: Verify AWS Identity
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "AWS INFORMATION"
-      echo "=============================================="
-
-      aws --version
-
-      echo ""
-      echo "AWS Account:"
-      aws sts get-caller-identity \
-        --query Account \
-        --output text
-
-      echo ""
-      echo "AWS ARN:"
-      aws sts get-caller-identity \
-        --query Arn \
-        --output text
-
-      echo ""
-      echo "AWS Region:"
-      echo "$AWS_REGION"
-
-  # ======================================================
-  # STEP 5
-  # SETUP TERRAFORM
-  # ======================================================
-
-  - name: Setup Terraform
-    uses: hashicorp/setup-terraform@v3
-    with:
-      terraform_version: ${{ env.TERRAFORM_VERSION }}
-
-  # ======================================================
-  # STEP 6
-  # VERIFY TERRAFORM DIRECTORY
-  # ======================================================
-
-  - name: Verify Terraform Directory
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "VERIFYING TERRAFORM DIRECTORY"
-      echo "=============================================="
-
-      if [ ! -d "$TERRAFORM_DIR" ]; then
-        echo "ERROR: Terraform directory does not exist:"
-        echo "$TERRAFORM_DIR"
-        exit 1
-      fi
-
-      TF_FILE_COUNT=$(find "$TERRAFORM_DIR" \
-        -maxdepth 1 \
-        -type f \
-        -name "*.tf" \
-        | wc -l)
-
-      if [ "$TF_FILE_COUNT" -eq 0 ]; then
-        echo "ERROR: No Terraform files were found."
-        exit 1
-      fi
-
-      echo "Terraform directory:"
-      echo "$TERRAFORM_DIR"
-
-      echo ""
-      echo "Terraform files:"
-      find "$TERRAFORM_DIR" \
-        -maxdepth 1 \
-        -type f \
-        -name "*.tf" \
-        -print \
-        | sort
-
-      echo ""
-      echo "Terraform files found: $TF_FILE_COUNT"
-
-  # ======================================================
-  # STEP 7
-  # VERIFY TERRAFORM VERSION
-  # ======================================================
-
-  - name: Verify Terraform
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "TERRAFORM VERSION"
-      echo "=============================================="
-
-      terraform version
-
-  # ======================================================
-  # STEP 8
-  # TERRAFORM INIT
-  # ======================================================
-
-  - name: Terraform Init
-    shell: bash
-    working-directory: ${{ env.TERRAFORM_DIR }}
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "TERRAFORM INIT"
-      echo "=============================================="
-
-      terraform init \
-        -input=false
-
-      echo ""
-      echo "Terraform initialization completed."
-
-  # ======================================================
-  # STEP 9
-  # TERRAFORM FORMAT
-  # ======================================================
-
-  - name: Terraform Format Check
-    shell: bash
-    working-directory: ${{ env.TERRAFORM_DIR }}
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "TERRAFORM FORMAT CHECK"
-      echo "=============================================="
-
-      terraform fmt \
-        -check \
-        -recursive
-
-      echo ""
-      echo "Terraform formatting check PASSED."
-
-  # ======================================================
-  # STEP 10
-  # TERRAFORM VALIDATE
-  # ======================================================
-
-  - name: Terraform Validate
-    shell: bash
-    working-directory: ${{ env.TERRAFORM_DIR }}
-    env:
-      TF_VAR_aws_region: ${{ env.AWS_REGION }}
-      TF_VAR_key_pair_name: ${{ env.KEY_PAIR_NAME }}
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "TERRAFORM VALIDATE"
-      echo "=============================================="
-
-      terraform validate
-
-      echo ""
-      echo "Terraform validation PASSED."
-
-  # ======================================================
-  # STEP 11
-  # TERRAFORM PLAN
-  # ======================================================
-
-  - name: Terraform Plan
-    shell: bash
-    working-directory: ${{ env.TERRAFORM_DIR }}
-    env:
-      TF_VAR_aws_region: ${{ env.AWS_REGION }}
-      TF_VAR_key_pair_name: ${{ env.KEY_PAIR_NAME }}
-      TF_VAR_ecs_desired_count: ${{ env.ECS_DESIRED_COUNT }}
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "TERRAFORM PLAN"
-      echo "=============================================="
-
-      echo "AWS Region:"
-      echo "$TF_VAR_aws_region"
-
-      echo ""
-      echo "EC2 Key Pair:"
-      echo "$TF_VAR_key_pair_name"
-
-      echo ""
-      echo "ECS Desired Count:"
-      echo "$TF_VAR_ecs_desired_count"
-
-      echo ""
-      echo "Generating Terraform plan..."
-
-      terraform plan \
-        -input=false \
-        -lock-timeout=5m \
-        -out=tfplan
-
-      echo ""
-      echo "Terraform plan completed successfully."
-
-  # ======================================================
-  # STEP 12
-  # TERRAFORM APPLY
-  # ======================================================
-
-  - name: Terraform Apply
-    shell: bash
-    working-directory: ${{ env.TERRAFORM_DIR }}
-    env:
-      TF_VAR_aws_region: ${{ env.AWS_REGION }}
-      TF_VAR_key_pair_name: ${{ env.KEY_PAIR_NAME }}
-      TF_VAR_ecs_desired_count: ${{ env.ECS_DESIRED_COUNT }}
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "TERRAFORM APPLY"
-      echo "=============================================="
-
-      terraform apply \
-        -input=false \
-        -lock-timeout=5m \
-        -auto-approve \
-        tfplan
-
-      echo ""
-      echo "Terraform apply completed successfully."
-
-  # ======================================================
-  # STEP 13
-  # TERRAFORM OUTPUTS
-  # ======================================================
-
-  - name: Display Terraform Outputs
-    shell: bash
-    working-directory: ${{ env.TERRAFORM_DIR }}
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "TERRAFORM OUTPUTS"
-      echo "=============================================="
-
-      terraform output || true
-
-  # ======================================================
-  # STEP 14
-  # VERIFY STATE
-  # ======================================================
-
-  - name: Verify Terraform State
-    shell: bash
-    working-directory: ${{ env.TERRAFORM_DIR }}
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "TERRAFORM STATE"
-      echo "=============================================="
-
-      terraform state list
-
-      echo ""
-      echo "Terraform state verification PASSED."
-
-  # ======================================================
-  # STEP 15
-  # UPLOAD PLAN FOR DEBUGGING
-  # ======================================================
-
-  - name: Upload Terraform Plan
-    if: always()
-    uses: actions/upload-artifact@v4
-    with:
-      name: terraform-plan-${{ github.run_number }}
-      path: ${{ env.TERRAFORM_DIR }}/tfplan
-      if-no-files-found: ignore
-      retention-days: 7
-
-
-# ==========================================================
-
-# JOB 2
-
-# DOCKER BUILD + TEST + ECR
-
-# ==========================================================
-
-docker:
-
-
-name: Build Test and Push Docker Image
-
-needs:
-  - terraform
-
-runs-on: ubuntu-latest
-
-timeout-minutes: 30
-
-permissions:
-  contents: read
-
-steps:
-
-  # ======================================================
-  # STEP 1
-  # CHECKOUT
-  # ======================================================
-
-  - name: Checkout Repository
-    uses: actions/checkout@v4
-
-  # ======================================================
-  # STEP 2
-  # CONFIGURE AWS
-  # ======================================================
-
-  - name: Configure AWS Credentials
-    uses: aws-actions/configure-aws-credentials@v4
-    with:
-      aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      aws-region: ${{ env.AWS_REGION }}
-
-  # ======================================================
-  # STEP 3
-  # VERIFY DOCKER
-  # ======================================================
-
-  - name: Verify Docker
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "DOCKER INFORMATION"
-      echo "=============================================="
-
-      docker --version
-      docker compose version
-
-  # ======================================================
-  # STEP 4
-  # VERIFY DOCKER FILES
-  # ======================================================
-
-  - name: Verify Docker Files
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "VERIFYING DOCKER FILES"
-      echo "=============================================="
-
-      if [ ! -f "docker/Dockerfile" ]; then
-        echo "ERROR: docker/Dockerfile was not found."
-        exit 1
-      fi
-
-      if [ ! -f "docker-compose.yml" ]; then
-        echo "ERROR: docker-compose.yml was not found."
-        exit 1
-      fi
-
-      echo "Dockerfile found."
-      echo "docker-compose.yml found."
-
-  # ======================================================
-  # STEP 5
-  # VALIDATE COMPOSE
-  # ======================================================
-
-  - name: Validate Docker Compose
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "DOCKER COMPOSE VALIDATION"
-      echo "=============================================="
-
-      docker compose config
-
-      echo ""
-      echo "Docker Compose validation PASSED."
-
-  # ======================================================
-  # STEP 6
-  # BUILD IMAGE
-  # ======================================================
-
-  - name: Build Docker Image
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "BUILDING DOCKER IMAGE"
-      echo "=============================================="
-
-      docker build \
-        --file docker/Dockerfile \
-        --tag "${ECR_REPOSITORY}:${IMAGE_TAG}" \
-        .
-
-      echo ""
-      echo "Docker image build PASSED."
-
-  # ======================================================
-  # STEP 7
-  # VERIFY IMAGE
-  # ======================================================
-
-  - name: Verify Docker Image
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      docker image inspect \
-        "${ECR_REPOSITORY}:${IMAGE_TAG}" \
-        > /dev/null
-
-      echo "Docker image verification PASSED."
-
-  # ======================================================
-  # STEP 8
-  # LOCAL CONTAINER TEST
-  # ======================================================
-
-  - name: Start Local Docker Container
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "STARTING LOCAL CONTAINER"
-      echo "=============================================="
-
-      docker run \
-        --detach \
-        --name charlie-cafe-tf-test \
-        --publish 8080:80 \
-        "${ECR_REPOSITORY}:${IMAGE_TAG}"
-
-      docker ps
-
-  # ======================================================
-  # STEP 9
-  # WAIT FOR APPLICATION
-  # ======================================================
-
-  - name: Test Local Application
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "TESTING LOCAL APPLICATION"
-      echo "=============================================="
-
-      for attempt in {1..12}; do
-
-        echo "Health-check attempt $attempt/12"
-
-        if curl \
-          --silent \
-          --show-error \
-          --fail \
-          --max-time 5 \
-          http://127.0.0.1:8080 \
-          > /tmp/charlie-cafe-response.txt; then
+  # ==========================================================
+  # JOB 1
+  # TERRAFORM INFRASTRUCTURE DEPLOYMENT
+  # ==========================================================
+
+  terraform:
+    name: Terraform Infrastructure Deployment
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 45
+
+    permissions:
+      contents: read
+
+    steps:
+
+      # ======================================================
+      # STEP 1
+      # CHECKOUT REPOSITORY
+      # ======================================================
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # ======================================================
+      # STEP 2
+      # VERIFY AWS SECRETS
+      # ======================================================
+
+      - name: Verify AWS Secrets
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID_VALUE: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY_VALUE: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "VERIFYING AWS CREDENTIALS"
+          echo "=============================================="
+
+          if [ -z "$AWS_ACCESS_KEY_ID_VALUE" ]; then
+            echo "ERROR: AWS_ACCESS_KEY_ID is missing."
+            exit 1
+          fi
+
+          if [ -z "$AWS_SECRET_ACCESS_KEY_VALUE" ]; then
+            echo "ERROR: AWS_SECRET_ACCESS_KEY is missing."
+            exit 1
+          fi
+
+          echo "AWS credentials are configured."
+
+      # ======================================================
+      # STEP 3
+      # CONFIGURE AWS CREDENTIALS
+      # ======================================================
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ======================================================
+      # STEP 4
+      # VERIFY AWS IDENTITY
+      # ======================================================
+
+      - name: Verify AWS Identity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "AWS INFORMATION"
+          echo "=============================================="
+
+          echo "AWS CLI:"
+          aws --version
 
           echo ""
-          echo "Local application HTTP test PASSED."
-          exit 0
-        fi
-
-        if [ "$attempt" -lt 12 ]; then
-          sleep 5
-        fi
-
-      done
-
-      echo ""
-      echo "ERROR: Local application did not become ready."
-
-      echo ""
-      echo "Container status:"
-      docker ps -a || true
-
-      echo ""
-      echo "Container logs:"
-      docker logs charlie-cafe-tf-test || true
-
-      exit 1
-
-  # ======================================================
-  # STEP 10
-  # DISPLAY LOGS
-  # ======================================================
-
-  - name: Display Docker Logs
-    if: always()
-    shell: bash
-    run: |
-      docker logs charlie-cafe-tf-test \
-        2>&1 \
-        || true
-
-  # ======================================================
-  # STEP 11
-  # REMOVE LOCAL CONTAINER
-  # ======================================================
-
-  - name: Remove Local Container
-    if: always()
-    shell: bash
-    run: |
-      docker rm \
-        --force \
-        charlie-cafe-tf-test \
-        || true
-
-  # ======================================================
-  # STEP 12
-  # LOGIN ECR
-  # ======================================================
-
-  - name: Login to Amazon ECR
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "AMAZON ECR LOGIN"
-      echo "=============================================="
-
-      AWS_ACCOUNT_ID=$(aws sts get-caller-identity \
-        --query Account \
-        --output text)
-
-      ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-
-      aws ecr get-login-password \
-        --region "$AWS_REGION" \
-        | docker login \
-          --username AWS \
-          --password-stdin "$ECR_REGISTRY"
-
-      echo "ECR login PASSED."
-
-  # ======================================================
-  # STEP 13
-  # VERIFY ECR REPOSITORY
-  # ======================================================
-
-  - name: Verify ECR Repository
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "VERIFYING ECR REPOSITORY"
-      echo "=============================================="
-
-      aws ecr describe-repositories \
-        --repository-names "$ECR_REPOSITORY" \
-        --region "$AWS_REGION" \
-        --output table
-
-      echo ""
-      echo "ECR repository verification PASSED."
-
-  # ======================================================
-  # STEP 14
-  # TAG IMAGE
-  # ======================================================
-
-  - name: Tag Image for ECR
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      AWS_ACCOUNT_ID=$(aws sts get-caller-identity \
-        --query Account \
-        --output text)
-
-      ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-
-      ECR_IMAGE="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
-
-      docker tag \
-        "${ECR_REPOSITORY}:${IMAGE_TAG}" \
-        "$ECR_IMAGE"
-
-      echo "ECR image:"
-      echo "$ECR_IMAGE"
-
-  # ======================================================
-  # STEP 15
-  # PUSH IMAGE
-  # ======================================================
-
-  - name: Push Docker Image to ECR
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      AWS_ACCOUNT_ID=$(aws sts get-caller-identity \
-        --query Account \
-        --output text)
-
-      ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-
-      ECR_IMAGE="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
-
-      echo "=============================================="
-      echo "PUSHING IMAGE TO ECR"
-      echo "=============================================="
-
-      docker push "$ECR_IMAGE"
-
-      echo ""
-      echo "Docker image pushed successfully."
-
-  # ======================================================
-  # STEP 16
-  # VERIFY IMAGE
-  # ======================================================
-
-  - name: Verify ECR Image
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      aws ecr describe-images \
-        --repository-name "$ECR_REPOSITORY" \
-        --image-ids imageTag="$IMAGE_TAG" \
-        --region "$AWS_REGION" \
-        --query 'imageDetails[0].[imageTags,imageDigest,imagePushedAt]' \
-        --output table
-
-      echo ""
-      echo "ECR image verification PASSED."
-
-
-# ==========================================================
-
-# JOB 3
-
-# ECS DEPLOYMENT
-
-# ==========================================================
-
-ecs-deploy:
-
-
-name: Deploy Docker Image to ECS Fargate
-
-needs:
-  - terraform
-  - docker
-
-runs-on: ubuntu-latest
-
-timeout-minutes: 30
-
-permissions:
-  contents: read
-
-steps:
-
-  # ======================================================
-  # STEP 1
-  # CONFIGURE AWS
-  # ======================================================
-
-  - name: Configure AWS Credentials
-    uses: aws-actions/configure-aws-credentials@v4
-    with:
-      aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      aws-region: ${{ env.AWS_REGION }}
-
-  # ======================================================
-  # STEP 2
-  # VERIFY ECS CLUSTER
-  # ======================================================
-
-  - name: Verify ECS Cluster
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "VERIFYING ECS CLUSTER"
-      echo "=============================================="
-
-      aws ecs describe-clusters \
-        --clusters "$ECS_CLUSTER" \
-        --region "$AWS_REGION" \
-        --query 'clusters[0].[clusterName,status,runningTasksCount,pendingTasksCount]' \
-        --output table
-
-  # ======================================================
-  # STEP 3
-  # VERIFY ECS SERVICE
-  # ======================================================
-
-  - name: Verify ECS Service
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "VERIFYING ECS SERVICE"
-      echo "=============================================="
-
-      SERVICE_STATUS=$(aws ecs describe-services \
-        --cluster "$ECS_CLUSTER" \
-        --services "$ECS_SERVICE" \
-        --region "$AWS_REGION" \
-        --query 'services[0].status' \
-        --output text)
-
-      if [ "$SERVICE_STATUS" != "ACTIVE" ]; then
-        echo "ERROR: ECS service is not ACTIVE."
-        echo "Service status: $SERVICE_STATUS"
-        exit 1
-      fi
-
-      echo "ECS service is ACTIVE."
-
-  # ======================================================
-  # STEP 4
-  # FORCE NEW ECS DEPLOYMENT
-  # ======================================================
-
-  - name: Deploy Latest ECR Image
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "DEPLOYING LATEST ECR IMAGE"
-      echo "=============================================="
-
-      aws ecs update-service \
-        --cluster "$ECS_CLUSTER" \
-        --service "$ECS_SERVICE" \
-        --desired-count 1 \
-        --force-new-deployment \
-        --region "$AWS_REGION" \
-        --query 'service.[serviceName,status,desiredCount,runningCount,pendingCount]' \
-        --output table
-
-      echo ""
-      echo "ECS deployment triggered."
-
-  # ======================================================
-  # STEP 5
-  # WAIT FOR ECS STABILITY
-  # ======================================================
-
-  - name: Wait for ECS Service Stability
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "WAITING FOR ECS SERVICE STABILITY"
-      echo "=============================================="
-
-      aws ecs wait services-stable \
-        --cluster "$ECS_CLUSTER" \
-        --services "$ECS_SERVICE" \
-        --region "$AWS_REGION"
-
-      echo ""
-      echo "ECS service reached stable state."
-
-  # ======================================================
-  # STEP 6
-  # DISPLAY ECS STATUS
-  # ======================================================
-
-  - name: Display ECS Deployment Status
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "ECS DEPLOYMENT STATUS"
-      echo "=============================================="
-
-      aws ecs describe-services \
-        --cluster "$ECS_CLUSTER" \
-        --services "$ECS_SERVICE" \
-        --region "$AWS_REGION" \
-        --query 'services[0].[serviceName,status,desiredCount,runningCount,pendingCount]' \
-        --output table
-
-  # ======================================================
-  # STEP 7
-  # VERIFY ALB
-  # ======================================================
-
-  - name: Verify Application Load Balancer
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=============================================="
-      echo "VERIFYING ALB"
-      echo "=============================================="
-
-      ALB_DNS=$(aws elbv2 describe-load-balancers \
-        --region "$AWS_REGION" \
-        --names "CharlieCafe-TF-ALB" \
-        --query 'LoadBalancers[0].DNSName' \
-        --output text)
-
-      if [ -z "$ALB_DNS" ] || [ "$ALB_DNS" = "None" ]; then
-        echo "ERROR: ALB DNS name was not found."
-        exit 1
-      fi
-
-      echo "ALB DNS:"
-      echo "$ALB_DNS"
-
-      echo ""
-      echo "Application URL:"
-      echo "http://$ALB_DNS"
-
-      echo "$ALB_DNS" > "$GITHUB_WORKSPACE/alb-dns.txt"
-
-  # ======================================================
-  # STEP 8
-  # ALB HTTP TEST
-  # ======================================================
-
-  - name: Test Application Through ALB
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      ALB_DNS=$(cat "$GITHUB_WORKSPACE/alb-dns.txt")
-
-      echo "=============================================="
-      echo "TESTING APPLICATION THROUGH ALB"
-      echo "=============================================="
-
-      for attempt in {1..12}; do
-
-        echo "ALB test attempt $attempt/12"
-
-        if curl \
-          --silent \
-          --show-error \
-          --fail \
-          --max-time 10 \
-          "http://$ALB_DNS/" \
-          > /tmp/alb-response.txt; then
+          echo "AWS Account:"
+          aws sts get-caller-identity \
+            --query Account \
+            --output text
 
           echo ""
-          echo "ALB HTTP test PASSED."
-          exit 0
-        fi
+          echo "AWS ARN:"
+          aws sts get-caller-identity \
+            --query Arn \
+            --output text
 
-        if [ "$attempt" -lt 12 ]; then
-          sleep 10
-        fi
+          echo ""
+          echo "AWS Region:"
+          echo "$AWS_REGION"
 
-      done
+      # ======================================================
+      # STEP 5
+      # SETUP TERRAFORM
+      # ======================================================
 
-      echo ""
-      echo "ERROR: Application did not respond successfully through ALB."
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
 
-      echo ""
-      echo "ECS service status:"
+      # ======================================================
+      # STEP 6
+      # VERIFY TERRAFORM DIRECTORY
+      # ======================================================
 
-      aws ecs describe-services \
-        --cluster "$ECS_CLUSTER" \
-        --services "$ECS_SERVICE" \
-        --region "$AWS_REGION" \
-        --output table \
-        || true
+      - name: Verify Terraform Directory
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      exit 1
+          echo "=============================================="
+          echo "VERIFYING TERRAFORM DIRECTORY"
+          echo "=============================================="
 
-  # ======================================================
-  # STEP 9
-  # FINAL STATUS
-  # ======================================================
+          if [ ! -d "$TERRAFORM_DIR" ]; then
+            echo "ERROR: Terraform directory does not exist:"
+            echo "$TERRAFORM_DIR"
+            exit 1
+          fi
 
-  - name: Deployment Complete
-    shell: bash
-    run: |
-      set -euo pipefail
+          TF_FILE_COUNT=$(find "$TERRAFORM_DIR" \
+            -maxdepth 1 \
+            -type f \
+            -name "*.tf" \
+            | wc -l)
 
-      ALB_DNS=$(cat "$GITHUB_WORKSPACE/alb-dns.txt")
+          if [ "$TF_FILE_COUNT" -eq 0 ]; then
+            echo "ERROR: No Terraform files were found."
+            exit 1
+          fi
 
-      echo ""
-      echo "=================================================="
-      echo "CHARLIE CAFE TERRAFORM DEPLOYMENT COMPLETE"
-      echo "=================================================="
+          echo "Terraform directory:"
+          echo "$TERRAFORM_DIR"
 
-      echo ""
-      echo "AWS Region:"
-      echo "$AWS_REGION"
+          echo ""
+          echo "Terraform files:"
 
-      echo ""
-      echo "Terraform Directory:"
-      echo "$TERRAFORM_DIR"
+          find "$TERRAFORM_DIR" \
+            -maxdepth 1 \
+            -type f \
+            -name "*.tf" \
+            -print \
+            | sort
 
-      echo ""
-      echo "ECR Repository:"
-      echo "$ECR_REPOSITORY"
+          echo ""
+          echo "Terraform files found: $TF_FILE_COUNT"
 
-      echo ""
-      echo "ECS Cluster:"
-      echo "$ECS_CLUSTER"
+      # ======================================================
+      # STEP 7
+      # VERIFY TERRAFORM VERSION
+      # ======================================================
 
-      echo ""
-      echo "ECS Service:"
-      echo "$ECS_SERVICE"
+      - name: Verify Terraform
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      echo ""
-      echo "ECS Container:"
-      echo "$ECS_CONTAINER"
+          echo "=============================================="
+          echo "TERRAFORM VERSION"
+          echo "=============================================="
 
-      echo ""
-      echo "Application URL:"
-      echo "http://$ALB_DNS"
+          terraform version
 
-      echo ""
-      echo "Terraform:"
-      echo "SUCCESS"
+      # ======================================================
+      # STEP 8
+      # TERRAFORM INIT
+      # ======================================================
 
-      echo ""
-      echo "Docker:"
-      echo "SUCCESS"
+      - name: Terraform Init
+        shell: bash
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        run: |
+          set -euo pipefail
 
-      echo ""
-      echo "ECR:"
-      echo "SUCCESS"
+          echo "=============================================="
+          echo "TERRAFORM INIT"
+          echo "=============================================="
 
-      echo ""
-      echo "ECS:"
-      echo "SUCCESS"
+          terraform init \
+            -input=false
 
-      echo ""
-      echo "ALB HTTP:"
-      echo "SUCCESS"
+          echo ""
+          echo "Terraform initialization completed successfully."
 
-      echo ""
-      echo "=================================================="
-      echo "DEPLOYMENT SUCCESSFUL"
-      echo "=================================================="
+      # ======================================================
+      # STEP 9
+      # TERRAFORM FORMAT CHECK
+      # ======================================================
+
+      - name: Terraform Format Check
+        shell: bash
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "TERRAFORM FORMAT CHECK"
+          echo "=============================================="
+
+          terraform fmt \
+            -check \
+            -recursive
+
+          echo ""
+          echo "Terraform formatting check PASSED."
+
+      # ======================================================
+      # STEP 10
+      # TERRAFORM VALIDATE
+      # ======================================================
+
+      - name: Terraform Validate
+        shell: bash
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        env:
+          TF_VAR_aws_region: ${{ env.AWS_REGION }}
+          TF_VAR_key_pair_name: ${{ env.KEY_PAIR_NAME }}
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "TERRAFORM VALIDATE"
+          echo "=============================================="
+
+          terraform validate
+
+          echo ""
+          echo "Terraform validation PASSED."
+
+      # ======================================================
+      # STEP 11
+      # TERRAFORM PLAN
+      # ======================================================
+
+      - name: Terraform Plan
+        shell: bash
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        env:
+          TF_VAR_aws_region: ${{ env.AWS_REGION }}
+          TF_VAR_key_pair_name: ${{ env.KEY_PAIR_NAME }}
+          TF_VAR_ecs_desired_count: ${{ env.ECS_DESIRED_COUNT }}
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "TERRAFORM PLAN"
+          echo "=============================================="
+
+          echo "AWS Region:"
+          echo "$TF_VAR_aws_region"
+
+          echo ""
+          echo "EC2 Key Pair:"
+          echo "$TF_VAR_key_pair_name"
+
+          echo ""
+          echo "ECS Desired Count:"
+          echo "$TF_VAR_ecs_desired_count"
+
+          echo ""
+          echo "Generating Terraform plan..."
+
+          terraform plan \
+            -input=false \
+            -lock-timeout=5m \
+            -out=tfplan
+
+          echo ""
+          echo "Terraform plan completed successfully."
+
+      # ======================================================
+      # STEP 12
+      # TERRAFORM APPLY
+      # ======================================================
+
+      - name: Terraform Apply
+        shell: bash
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        env:
+          TF_VAR_aws_region: ${{ env.AWS_REGION }}
+          TF_VAR_key_pair_name: ${{ env.KEY_PAIR_NAME }}
+          TF_VAR_ecs_desired_count: ${{ env.ECS_DESIRED_COUNT }}
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "TERRAFORM APPLY"
+          echo "=============================================="
+
+          terraform apply \
+            -input=false \
+            -lock-timeout=5m \
+            -auto-approve \
+            tfplan
+
+          echo ""
+          echo "Terraform apply completed successfully."
+
+      # ======================================================
+      # STEP 13
+      # DISPLAY TERRAFORM OUTPUTS
+      # ======================================================
+
+      - name: Display Terraform Outputs
+        shell: bash
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "TERRAFORM OUTPUTS"
+          echo "=============================================="
+
+          terraform output || true
+
+      # ======================================================
+      # STEP 14
+      # VERIFY TERRAFORM STATE
+      # ======================================================
+
+      - name: Verify Terraform State
+        shell: bash
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "TERRAFORM STATE"
+          echo "=============================================="
+
+          terraform state list
+
+          echo ""
+          echo "Terraform state verification PASSED."
+
+      # ======================================================
+      # STEP 15
+      # UPLOAD TERRAFORM PLAN FOR DEBUGGING
+      # ======================================================
+
+      - name: Upload Terraform Plan
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-${{ github.run_number }}
+          path: ${{ env.TERRAFORM_DIR }}/tfplan
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ==========================================================
+  # JOB 2
+  # DOCKER BUILD + LOCAL TEST + ECR
+  # ==========================================================
+
+  docker:
+    name: Build Test and Push Docker Image
+
+    needs:
+      - terraform
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 30
+
+    permissions:
+      contents: read
+
+    steps:
+
+      # ======================================================
+      # STEP 1
+      # CHECKOUT REPOSITORY
+      # ======================================================
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # ======================================================
+      # STEP 2
+      # CONFIGURE AWS CREDENTIALS
+      # ======================================================
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ======================================================
+      # STEP 3
+      # VERIFY DOCKER
+      # ======================================================
+
+      - name: Verify Docker
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "DOCKER INFORMATION"
+          echo "=============================================="
+
+          docker --version
+          docker compose version
+
+      # ======================================================
+      # STEP 4
+      # VERIFY DOCKER FILES
+      # ======================================================
+
+      - name: Verify Docker Files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "VERIFYING DOCKER FILES"
+          echo "=============================================="
+
+          if [ ! -f "docker/Dockerfile" ]; then
+            echo "ERROR: docker/Dockerfile was not found."
+            exit 1
+          fi
+
+          if [ ! -f "docker-compose.yml" ]; then
+            echo "ERROR: docker-compose.yml was not found."
+            exit 1
+          fi
+
+          echo "Dockerfile found."
+          echo "docker-compose.yml found."
+
+      # ======================================================
+      # STEP 5
+      # VALIDATE DOCKER COMPOSE
+      # ======================================================
+
+      - name: Validate Docker Compose
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "DOCKER COMPOSE VALIDATION"
+          echo "=============================================="
+
+          docker compose config
+
+          echo ""
+          echo "Docker Compose validation PASSED."
+
+      # ======================================================
+      # STEP 6
+      # BUILD DOCKER IMAGE
+      # ======================================================
+
+      - name: Build Docker Image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "BUILDING DOCKER IMAGE"
+          echo "=============================================="
+
+          docker build \
+            --file docker/Dockerfile \
+            --tag "${ECR_REPOSITORY}:${IMAGE_TAG}" \
+            .
+
+          echo ""
+          echo "Docker image build PASSED."
+
+      # ======================================================
+      # STEP 7
+      # VERIFY LOCAL DOCKER IMAGE
+      # ======================================================
+
+      - name: Verify Docker Image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker image inspect \
+            "${ECR_REPOSITORY}:${IMAGE_TAG}" \
+            > /dev/null
+
+          echo "Docker image verification PASSED."
+
+      # ======================================================
+      # STEP 8
+      # START LOCAL DOCKER CONTAINER
+      # ======================================================
+
+      - name: Start Local Docker Container
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "STARTING LOCAL CONTAINER"
+          echo "=============================================="
+
+          docker run \
+            --detach \
+            --name charlie-cafe-tf-test \
+            --publish 8080:80 \
+            "${ECR_REPOSITORY}:${IMAGE_TAG}"
+
+          docker ps
+
+      # ======================================================
+      # STEP 9
+      # TEST LOCAL APPLICATION
+      # ======================================================
+
+      - name: Test Local Application
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "TESTING LOCAL APPLICATION"
+          echo "=============================================="
+
+          for attempt in {1..12}; do
+
+            echo "Health-check attempt $attempt/12"
+
+            if curl \
+              --silent \
+              --show-error \
+              --fail \
+              --max-time 5 \
+              http://127.0.0.1:8080/ \
+              > /tmp/charlie-cafe-response.txt; then
+
+              echo ""
+              echo "Local application HTTP test PASSED."
+              exit 0
+            fi
+
+            if [ "$attempt" -lt 12 ]; then
+              sleep 5
+            fi
+
+          done
+
+          echo ""
+          echo "ERROR: Local application did not become ready."
+
+          echo ""
+          echo "Container status:"
+          docker ps -a || true
+
+          echo ""
+          echo "Container logs:"
+          docker logs charlie-cafe-tf-test || true
+
+          exit 1
+
+      # ======================================================
+      # STEP 10
+      # DISPLAY DOCKER LOGS
+      # ======================================================
+
+      - name: Display Docker Logs
+        if: always()
+        shell: bash
+        run: |
+          docker logs charlie-cafe-tf-test \
+            2>&1 \
+            || true
+
+      # ======================================================
+      # STEP 11
+      # REMOVE LOCAL CONTAINER
+      # ======================================================
+
+      - name: Remove Local Container
+        if: always()
+        shell: bash
+        run: |
+          docker rm \
+            --force \
+            charlie-cafe-tf-test \
+            || true
+
+      # ======================================================
+      # STEP 12
+      # LOGIN TO AMAZON ECR
+      # ======================================================
+
+      - name: Login to Amazon ECR
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "AMAZON ECR LOGIN"
+          echo "=============================================="
+
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity \
+            --query Account \
+            --output text)
+
+          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+          aws ecr get-login-password \
+            --region "$AWS_REGION" \
+            | docker login \
+              --username AWS \
+              --password-stdin "$ECR_REGISTRY"
+
+          echo "ECR login PASSED."
+
+      # ======================================================
+      # STEP 13
+      # VERIFY ECR REPOSITORY
+      # ======================================================
+
+      - name: Verify ECR Repository
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "VERIFYING ECR REPOSITORY"
+          echo "=============================================="
+
+          aws ecr describe-repositories \
+            --repository-names "$ECR_REPOSITORY" \
+            --region "$AWS_REGION" \
+            --output table
+
+          echo ""
+          echo "ECR repository verification PASSED."
+
+      # ======================================================
+      # STEP 14
+      # TAG IMAGE FOR ECR
+      # ======================================================
+
+      - name: Tag Image for ECR
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity \
+            --query Account \
+            --output text)
+
+          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+          ECR_IMAGE="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+
+          docker tag \
+            "${ECR_REPOSITORY}:${IMAGE_TAG}" \
+            "$ECR_IMAGE"
+
+          echo "ECR image:"
+          echo "$ECR_IMAGE"
+
+      # ======================================================
+      # STEP 15
+      # PUSH IMAGE TO ECR
+      # ======================================================
+
+      - name: Push Docker Image to ECR
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity \
+            --query Account \
+            --output text)
+
+          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+          ECR_IMAGE="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+
+          echo "=============================================="
+          echo "PUSHING IMAGE TO ECR"
+          echo "=============================================="
+
+          docker push "$ECR_IMAGE"
+
+          echo ""
+          echo "Docker image pushed successfully."
+
+      # ======================================================
+      # STEP 16
+      # VERIFY ECR IMAGE
+      # ======================================================
+
+      - name: Verify ECR Image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids imageTag="$IMAGE_TAG" \
+            --region "$AWS_REGION" \
+            --query 'imageDetails[0].[imageTags,imageDigest,imagePushedAt]' \
+            --output table
+
+          echo ""
+          echo "ECR image verification PASSED."
+
+  # ==========================================================
+  # JOB 3
+  # ECS FARGATE DEPLOYMENT
+  # ==========================================================
+
+  ecs-deploy:
+    name: Deploy Docker Image to ECS Fargate
+
+    needs:
+      - terraform
+      - docker
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 30
+
+    permissions:
+      contents: read
+
+    steps:
+
+      # ======================================================
+      # STEP 1
+      # CONFIGURE AWS CREDENTIALS
+      # ======================================================
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ======================================================
+      # STEP 2
+      # VERIFY ECS CLUSTER
+      # ======================================================
+
+      - name: Verify ECS Cluster
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "VERIFYING ECS CLUSTER"
+          echo "=============================================="
+
+          CLUSTER_STATUS=$(aws ecs describe-clusters \
+            --clusters "$ECS_CLUSTER" \
+            --region "$AWS_REGION" \
+            --query 'clusters[0].status' \
+            --output text)
+
+          if [ "$CLUSTER_STATUS" != "ACTIVE" ]; then
+            echo "ERROR: ECS cluster is not ACTIVE."
+            echo "Cluster status: $CLUSTER_STATUS"
+            exit 1
+          fi
+
+          aws ecs describe-clusters \
+            --clusters "$ECS_CLUSTER" \
+            --region "$AWS_REGION" \
+            --query 'clusters[0].[clusterName,status,runningTasksCount,pendingTasksCount]' \
+            --output table
+
+          echo ""
+          echo "ECS cluster is ACTIVE."
+
+      # ======================================================
+      # STEP 3
+      # VERIFY ECS SERVICE
+      # ======================================================
+
+      - name: Verify ECS Service
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "VERIFYING ECS SERVICE"
+          echo "=============================================="
+
+          SERVICE_STATUS=$(aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --region "$AWS_REGION" \
+            --query 'services[0].status' \
+            --output text)
+
+          if [ "$SERVICE_STATUS" != "ACTIVE" ]; then
+            echo "ERROR: ECS service is not ACTIVE."
+            echo "Service status: $SERVICE_STATUS"
+            exit 1
+          fi
+
+          echo "ECS service is ACTIVE."
+
+      # ======================================================
+      # STEP 4
+      # FORCE NEW ECS DEPLOYMENT
+      # ======================================================
+
+      - name: Deploy Latest ECR Image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "DEPLOYING LATEST ECR IMAGE"
+          echo "=============================================="
+
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE" \
+            --desired-count "$ECS_DESIRED_COUNT" \
+            --force-new-deployment \
+            --region "$AWS_REGION" \
+            --query 'service.[serviceName,status,desiredCount,runningCount,pendingCount]' \
+            --output table
+
+          echo ""
+          echo "ECS deployment triggered."
+
+      # ======================================================
+      # STEP 5
+      # WAIT FOR ECS SERVICE STABILITY
+      # ======================================================
+
+      - name: Wait for ECS Service Stability
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "WAITING FOR ECS SERVICE STABILITY"
+          echo "=============================================="
+
+          aws ecs wait services-stable \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --region "$AWS_REGION"
+
+          echo ""
+          echo "ECS service reached stable state."
+
+      # ======================================================
+      # STEP 6
+      # DISPLAY ECS DEPLOYMENT STATUS
+      # ======================================================
+
+      - name: Display ECS Deployment Status
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "ECS DEPLOYMENT STATUS"
+          echo "=============================================="
+
+          aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --region "$AWS_REGION" \
+            --query 'services[0].[serviceName,status,desiredCount,runningCount,pendingCount]' \
+            --output table
+
+      # ======================================================
+      # STEP 7
+      # VERIFY APPLICATION LOAD BALANCER
+      # ======================================================
+
+      - name: Verify Application Load Balancer
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "VERIFYING ALB"
+          echo "=============================================="
+
+          ALB_DNS=$(aws elbv2 describe-load-balancers \
+            --region "$AWS_REGION" \
+            --names "CharlieCafe-TF-ALB" \
+            --query 'LoadBalancers[0].DNSName' \
+            --output text)
+
+          if [ -z "$ALB_DNS" ] || [ "$ALB_DNS" = "None" ]; then
+            echo "ERROR: ALB DNS name was not found."
+            exit 1
+          fi
+
+          echo "ALB DNS:"
+          echo "$ALB_DNS"
+
+          echo ""
+          echo "Application URL:"
+          echo "http://$ALB_DNS"
+
+          echo "$ALB_DNS" > "$GITHUB_WORKSPACE/alb-dns.txt"
+
+      # ======================================================
+      # STEP 8
+      # TEST APPLICATION THROUGH ALB
+      # ======================================================
+
+      - name: Test Application Through ALB
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ALB_DNS=$(cat "$GITHUB_WORKSPACE/alb-dns.txt")
+
+          echo "=============================================="
+          echo "TESTING APPLICATION THROUGH ALB"
+          echo "=============================================="
+
+          for attempt in {1..12}; do
+
+            echo "ALB test attempt $attempt/12"
+
+            if curl \
+              --silent \
+              --show-error \
+              --fail \
+              --max-time 10 \
+              "http://$ALB_DNS/" \
+              > /tmp/alb-response.txt; then
+
+              echo ""
+              echo "ALB HTTP test PASSED."
+              exit 0
+            fi
+
+            if [ "$attempt" -lt 12 ]; then
+              sleep 10
+            fi
+
+          done
+
+          echo ""
+          echo "ERROR: Application did not respond successfully through ALB."
+
+          echo ""
+          echo "ECS service status:"
+
+          aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --region "$AWS_REGION" \
+            --output table \
+            || true
+
+          echo ""
+          echo "Recent ECS service events:"
+
+          aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --region "$AWS_REGION" \
+            --query 'services[0].events[0:10].[createdAt,message]' \
+            --output table \
+            || true
+
+          exit 1
+
+      # ======================================================
+      # STEP 9
+      # FINAL DEPLOYMENT STATUS
+      # ======================================================
+
+      - name: Deployment Complete
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ALB_DNS=$(cat "$GITHUB_WORKSPACE/alb-dns.txt")
+
+          echo ""
+          echo "=================================================="
+          echo "CHARLIE CAFE TERRAFORM DEPLOYMENT COMPLETE"
+          echo "=================================================="
+
+          echo ""
+          echo "AWS Region:"
+          echo "$AWS_REGION"
+
+          echo ""
+          echo "Terraform Directory:"
+          echo "$TERRAFORM_DIR"
+
+          echo ""
+          echo "ECR Repository:"
+          echo "$ECR_REPOSITORY"
+
+          echo ""
+          echo "ECS Cluster:"
+          echo "$ECS_CLUSTER"
+
+          echo ""
+          echo "ECS Service:"
+          echo "$ECS_SERVICE"
+
+          echo ""
+          echo "ECS Container:"
+          echo "$ECS_CONTAINER"
+
+          echo ""
+          echo "ECS Desired Count:"
+          echo "$ECS_DESIRED_COUNT"
+
+          echo ""
+          echo "Application URL:"
+          echo "http://$ALB_DNS"
+
+          echo ""
+          echo "Terraform:"
+          echo "SUCCESS"
+
+          echo ""
+          echo "Docker:"
+          echo "SUCCESS"
+
+          echo ""
+          echo "ECR:"
+          echo "SUCCESS"
+
+          echo ""
+          echo "ECS:"
+          echo "SUCCESS"
+
+          echo ""
+          echo "ALB HTTP:"
+          echo "SUCCESS"
+
+          echo ""
+          echo "=================================================="
+          echo "DEPLOYMENT SUCCESSFUL"
+          echo "=================================================="
 
