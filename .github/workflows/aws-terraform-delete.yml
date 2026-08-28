@@ -20,63 +20,77 @@
 #   2. AWS-side orphan cleanup
 #      -> AWS resource discovery + explicit cleanup
 #
-# WHY BOTH ARE REQUIRED
+# NEW FINAL SAFETY NET
 # ---------------------------------------------------------------------
 #
-# Terraform can only manage resources that exist in Terraform state.
+# A SECOND INDEPENDENT JOB is added at the end:
 #
-# Example:
+#   final-aws-resource-sweep
 #
-# Terraform state:
-#   EMPTY
+# This job:
 #
-# AWS:
-#   CharlieCafe-TF-Lab-VPC
-#   CharlieCafe-TF-ALB
-#   CharlieCafe-TF-Cluster
-#   CharlieCafe-TF-RDS
+#   - Runs even when the main cleanup job fails.
+#   - Does NOT depend on Terraform state.
+#   - Performs another AWS-side cleanup pass.
+#   - Handles multiple matching resource names.
+#   - Cleans dependencies before attempting VPC deletion.
 #
-# Terraform may correctly report:
+# FINAL SWEEP TARGETS
+# ---------------------------------------------------------------------
 #
-#   No changes
+#   1. VPC
+#   2. S3
+#   3. EC2
+#   4. VPC Endpoints
+#   5. RDS
+#   6. ECS
+#   7. ECR
+#   8. Application Load Balancers
+#   9. Target Groups
 #
-# while AWS resources still exist.
+# Additional dependency cleanup is also performed where necessary:
 #
-# Therefore this workflow:
-#
-#   1. Attempts Terraform destroy first.
-#   2. Discovers Terraform-created AWS resources.
-#   3. Cleans AWS dependencies in the correct order.
-#   4. Attempts Terraform destroy again.
-#   5. Performs a final AWS scan.
-#   6. Performs a final Terraform state check.
-#   7. Performs a final destroy plan.
+#   - NAT Gateways
+#   - Elastic IPs
+#   - Network Interfaces
+#   - Security Groups
+#   - Subnets
+#   - Route Tables
+#   - Internet Gateways
+#   - EFS mount targets/filesystems
 #
 # =====================================================================
 # SAFETY MODEL
 # =====================================================================
 #
-# AWS orphan cleanup is restricted primarily to:
+# The normal cleanup remains primarily restricted to:
 #
 #   Project = CharlieCafe-TF-Lab
 #
-# Known resource names are also used for resources that may not expose
-# the Project tag through the same AWS APIs.
+# Known Charlie Cafe names/prefixes are also used.
 #
-# DO NOT remove or weaken the Project filter unless you intentionally
-# want this workflow to become a much broader destructive cleanup.
+# IMPORTANT:
+#
+# S3 is intentionally different because the user requested cleanup
+# equivalent to:
+#
+#   starts_with(Name, 'terraform-')
+#
+# Therefore ALL terraform-* buckets are candidates.
+#
+# The Terraform backend bucket is protected when it can be detected.
 #
 # =====================================================================
 # IMPORTANT
 # =====================================================================
 #
-# This workflow is DESTRUCTIVE.
+# THIS WORKFLOW IS DESTRUCTIVE.
 #
-# The workflow requires the manual input:
+# The workflow requires:
 #
 #   DELETE
 #
-# before it will proceed.
+# before cleanup proceeds.
 #
 # =====================================================================
 
@@ -108,8 +122,6 @@ on:
       #
       # false:
       #   Terraform destroy only
-      #
-      # The final verification behaves accordingly.
       # ---------------------------------------------------------------
 
       cleanup_orphans:
@@ -135,9 +147,6 @@ env:
 
   # -------------------------------------------------------------------
   # TERRAFORM WORKING DIRECTORY
-  #
-  # IMPORTANT:
-  # Your Terraform project is located here.
   # -------------------------------------------------------------------
 
   TERRAFORM_WORKING_DIRECTORY: infrastructure/terraform
@@ -150,8 +159,6 @@ env:
 
   # -------------------------------------------------------------------
   # PRIMARY PROJECT SAFETY TAG
-  #
-  # This is the primary AWS orphan-cleanup boundary.
   # -------------------------------------------------------------------
 
   PROJECT_TAG_KEY: Project
@@ -203,10 +210,6 @@ env:
 
   # -------------------------------------------------------------------
   # WAIT CONFIGURATION
-  #
-  # WAIT_ATTEMPTS * WAIT_SECONDS
-  #
-  # 60 * 10 = up to approximately 10 minutes per wait loop.
   # -------------------------------------------------------------------
 
   WAIT_ATTEMPTS: "60"
@@ -214,10 +217,16 @@ env:
   WAIT_SECONDS: "10"
 
 # =====================================================================
-# JOB
+# JOBS
 # =====================================================================
 
 jobs:
+
+  # ===================================================================
+  # MAIN TERRAFORM + AWS CLEANUP JOB
+  #
+  # YOUR EXISTING JOB
+  # ===================================================================
 
   delete-lab:
 
@@ -510,8 +519,6 @@ jobs:
       # ===============================================================
       # STEP 11
       # FIRST TERRAFORM DESTROY
-      #
-      # Terraform gets the FIRST opportunity to remove resources.
       # ===============================================================
 
       - name: "Step 11 - Execute Terraform Destroy"
@@ -537,11 +544,6 @@ jobs:
       # ===============================================================
       # STEP 12
       # AWS ORPHAN RESOURCE DISCOVERY
-      #
-      # This step is intentionally informational.
-      #
-      # The actual cleanup is performed by the following resource
-      # specific steps.
       # ===============================================================
 
       - name: "Step 12 - Discover Terraform AWS Orphan Resources"
@@ -607,9 +609,6 @@ jobs:
       # ===============================================================
       # STEP 13
       # CLEANUP ECS
-      #
-      # ECS is handled before network resources because ECS services
-      # can own ENIs inside the VPC.
       # ===============================================================
 
       - name: "Step 13 - Cleanup ECS"
@@ -645,13 +644,6 @@ jobs:
             echo ""
             echo "Cluster:"
             echo "  $CLUSTER_ARN"
-
-            # ---------------------------------------------------------
-            # Discover service status.
-            #
-            # INACTIVE services cannot be updated or deleted again.
-            # This avoids the ServiceNotActiveException problem.
-            # ---------------------------------------------------------
 
             SERVICE_STATUS="$(
               aws ecs describe-services \
@@ -707,9 +699,7 @@ jobs:
                 if [[ "$RUNNING" == "None" ||
                       "$RUNNING" == "null" ||
                       -z "$RUNNING" ]]; then
-
                   RUNNING="0"
-
                 fi
 
                 echo "Attempt $ATTEMPT/$WAIT_ATTEMPTS - Running tasks: $RUNNING"
@@ -732,10 +722,6 @@ jobs:
                 --region "$AWS_REGION" \
                 --no-cli-pager \
                 2>/dev/null || true
-
-              # -------------------------------------------------------
-              # Wait until service is either INACTIVE or absent.
-              # -------------------------------------------------------
 
               for ATTEMPT in $(seq 1 "$WAIT_ATTEMPTS"); do
 
@@ -774,16 +760,6 @@ jobs:
 
             elif [[ "$SERVICE_STATUS" == "INACTIVE" ]]; then
 
-              # -------------------------------------------------------
-              # IMPORTANT:
-              #
-              # An INACTIVE ECS service must NOT be updated.
-              #
-              # This specifically prevents:
-              #
-              # ServiceNotActiveException
-              # -------------------------------------------------------
-
               echo ""
               echo "ECS service is already INACTIVE."
               echo "No service update/delete operation is required."
@@ -795,12 +771,6 @@ jobs:
 
             fi
 
-            # ---------------------------------------------------------
-            # Delete ECS cluster.
-            #
-            # Cluster deletion is attempted only after service cleanup.
-            # ---------------------------------------------------------
-
             echo ""
             echo "Deleting ECS cluster."
 
@@ -811,13 +781,6 @@ jobs:
               2>/dev/null || true
 
           fi
-
-          # -----------------------------------------------------------
-          # Deregister ACTIVE task definitions.
-          #
-          # Task definitions remain in ECS even after a service is
-          # deleted.
-          # -----------------------------------------------------------
 
           echo ""
           echo "Discovering ACTIVE ECS task definitions."
@@ -903,7 +866,7 @@ jobs:
       # STEP 15
       # CLEANUP RDS
       #
-      # RDS must be deleted before its VPC networking dependencies.
+      # EXISTING RDS CLEANUP PRESERVED.
       # ===============================================================
 
       - name: "Step 15 - Cleanup RDS"
@@ -1013,10 +976,6 @@ jobs:
 
           fi
 
-          # -----------------------------------------------------------
-          # Delete RDS subnet group.
-          # -----------------------------------------------------------
-
           echo ""
           echo "Deleting RDS subnet group."
 
@@ -1031,7 +990,7 @@ jobs:
 
       # ===============================================================
       # STEP 16
-      # CLEANUP ALB AND TARGET GROUPS
+      # CLEANUP APPLICATION LOAD BALANCER
       # ===============================================================
 
       - name: "Step 16 - Cleanup Application Load Balancer"
@@ -1061,10 +1020,6 @@ jobs:
             echo ""
             echo "ALB:"
             echo "  $ALB_ARN"
-
-            # ---------------------------------------------------------
-            # Delete listeners first.
-            # ---------------------------------------------------------
 
             LISTENERS="$(
               aws elbv2 describe-listeners \
@@ -1099,10 +1054,6 @@ jobs:
               --no-cli-pager \
               2>/dev/null || true
 
-            # ---------------------------------------------------------
-            # Wait for ALB deletion.
-            # ---------------------------------------------------------
-
             for ATTEMPT in $(seq 1 "$WAIT_ATTEMPTS"); do
 
               CHECK="$(
@@ -1115,10 +1066,8 @@ jobs:
               )"
 
               if [[ -z "$CHECK" ]]; then
-
                 echo "ALB deletion verified."
                 break
-
               fi
 
               echo "Waiting for ALB deletion: $ATTEMPT/$WAIT_ATTEMPTS"
@@ -1133,13 +1082,6 @@ jobs:
             echo "ALB does not exist."
 
           fi
-
-          # -----------------------------------------------------------
-          # Target groups are handled independently.
-          #
-          # This is important because the ALB may already have been
-          # removed by Terraform or a previous cleanup attempt.
-          # -----------------------------------------------------------
 
           echo ""
           echo "Discovering target group."
@@ -1224,10 +1166,6 @@ jobs:
                 2>/dev/null || true
 
             done
-
-            # ---------------------------------------------------------
-            # Wait until all mount targets disappear.
-            # ---------------------------------------------------------
 
             for ATTEMPT in $(seq 1 "$WAIT_ATTEMPTS"); do
 
@@ -1392,10 +1330,6 @@ jobs:
 
             done
 
-            # ---------------------------------------------------------
-            # Wait for NAT gateways to disappear.
-            # ---------------------------------------------------------
-
             for ATTEMPT in $(seq 1 "$WAIT_ATTEMPTS"); do
 
               REMAINING=0
@@ -1492,10 +1426,6 @@ jobs:
 
           done
 
-          # -----------------------------------------------------------
-          # Allow endpoint ENIs to disappear.
-          # -----------------------------------------------------------
-
           echo ""
           echo "Waiting for VPC endpoint deletion."
 
@@ -1555,17 +1485,6 @@ jobs:
       # ===============================================================
       # STEP 22
       # CLEANUP NETWORK INTERFACES
-      #
-      # IMPORTANT:
-      #
-      # AWS does NOT permit deletion of requester-managed ENIs.
-      #
-      # Therefore this step only deletes ENIs whose status is:
-      #
-      #   available
-      #
-      # AWS-managed/requester-managed ENIs are left alone and will be
-      # rechecked later.
       # ===============================================================
 
       - name: "Step 22 - Cleanup Terraform Network Interfaces"
@@ -1653,10 +1572,6 @@ jobs:
       # ===============================================================
       # STEP 24
       # CLEANUP S3 BUCKETS
-      #
-      # Only Project-tagged S3 buckets are candidates.
-      #
-      # Terraform backend bucket is protected when it can be detected.
       # ===============================================================
 
       - name: "Step 24 - Cleanup Terraform S3 Buckets"
@@ -1670,15 +1585,6 @@ jobs:
           echo "=============================================================="
 
           BACKEND_BUCKET=""
-
-          # -----------------------------------------------------------
-          # Terraform stores backend metadata in:
-          #
-          # .terraform/terraform.tfstate
-          #
-          # This is metadata about the initialized backend, not the
-          # actual Terraform infrastructure state.
-          # -----------------------------------------------------------
 
           if [[ -f "$TERRAFORM_WORKING_DIRECTORY/.terraform/terraform.tfstate" ]]; then
 
@@ -1697,10 +1603,6 @@ jobs:
           echo ""
           echo "Terraform backend bucket:"
           echo "  ${BACKEND_BUCKET:-NOT_DETECTED}"
-
-          # -----------------------------------------------------------
-          # Discover Project-tagged S3 buckets.
-          # -----------------------------------------------------------
 
           BUCKETS="$(
             aws resourcegroupstaggingapi get-resources \
@@ -1733,21 +1635,11 @@ jobs:
             echo "Terraform application bucket:"
             echo "  $BUCKET"
 
-            # ---------------------------------------------------------
-            # Delete current objects.
-            # ---------------------------------------------------------
-
             aws s3 rm \
               "s3://$BUCKET" \
               --recursive \
               --region "$AWS_REGION" \
               2>/dev/null || true
-
-            # ---------------------------------------------------------
-            # Delete object versions and delete markers.
-            #
-            # S3 versioned buckets require explicit deletion of versions.
-            # ---------------------------------------------------------
 
             for LOOP in $(seq 1 100); do
 
@@ -1957,10 +1849,6 @@ jobs:
       # ===============================================================
       # STEP 28
       # CLEANUP IAM ROLES
-      #
-      # IMPORTANT:
-      #
-      # Only explicitly named Charlie Cafe Terraform roles are targeted.
       # ===============================================================
 
       - name: "Step 28 - Cleanup Terraform IAM Roles"
@@ -1998,10 +1886,6 @@ jobs:
             echo "Cleaning IAM role:"
             echo "  $ROLE"
 
-            # ---------------------------------------------------------
-            # Remove inline policies.
-            # ---------------------------------------------------------
-
             INLINE_POLICIES="$(
               aws iam list-role-policies \
                 --role-name "$ROLE" \
@@ -2023,10 +1907,6 @@ jobs:
                 2>/dev/null || true
 
             done
-
-            # ---------------------------------------------------------
-            # Detach managed policies.
-            # ---------------------------------------------------------
 
             ATTACHED_POLICIES="$(
               aws iam list-attached-role-policies \
@@ -2050,10 +1930,6 @@ jobs:
 
             done
 
-            # ---------------------------------------------------------
-            # Delete role.
-            # ---------------------------------------------------------
-
             echo "Deleting IAM role."
 
             aws iam delete-role \
@@ -2069,8 +1945,6 @@ jobs:
       # ===============================================================
       # STEP 29
       # CLEANUP SECURITY GROUPS
-      #
-      # Security groups are deleted after ECS, RDS, ALB and ENIs.
       # ===============================================================
 
       - name: "Step 29 - Cleanup Terraform Security Groups"
@@ -2202,10 +2076,6 @@ jobs:
       # ===============================================================
       # STEP 31
       # CLEANUP ROUTE TABLES
-      #
-      # IMPORTANT:
-      #
-      # Route table associations are explicitly removed first.
       # ===============================================================
 
       - name: "Step 31 - Cleanup Terraform Route Tables"
@@ -2389,9 +2259,6 @@ jobs:
       # ===============================================================
       # STEP 34
       # FINAL VPC CLEANUP
-      #
-      # We use retry logic because AWS may still be releasing
-      # dependencies.
       # ===============================================================
 
       - name: "Step 34 - Delete Terraform VPC"
@@ -2511,9 +2378,6 @@ jobs:
       # ===============================================================
       # STEP 36
       # FINAL KNOWN RESOURCE SCAN
-      #
-      # This catches resources that may not be returned by the
-      # Resource Groups Tagging API.
       # ===============================================================
 
       - name: "Step 36 - Final Known Charlie Cafe Resource Scan"
@@ -2528,10 +2392,6 @@ jobs:
           echo "=============================================================="
 
           REMAINING=0
-
-          # -----------------------------------------------------------
-          # ECS cluster
-          # -----------------------------------------------------------
 
           ECS="$(
             aws ecs describe-clusters \
@@ -2554,10 +2414,6 @@ jobs:
 
           fi
 
-          # -----------------------------------------------------------
-          # ECR
-          # -----------------------------------------------------------
-
           ECR="$(
             aws ecr describe-repositories \
               --repository-names "$ECR_REPOSITORY_NAME" \
@@ -2577,10 +2433,6 @@ jobs:
             REMAINING=$((REMAINING + 1))
 
           fi
-
-          # -----------------------------------------------------------
-          # ALB
-          # -----------------------------------------------------------
 
           ALB="$(
             aws elbv2 describe-load-balancers \
@@ -2602,10 +2454,6 @@ jobs:
 
           fi
 
-          # -----------------------------------------------------------
-          # RDS
-          # -----------------------------------------------------------
-
           RDS="$(
             aws rds describe-db-instances \
               --db-instance-identifier "$RDS_IDENTIFIER" \
@@ -2625,10 +2473,6 @@ jobs:
             REMAINING=$((REMAINING + 1))
 
           fi
-
-          # -----------------------------------------------------------
-          # VPC
-          # -----------------------------------------------------------
 
           VPC="$(
             aws ec2 describe-vpcs \
@@ -2660,9 +2504,6 @@ jobs:
       # ===============================================================
       # STEP 37
       # FINAL TERRAFORM STATE VERIFICATION
-      #
-      # This always runs because Terraform state must be inspected even
-      # if orphan cleanup is disabled.
       # ===============================================================
 
       - name: "Step 37 - Verify Terraform State"
@@ -2702,9 +2543,6 @@ jobs:
       # ===============================================================
       # STEP 38
       # FINAL TERRAFORM DESTROY PLAN
-      #
-      # A successful destroy plan with an empty state means Terraform
-      # has nothing left to destroy.
       # ===============================================================
 
       - name: "Step 38 - Final Terraform Destroy Plan"
@@ -2730,20 +2568,6 @@ jobs:
       # ===============================================================
       # STEP 39
       # FINAL SUCCESS / FAILURE DECISION
-      #
-      # CLEANUP_ORPHANS=true:
-      #
-      #   1. Terraform state must be empty.
-      #   2. No Project-tagged resources may remain.
-      #   3. No known Charlie Cafe resource may remain.
-      #   4. Final Terraform plan must succeed.
-      #
-      # CLEANUP_ORPHANS=false:
-      #
-      #   1. Terraform state must be empty.
-      #   2. Final Terraform plan must succeed.
-      #
-      # This makes the input behave exactly as advertised.
       # ===============================================================
 
       - name: "Step 39 - Final Cleanup Verification"
@@ -2793,10 +2617,6 @@ jobs:
 
           echo ""
 
-          # -----------------------------------------------------------
-          # Terraform state must ALWAYS be empty.
-          # -----------------------------------------------------------
-
           if [[ "$STATE_EMPTY" != "true" ]]; then
 
             echo "ERROR:"
@@ -2806,10 +2626,6 @@ jobs:
 
           fi
 
-          # -----------------------------------------------------------
-          # Final Terraform plan must ALWAYS succeed.
-          # -----------------------------------------------------------
-
           if [[ "$FINAL_PLAN_RESULT" != "success" ]]; then
 
             echo "ERROR:"
@@ -2818,10 +2634,6 @@ jobs:
             exit 1
 
           fi
-
-          # -----------------------------------------------------------
-          # AWS orphan checks are required only when enabled.
-          # -----------------------------------------------------------
 
           if [[ "$CLEANUP_ORPHANS" == "true" ]]; then
 
@@ -2881,11 +2693,6 @@ jobs:
       # ===============================================================
       # STEP 40
       # CLEANUP WORKFLOW SUMMARY
-      #
-      # ALWAYS RUN.
-      #
-      # This provides diagnostic information even when an earlier step
-      # fails.
       # ===============================================================
 
       - name: "Step 40 - Cleanup Summary"
@@ -2949,4 +2756,2311 @@ jobs:
           echo ""
           echo "================================================================"
           echo "END OF CLEANUP SUMMARY"
+          echo "================================================================"
+
+
+  # ===================================================================
+  # NEW JOB
+  # FINAL AWS RESOURCE SWEEP
+  #
+  # IMPORTANT:
+  #
+  # This is deliberately a SEPARATE JOB.
+  #
+  # It runs even if delete-lab fails.
+  #
+  # This solves the situation where:
+  #
+  #   delete-lab -> detects remaining resource -> exits 1
+  #
+  # but AWS still contains:
+  #
+  #   RDS
+  #   S3
+  #   VPC
+  #   EC2
+  #   ALB
+  #   ECS
+  #   ECR
+  #
+  # The final sweep gets another opportunity to remove them.
+  # ===================================================================
+
+  final-aws-resource-sweep:
+
+    name: Final AWS Multi-Resource Cleanup Sweep
+
+    # -----------------------------------------------------------------
+    # ALWAYS RUN AFTER MAIN CLEANUP JOB
+    #
+    # Even if delete-lab fails, this job runs.
+    # -----------------------------------------------------------------
+
+    needs:
+      - delete-lab
+
+    if: ${{ always() }}
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+
+      # ===============================================================
+      # FINAL STEP 1
+      # CONFIRMATION
+      #
+      # This repeats the destructive confirmation in the independent
+      # job so that this job never performs deletion accidentally when
+      # called by another event.
+      # ===============================================================
+
+      - name: "Final Sweep Step 1 - Verify DELETE Confirmation"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================================="
+          echo "FINAL AWS MULTI-RESOURCE CLEANUP SWEEP"
+          echo "=============================================================="
+
+          CONFIRMATION="${{ github.event.inputs.confirmation }}"
+          CLEANUP_ORPHANS="${{ github.event.inputs.cleanup_orphans }}"
+
+          if [[ "$CONFIRMATION" != "DELETE" ]]; then
+
+            echo ""
+            echo "DELETE confirmation is not present."
+            echo "Final AWS sweep will NOT execute."
+
+            exit 1
+
+          fi
+
+          if [[ "$CLEANUP_ORPHANS" != "true" ]]; then
+
+            echo ""
+            echo "cleanup_orphans is false."
+            echo "Final AWS orphan sweep will NOT execute."
+
+            exit 0
+
+          fi
+
+          echo ""
+          echo "DELETE confirmation accepted."
+
+          echo ""
+          echo "Final AWS sweep enabled."
+
+      # ===============================================================
+      # FINAL SWEEP STEP 2
+      # CONFIGURE AWS CREDENTIALS
+      # ===============================================================
+
+      - name: "Final Sweep Step 2 - Configure AWS Credentials"
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ===============================================================
+      # FINAL SWEEP STEP 3
+      # VERIFY AWS ACCOUNT
+      # ===============================================================
+
+      - name: "Final Sweep Step 3 - Verify AWS Account"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================================="
+          echo "FINAL SWEEP AWS ACCOUNT"
+          echo "=============================================================="
+
+          aws sts get-caller-identity
+
+          echo ""
+          echo "Region:"
+          echo "  $AWS_REGION"
+
+      # ===============================================================
+      # FINAL SWEEP STEP 4
+      #
+      # DISCOVER ALL TARGET VPCS
+      #
+      # MATCHING:
+      #
+      #   Project=CharlieCafe-TF-Lab
+      #
+      # OR:
+      #
+      #   Name=CharlieCafe-TF-Lab-VPC
+      #
+      # OR:
+      #
+      #   Name begins with CharlieCafe-TF-
+      #
+      # IDs are saved for use by all later cleanup operations.
+      # ===============================================================
+
+      - name: "Final Sweep Step 4 - Discover Charlie Cafe VPCs"
+        id: discover_vpcs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================================="
+          echo "DISCOVERING CHARLIE CAFE VPCS"
+          echo "=============================================================="
+
+          TMP_FILE="/tmp/charlie-vpcs.txt"
+
+          : > "$TMP_FILE"
+
+          # -----------------------------------------------------------
+          # Project-tagged VPCs.
+          # -----------------------------------------------------------
+
+          aws ec2 describe-vpcs \
+            --region "$AWS_REGION" \
+            --filters \
+              "Name=tag:$PROJECT_TAG_KEY,Values=$PROJECT_TAG_VALUE" \
+            --query "Vpcs[].VpcId" \
+            --output text \
+            --no-cli-pager \
+            2>/dev/null \
+            | tr '\t' '\n' \
+            | grep '^vpc-' \
+            >> "$TMP_FILE" || true
+
+          # -----------------------------------------------------------
+          # Exact known VPC name.
+          # -----------------------------------------------------------
+
+          aws ec2 describe-vpcs \
+            --region "$AWS_REGION" \
+            --filters \
+              "Name=tag:Name,Values=$VPC_NAME" \
+            --query "Vpcs[].VpcId" \
+            --output text \
+            --no-cli-pager \
+            2>/dev/null \
+            | tr '\t' '\n' \
+            | grep '^vpc-' \
+            >> "$TMP_FILE" || true
+
+          # -----------------------------------------------------------
+          # Charlie Cafe Terraform VPC name prefix.
+          #
+          # This catches multiple differently named Charlie Cafe VPCs.
+          # -----------------------------------------------------------
+
+          aws ec2 describe-vpcs \
+            --region "$AWS_REGION" \
+            --filters \
+              "Name=tag:Name,Values=CharlieCafe-TF-*" \
+            --query "Vpcs[].VpcId" \
+            --output text \
+            --no-cli-pager \
+            2>/dev/null \
+            | tr '\t' '\n' \
+            | grep '^vpc-' \
+            >> "$TMP_FILE" || true
+
+          sort -u "$TMP_FILE" > /tmp/charlie-vpcs-final.txt
+
+          VPC_COUNT="$(
+            grep -c '^vpc-' /tmp/charlie-vpcs-final.txt \
+            2>/dev/null || true
+          )"
+
+          echo ""
+          echo "Charlie Cafe VPCs discovered:"
+          echo "  $VPC_COUNT"
+
+          if [[ "$VPC_COUNT" -gt 0 ]]; then
+            cat /tmp/charlie-vpcs-final.txt
+          else
+            echo "No Charlie Cafe VPCs discovered."
+          fi
+
+          # -----------------------------------------------------------
+          # Store multiline list for later steps.
+          # -----------------------------------------------------------
+
+          {
+            echo "vpc_ids<<EOF"
+            cat /tmp/charlie-vpcs-final.txt
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # ===============================================================
+      # FINAL SWEEP STEP 5
+      # RDS
+      #
+      # THIS IS THE ADDITIONAL RDS SAFETY NET.
+      #
+      # It discovers:
+      #
+      #   1. Exact identifier
+      #   2. charliecafe-tf-* identifiers
+      #   3. Project-tagged RDS instances
+      #
+      # Deletion protection is disabled first.
+      # ===============================================================
+
+      - name: "Final Sweep Step 5 - Delete All Charlie Cafe RDS"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================================="
+          echo "FINAL RDS CLEANUP"
+          echo "=============================================================="
+
+          RDS_FILE="/tmp/charlie-rds.txt"
+
+          : > "$RDS_FILE"
+
+          # -----------------------------------------------------------
+          # Exact known RDS identifier.
+          # -----------------------------------------------------------
+
+          aws rds describe-db-instances \
+            --region "$AWS_REGION" \
+            --query "DBInstances[?DBInstanceIdentifier=='$RDS_IDENTIFIER'].DBInstanceIdentifier" \
+            --output text \
+            --no-cli-pager \
+            2>/dev/null \
+            | tr '\t' '\n' \
+            | grep -v '^None$' \
+            | grep -v '^$' \
+            >> "$RDS_FILE" || true
+
+          # -----------------------------------------------------------
+          # Any RDS instance using the Charlie Cafe Terraform prefix.
+          # -----------------------------------------------------------
+
+          aws rds describe-db-instances \
+            --region "$AWS_REGION" \
+            --query "DBInstances[?starts_with(DBInstanceIdentifier, 'charliecafe-tf-')].DBInstanceIdentifier" \
+            --output text \
+            --no-cli-pager \
+            2>/dev/null \
+            | tr '\t' '\n' \
+            | grep -v '^None$' \
+            | grep -v '^$' \
+            >> "$RDS_FILE" || true
+
+          # -----------------------------------------------------------
+          # Project-tagged RDS instances.
+          # -----------------------------------------------------------
+
+          ALL_RDS="$(
+            aws rds describe-db-instances \
+              --region "$AWS_REGION" \
+              --query "DBInstances[].DBInstanceIdentifier" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )"
+
+          for DB in $ALL_RDS; do
+
+            [[ "$DB" == "None" ]] && continue
+            [[ -z "$DB" ]] && continue
+
+            TAG_MATCH="$(
+              aws rds list-tags-for-resource \
+                --resource-name "arn:aws:rds:$AWS_REGION:$(aws sts get-caller-identity --query Account --output text):db:$DB" \
+                --region "$AWS_REGION" \
+                --query "TagList[?Key=='$PROJECT_TAG_KEY' && Value=='$PROJECT_TAG_VALUE'].Value" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            if [[ "$TAG_MATCH" == "$PROJECT_TAG_VALUE" ]]; then
+              echo "$DB" >> "$RDS_FILE"
+            fi
+
+          done
+
+          sort -u "$RDS_FILE" -o "$RDS_FILE"
+
+          echo ""
+          echo "RDS instances selected for cleanup:"
+
+          if [[ -s "$RDS_FILE" ]]; then
+            cat "$RDS_FILE"
+          else
+            echo "  None"
+          fi
+
+          # -----------------------------------------------------------
+          # Delete every discovered RDS instance.
+          # -----------------------------------------------------------
+
+          while IFS= read -r DB; do
+
+            [[ -z "$DB" ]] && continue
+
+            echo ""
+            echo "=============================================================="
+            echo "RDS INSTANCE: $DB"
+            echo "=============================================================="
+
+            PROTECTION="$(
+              aws rds describe-db-instances \
+                --db-instance-identifier "$DB" \
+                --region "$AWS_REGION" \
+                --query "DBInstances[0].DeletionProtection" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            echo "Deletion protection: $PROTECTION"
+
+            if [[ "$PROTECTION" == "True" ]]; then
+
+              echo "Disabling deletion protection..."
+
+              aws rds modify-db-instance \
+                --db-instance-identifier "$DB" \
+                --no-deletion-protection \
+                --apply-immediately \
+                --region "$AWS_REGION" \
+                --no-cli-pager \
+                2>/dev/null || true
+
+              for ATTEMPT in $(seq 1 "$WAIT_ATTEMPTS"); do
+
+                CURRENT="$(
+                  aws rds describe-db-instances \
+                    --db-instance-identifier "$DB" \
+                    --region "$AWS_REGION" \
+                    --query "DBInstances[0].DeletionProtection" \
+                    --output text \
+                    --no-cli-pager \
+                    2>/dev/null || true
+                )"
+
+                echo "Attempt $ATTEMPT/$WAIT_ATTEMPTS - Protection: $CURRENT"
+
+                if [[ "$CURRENT" != "True" ]]; then
+                  break
+                fi
+
+                sleep "$WAIT_SECONDS"
+
+              done
+
+            fi
+
+            echo "Deleting RDS instance..."
+
+            aws rds delete-db-instance \
+              --db-instance-identifier "$DB" \
+              --skip-final-snapshot \
+              --delete-automated-backups \
+              --region "$AWS_REGION" \
+              --no-cli-pager \
+              2>/dev/null || true
+
+          done < "$RDS_FILE"
+
+          # -----------------------------------------------------------
+          # Wait for all discovered RDS instances to disappear.
+          # -----------------------------------------------------------
+
+          while IFS= read -r DB; do
+
+            [[ -z "$DB" ]] && continue
+
+            for ATTEMPT in $(seq 1 "$WAIT_ATTEMPTS"); do
+
+              STATUS="$(
+                aws rds describe-db-instances \
+                  --db-instance-identifier "$DB" \
+                  --region "$AWS_REGION" \
+                  --query "DBInstances[0].DBInstanceStatus" \
+                  --output text \
+                  --no-cli-pager \
+                  2>/dev/null || true
+              )"
+
+              if [[ "$STATUS" == "None" ||
+                    "$STATUS" == "null" ||
+                    -z "$STATUS" ]]; then
+
+                echo "RDS $DB no longer exists."
+                break
+
+              fi
+
+              echo "RDS $DB status: $STATUS"
+              echo "Waiting $ATTEMPT/$WAIT_ATTEMPTS"
+
+              sleep "$WAIT_SECONDS"
+
+            done
+
+          done < "$RDS_FILE"
+
+          # -----------------------------------------------------------
+          # Delete matching subnet groups.
+          # -----------------------------------------------------------
+
+          SUBNET_GROUPS="$(
+            aws rds describe-db-subnet-groups \
+              --region "$AWS_REGION" \
+              --query "DBSubnetGroups[?starts_with(DBSubnetGroupName, 'charliecafe-tf-')].DBSubnetGroupName" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )"
+
+          for SUBNET_GROUP in $SUBNET_GROUPS; do
+
+            [[ "$SUBNET_GROUP" == "None" ]] && continue
+            [[ -z "$SUBNET_GROUP" ]] && continue
+
+            echo ""
+            echo "Deleting RDS subnet group:"
+            echo "  $SUBNET_GROUP"
+
+            aws rds delete-db-subnet-group \
+              --db-subnet-group-name "$SUBNET_GROUP" \
+              --region "$AWS_REGION" \
+              --no-cli-pager \
+              2>/dev/null || true
+
+          done
+
+          echo ""
+          echo "Final RDS cleanup completed."
+
+      # ===============================================================
+      # FINAL SWEEP STEP 6
+      # S3
+      #
+      # THIS MATCHES THE USER'S POWERSHELL IDEA:
+      #
+      #   starts_with(Name, 'terraform-')
+      #
+      # It handles:
+      #
+      #   - normal objects
+      #   - versioned objects
+      #   - delete markers
+      #   - multiple buckets
+      #
+      # Terraform backend bucket is protected when detected.
+      # ===============================================================
+
+      - name: "Final Sweep Step 6 - Delete All terraform-* S3 Buckets"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================================="
+          echo "FINAL S3 MULTI-BUCKET CLEANUP"
+          echo "=============================================================="
+
+          BACKEND_BUCKET=""
+
+          # -----------------------------------------------------------
+          # Attempt to detect Terraform backend bucket.
+          # -----------------------------------------------------------
+
+          if [[ -f "$TERRAFORM_WORKING_DIRECTORY/.terraform/terraform.tfstate" ]]; then
+
+            BACKEND_BUCKET="$(
+              jq -r '
+                .backend.config.bucket
+                // .backend.config.bucket_name
+                // empty
+              ' \
+              "$TERRAFORM_WORKING_DIRECTORY/.terraform/terraform.tfstate" \
+              2>/dev/null || true
+            )"
+
+          fi
+
+          echo ""
+          echo "Detected Terraform backend bucket:"
+          echo "  ${BACKEND_BUCKET:-NOT_DETECTED}"
+
+          # -----------------------------------------------------------
+          # Discover every bucket whose name starts with terraform-.
+          # -----------------------------------------------------------
+
+          BUCKETS="$(
+            aws s3api list-buckets \
+              --query "Buckets[?starts_with(Name, 'terraform-')].Name" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )"
+
+          echo ""
+          echo "terraform-* buckets discovered:"
+
+          if [[ -z "$BUCKETS" ||
+                "$BUCKETS" == "None" ]]; then
+
+            echo "  None"
+
+          else
+
+            echo "$BUCKETS"
+
+          fi
+
+          # -----------------------------------------------------------
+          # Process every matching bucket.
+          # -----------------------------------------------------------
+
+          for BUCKET in $BUCKETS; do
+
+            [[ -z "$BUCKET" ]] && continue
+            [[ "$BUCKET" == "None" ]] && continue
+
+            # ---------------------------------------------------------
+            # Protect Terraform backend.
+            # ---------------------------------------------------------
+
+            if [[ -n "$BACKEND_BUCKET" &&
+                  "$BUCKET" == "$BACKEND_BUCKET" ]]; then
+
+              echo ""
+              echo "=============================================================="
+              echo "PROTECTED TERRAFORM BACKEND BUCKET"
+              echo "=============================================================="
+              echo "Bucket:"
+              echo "  $BUCKET"
+              echo ""
+              echo "Skipping backend bucket to protect Terraform state."
+
+              continue
+
+            fi
+
+            echo ""
+            echo "=============================================================="
+            echo "DELETING S3 BUCKET"
+            echo "=============================================================="
+            echo "Bucket:"
+            echo "  $BUCKET"
+
+            # ---------------------------------------------------------
+            # Delete current objects.
+            # ---------------------------------------------------------
+
+            aws s3 rm \
+              "s3://$BUCKET" \
+              --recursive \
+              --region "$AWS_REGION" \
+              --no-progress \
+              2>/dev/null || true
+
+            # ---------------------------------------------------------
+            # Delete versions and delete markers.
+            # ---------------------------------------------------------
+
+            for PASS in $(seq 1 100); do
+
+              VERSION_DATA="$(
+                aws s3api list-object-versions \
+                  --bucket "$BUCKET" \
+                  --region "$AWS_REGION" \
+                  --output json \
+                  --no-cli-pager \
+                  2>/dev/null || echo '{}'
+              )"
+
+              OBJECT_COUNT="$(
+                echo "$VERSION_DATA" |
+                  jq '
+                    ((.Versions // []) + (.DeleteMarkers // []))
+                    | length
+                  '
+              )"
+
+              echo ""
+              echo "Bucket $BUCKET"
+              echo "Version cleanup pass: $PASS"
+              echo "Remaining versions/delete markers: $OBJECT_COUNT"
+
+              if [[ "$OBJECT_COUNT" -eq 0 ]]; then
+                break
+              fi
+
+              echo "$VERSION_DATA" |
+                jq '
+                  {
+                    Objects:
+                      (
+                        ((.Versions // []) + (.DeleteMarkers // []))
+                        | map({
+                            Key: .Key,
+                            VersionId: .VersionId
+                          })
+                        | .[0:1000]
+                      ),
+                    Quiet: true
+                  }
+                ' \
+                > /tmp/s3-delete-final.json
+
+              aws s3api delete-objects \
+                --bucket "$BUCKET" \
+                --delete file:///tmp/s3-delete-final.json \
+                --region "$AWS_REGION" \
+                --no-cli-pager \
+                2>/dev/null || true
+
+            done
+
+            # ---------------------------------------------------------
+            # Finally delete bucket.
+            # ---------------------------------------------------------
+
+            echo ""
+            echo "Deleting bucket itself..."
+
+            aws s3api delete-bucket \
+              --bucket "$BUCKET" \
+              --region "$AWS_REGION" \
+              --no-cli-pager \
+              2>/dev/null || true
+
+            echo "S3 bucket cleanup command completed."
+
+          done
+
+          echo ""
+          echo "Final S3 multi-bucket cleanup completed."
+
+      # ===============================================================
+      # FINAL SWEEP STEP 7
+      # ECS
+      #
+      # Discovers the known cluster and any CharlieCafe-TF-* cluster.
+      # ===============================================================
+
+      - name: "Final Sweep Step 7 - Delete ECS Resources"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================================="
+          echo "FINAL ECS CLEANUP"
+          echo "=============================================================="
+
+          CLUSTER_FILE="/tmp/charlie-clusters.txt"
+
+          : > "$CLUSTER_FILE"
+
+          # -----------------------------------------------------------
+          # Exact known cluster.
+          # -----------------------------------------------------------
+
+          aws ecs describe-clusters \
+            --clusters "$ECS_CLUSTER_NAME" \
+            --region "$AWS_REGION" \
+            --query "clusters[?status!='INACTIVE'].clusterArn" \
+            --output text \
+            --no-cli-pager \
+            2>/dev/null \
+            | tr '\t' '\n' \
+            | grep '^arn:aws:ecs:' \
+            >> "$CLUSTER_FILE" || true
+
+          # -----------------------------------------------------------
+          # Discover all ECS clusters and select Charlie Cafe Terraform
+          # names.
+          # -----------------------------------------------------------
+
+          ALL_CLUSTERS="$(
+            aws ecs list-clusters \
+              --region "$AWS_REGION" \
+              --query "clusterArns[]" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )"
+
+          for CLUSTER_ARN in $ALL_CLUSTERS; do
+
+            [[ -z "$CLUSTER_ARN" ]] && continue
+            [[ "$CLUSTER_ARN" == "None" ]] && continue
+
+            CLUSTER_NAME="${CLUSTER_ARN##*/}"
+
+            if [[ "$CLUSTER_NAME" == CharlieCafe-TF-* ||
+                  "$CLUSTER_NAME" == "$ECS_CLUSTER_NAME" ]]; then
+
+              echo "$CLUSTER_ARN" >> "$CLUSTER_FILE"
+
+            fi
+
+          done
+
+          sort -u "$CLUSTER_FILE" -o "$CLUSTER_FILE"
+
+          if [[ -s "$CLUSTER_FILE" ]]; then
+            cat "$CLUSTER_FILE"
+          else
+            echo "No Charlie Cafe ECS clusters found."
+          fi
+
+          # -----------------------------------------------------------
+          # Cleanup services and tasks for every matching cluster.
+          # -----------------------------------------------------------
+
+          while IFS= read -r CLUSTER_ARN; do
+
+            [[ -z "$CLUSTER_ARN" ]] && continue
+
+            echo ""
+            echo "=============================================================="
+            echo "ECS CLUSTER"
+            echo "  $CLUSTER_ARN"
+            echo "=============================================================="
+
+            SERVICES="$(
+              aws ecs list-services \
+                --cluster "$CLUSTER_ARN" \
+                --region "$AWS_REGION" \
+                --query "serviceArns[]" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            for SERVICE_ARN in $SERVICES; do
+
+              [[ -z "$SERVICE_ARN" ]] && continue
+              [[ "$SERVICE_ARN" == "None" ]] && continue
+
+              SERVICE_NAME="${SERVICE_ARN##*/}"
+
+              echo ""
+              echo "ECS service:"
+              echo "  $SERVICE_NAME"
+
+              aws ecs update-service \
+                --cluster "$CLUSTER_ARN" \
+                --service "$SERVICE_NAME" \
+                --desired-count 0 \
+                --region "$AWS_REGION" \
+                --no-cli-pager \
+                2>/dev/null || true
+
+              # -------------------------------------------------------
+              # Wait for service tasks.
+              # -------------------------------------------------------
+
+              for ATTEMPT in $(seq 1 30); do
+
+                RUNNING="$(
+                  aws ecs describe-services \
+                    --cluster "$CLUSTER_ARN" \
+                    --services "$SERVICE_NAME" \
+                    --region "$AWS_REGION" \
+                    --query "services[0].runningCount" \
+                    --output text \
+                    --no-cli-pager \
+                    2>/dev/null || echo "0"
+                )"
+
+                [[ "$RUNNING" == "None" ]] && RUNNING="0"
+                [[ "$RUNNING" == "null" ]] && RUNNING="0"
+
+                echo "Attempt $ATTEMPT/30 - Running tasks: $RUNNING"
+
+                if [[ "$RUNNING" == "0" ]]; then
+                  break
+                fi
+
+                sleep 10
+
+              done
+
+              echo ""
+              echo "Deleting ECS service..."
+
+              aws ecs delete-service \
+                --cluster "$CLUSTER_ARN" \
+                --service "$SERVICE_NAME" \
+                --force \
+                --region "$AWS_REGION" \
+                --no-cli-pager \
+                2>/dev/null || true
+
+            done
+
+            # ---------------------------------------------------------
+            # Delete remaining tasks.
+            # ---------------------------------------------------------
+
+            TASKS="$(
+              aws ecs list-tasks \
+                --cluster "$CLUSTER_ARN" \
+                --region "$AWS_REGION" \
+                --query "taskArns[]" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            for TASK in $TASKS; do
+
+              [[ -z "$TASK" ]] && continue
+              [[ "$TASK" == "None" ]] && continue
+
+              echo ""
+              echo "Stopping ECS task:"
+              echo "  $TASK"
+
+              aws ecs stop-task \
+                --cluster "$CLUSTER_ARN" \
+                --task "$TASK" \
+                --region "$AWS_REGION" \
+                --no-cli-pager \
+                2>/dev/null || true
+
+            done
+
+            echo ""
+            echo "Deleting ECS cluster..."
+
+            aws ecs delete-cluster \
+              --cluster "$CLUSTER_ARN" \
+              --region "$AWS_REGION" \
+              --no-cli-pager \
+              2>/dev/null || true
+
+          done < "$CLUSTER_FILE"
+
+          # -----------------------------------------------------------
+          # Deregister Charlie Cafe task definitions.
+          # -----------------------------------------------------------
+
+          TASK_DEFINITIONS="$(
+            aws ecs list-task-definitions \
+              --region "$AWS_REGION" \
+              --status ACTIVE \
+              --query "taskDefinitionArns[]" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )"
+
+          for TASK_DEF in $TASK_DEFINITIONS; do
+
+            [[ -z "$TASK_DEF" ]] && continue
+            [[ "$TASK_DEF" == "None" ]] && continue
+
+            TASK_FAMILY="$(
+              aws ecs describe-task-definition \
+                --task-definition "$TASK_DEF" \
+                --region "$AWS_REGION" \
+                --query "taskDefinition.family" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            if [[ "$TASK_FAMILY" == charlie-cafe-tf* ||
+                  "$TASK_FAMILY" == CharlieCafe-TF-* ]]; then
+
+              echo ""
+              echo "Deregistering task definition:"
+              echo "  $TASK_DEF"
+
+              aws ecs deregister-task-definition \
+                --task-definition "$TASK_DEF" \
+                --region "$AWS_REGION" \
+                --no-cli-pager \
+                2>/dev/null || true
+
+            fi
+
+          done
+
+          echo ""
+          echo "Final ECS cleanup completed."
+
+      # ===============================================================
+      # FINAL SWEEP STEP 8
+      # ECR
+      #
+      # Deletes:
+      #
+      #   charlie-cafe-tf
+      #
+      # and repositories whose name starts with:
+      #
+      #   charlie-cafe-tf-
+      # ===============================================================
+
+      - name: "Final Sweep Step 8 - Delete ECR Repositories"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================================="
+          echo "FINAL ECR CLEANUP"
+          echo "=============================================================="
+
+          REPOSITORIES="$(
+            aws ecr describe-repositories \
+              --region "$AWS_REGION" \
+              --query "repositories[?repositoryName=='$ECR_REPOSITORY_NAME' || starts_with(repositoryName, 'charlie-cafe-tf-')].repositoryName" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )"
+
+          for REPOSITORY in $REPOSITORIES; do
+
+            [[ -z "$REPOSITORY" ]] && continue
+            [[ "$REPOSITORY" == "None" ]] && continue
+
+            echo ""
+            echo "Deleting ECR repository:"
+            echo "  $REPOSITORY"
+
+            aws ecr delete-repository \
+              --repository-name "$REPOSITORY" \
+              --force \
+              --region "$AWS_REGION" \
+              --no-cli-pager \
+              2>/dev/null || true
+
+          done
+
+          echo ""
+          echo "Final ECR cleanup completed."
+
+      # ===============================================================
+      # FINAL SWEEP STEP 9
+      # ALB + TARGET GROUPS
+      #
+      # Handles multiple ALBs/target groups matching CharlieCafe-TF.
+      # ===============================================================
+
+      - name: "Final Sweep Step 9 - Delete ALBs and Target Groups"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================================="
+          echo "FINAL ALB AND TARGET GROUP CLEANUP"
+          echo "=============================================================="
+
+          ALB_ARNS="$(
+            aws elbv2 describe-load-balancers \
+              --region "$AWS_REGION" \
+              --query "LoadBalancers[?starts_with(LoadBalancerName, 'CharlieCafe-TF-') || LoadBalancerName=='$ALB_NAME'].LoadBalancerArn" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )"
+
+          for ALB_ARN in $ALB_ARNS; do
+
+            [[ -z "$ALB_ARN" ]] && continue
+            [[ "$ALB_ARN" == "None" ]] && continue
+
+            echo ""
+            echo "ALB:"
+            echo "  $ALB_ARN"
+
+            LISTENERS="$(
+              aws elbv2 describe-listeners \
+                --load-balancer-arn "$ALB_ARN" \
+                --region "$AWS_REGION" \
+                --query "Listeners[].ListenerArn" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            for LISTENER in $LISTENERS; do
+
+              [[ -z "$LISTENER" ]] && continue
+              [[ "$LISTENER" == "None" ]] && continue
+
+              echo ""
+              echo "Deleting listener:"
+              echo "  $LISTENER"
+
+              aws elbv2 delete-listener \
+                --listener-arn "$LISTENER" \
+                --region "$AWS_REGION" \
+                --no-cli-pager \
+                2>/dev/null || true
+
+            done
+
+            echo ""
+            echo "Deleting ALB..."
+
+            aws elbv2 delete-load-balancer \
+              --load-balancer-arn "$ALB_ARN" \
+              --region "$AWS_REGION" \
+              --no-cli-pager \
+              2>/dev/null || true
+
+          done
+
+          # -----------------------------------------------------------
+          # Delete target groups independently.
+          #
+          # This handles target groups even when their ALB has already
+          # disappeared.
+          # -----------------------------------------------------------
+
+          TARGET_GROUP_ARNS="$(
+            aws elbv2 describe-target-groups \
+              --region "$AWS_REGION" \
+              --query "TargetGroups[?starts_with(TargetGroupName, 'CharlieCafe-TF-') || TargetGroupName=='$TARGET_GROUP_NAME'].TargetGroupArn" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )"
+
+          for TG_ARN in $TARGET_GROUP_ARNS; do
+
+            [[ -z "$TG_ARN" ]] && continue
+            [[ "$TG_ARN" == "None" ]] && continue
+
+            echo ""
+            echo "Deleting target group:"
+            echo "  $TG_ARN"
+
+            aws elbv2 delete-target-group \
+              --target-group-arn "$TG_ARN" \
+              --region "$AWS_REGION" \
+              --no-cli-pager \
+              2>/dev/null || true
+
+          done
+
+          echo ""
+          echo "Final ALB/Target Group cleanup completed."
+
+      # ===============================================================
+      # FINAL SWEEP STEP 10
+      # EC2
+      #
+      # Handles multiple instances through:
+      #
+      #   Project tag
+      #
+      # and:
+      #
+      #   Name=CharlieCafe-TF-*
+      # ===============================================================
+
+      - name: "Final Sweep Step 10 - Delete EC2 Instances"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================================="
+          echo "FINAL EC2 CLEANUP"
+          echo "=============================================================="
+
+          INSTANCE_FILE="/tmp/charlie-instances.txt"
+
+          : > "$INSTANCE_FILE"
+
+          aws ec2 describe-instances \
+            --region "$AWS_REGION" \
+            --filters \
+              "Name=tag:$PROJECT_TAG_KEY,Values=$PROJECT_TAG_VALUE" \
+              "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+            --query "Reservations[].Instances[].InstanceId" \
+            --output text \
+            --no-cli-pager \
+            2>/dev/null \
+            | tr '\t' '\n' \
+            | grep '^i-' \
+            >> "$INSTANCE_FILE" || true
+
+          aws ec2 describe-instances \
+            --region "$AWS_REGION" \
+            --filters \
+              "Name=tag:Name,Values=CharlieCafe-TF-*" \
+              "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+            --query "Reservations[].Instances[].InstanceId" \
+            --output text \
+            --no-cli-pager \
+            2>/dev/null \
+            | tr '\t' '\n' \
+            | grep '^i-' \
+            >> "$INSTANCE_FILE" || true
+
+          sort -u "$INSTANCE_FILE" -o "$INSTANCE_FILE"
+
+          if [[ -s "$INSTANCE_FILE" ]]; then
+
+            echo ""
+            echo "EC2 instances selected:"
+            cat "$INSTANCE_FILE"
+
+            IDS="$(tr '\n' ' ' < "$INSTANCE_FILE")"
+
+            echo ""
+            echo "Terminating EC2 instances..."
+
+            aws ec2 terminate-instances \
+              --instance-ids $IDS \
+              --region "$AWS_REGION" \
+              --no-cli-pager \
+              2>/dev/null || true
+
+            echo ""
+            echo "Waiting for EC2 termination..."
+
+            aws ec2 wait instance-terminated \
+              --instance-ids $IDS \
+              --region "$AWS_REGION" \
+              2>/dev/null || true
+
+          else
+
+            echo ""
+            echo "No Charlie Cafe EC2 instances found."
+
+          fi
+
+          echo ""
+          echo "Final EC2 cleanup completed."
+
+      # ===============================================================
+      # FINAL SWEEP STEP 11
+      # EFS DEPENDENCY CLEANUP
+      #
+      # This is included because leftover EFS mount targets can prevent
+      # VPC deletion.
+      # ===============================================================
+
+      - name: "Final Sweep Step 11 - Cleanup EFS Dependencies"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================================="
+          echo "FINAL EFS DEPENDENCY CLEANUP"
+          echo "=============================================================="
+
+          FILE_SYSTEMS="$(
+            aws efs describe-file-systems \
+              --region "$AWS_REGION" \
+              --query "FileSystems[?starts_with(Name, 'CharlieCafe-TF-') || Name=='$EFS_NAME'].FileSystemId" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )"
+
+          for FS_ID in $FILE_SYSTEMS; do
+
+            [[ -z "$FS_ID" ]] && continue
+            [[ "$FS_ID" == "None" ]] && continue
+
+            echo ""
+            echo "EFS:"
+            echo "  $FS_ID"
+
+            MOUNTS="$(
+              aws efs describe-mount-targets \
+                --file-system-id "$FS_ID" \
+                --region "$AWS_REGION" \
+                --query "MountTargets[].MountTargetId" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            for MT in $MOUNTS; do
+
+              [[ -z "$MT" ]] && continue
+              [[ "$MT" == "None" ]] && continue
+
+              echo ""
+              echo "Deleting EFS mount target:"
+              echo "  $MT"
+
+              aws efs delete-mount-target \
+                --mount-target-id "$MT" \
+                --region "$AWS_REGION" \
+                --no-cli-pager \
+                2>/dev/null || true
+
+            done
+
+            for ATTEMPT in $(seq 1 30); do
+
+              REMAINING="$(
+                aws efs describe-mount-targets \
+                  --file-system-id "$FS_ID" \
+                  --region "$AWS_REGION" \
+                  --query "MountTargets | length(@)" \
+                  --output text \
+                  --no-cli-pager \
+                  2>/dev/null || echo "0"
+              )"
+
+              echo "EFS mount targets remaining: $REMAINING"
+
+              if [[ "$REMAINING" == "0" ]]; then
+                break
+              fi
+
+              sleep 10
+
+            done
+
+            echo ""
+            echo "Deleting EFS filesystem..."
+
+            aws efs delete-file-system \
+              --file-system-id "$FS_ID" \
+              --region "$AWS_REGION" \
+              --no-cli-pager \
+              2>/dev/null || true
+
+          done
+
+          echo ""
+          echo "Final EFS dependency cleanup completed."
+
+      # ===============================================================
+      # FINAL SWEEP STEP 12
+      # VPC ENDPOINTS
+      #
+      # Uses the VPC IDs discovered at the beginning.
+      # ===============================================================
+
+      - name: "Final Sweep Step 12 - Delete VPC Endpoints"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================================="
+          echo "FINAL VPC ENDPOINT CLEANUP"
+          echo "=============================================================="
+
+          VPC_IDS="$(cat /tmp/charlie-vpcs-final.txt 2>/dev/null || true)"
+
+          for VPC_ID in $VPC_IDS; do
+
+            echo ""
+            echo "VPC:"
+            echo "  $VPC_ID"
+
+            ENDPOINT_IDS="$(
+              aws ec2 describe-vpc-endpoints \
+                --region "$AWS_REGION" \
+                --filters "Name=vpc-id,Values=$VPC_ID" \
+                --query "VpcEndpoints[].VpcEndpointId" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            for ENDPOINT_ID in $ENDPOINT_IDS; do
+
+              [[ -z "$ENDPOINT_ID" ]] && continue
+              [[ "$ENDPOINT_ID" == "None" ]] && continue
+
+              echo ""
+              echo "Deleting VPC endpoint:"
+              echo "  $ENDPOINT_ID"
+
+              aws ec2 delete-vpc-endpoints \
+                --vpc-endpoint-ids "$ENDPOINT_ID" \
+                --region "$AWS_REGION" \
+                --no-cli-pager \
+                2>/dev/null || true
+
+            done
+
+          done
+
+          echo ""
+          echo "Waiting for endpoint ENIs..."
+
+          sleep 15
+
+          echo ""
+          echo "Final VPC endpoint cleanup completed."
+
+      # ===============================================================
+      # FINAL SWEEP STEP 13
+      # NAT GATEWAYS
+      # ===============================================================
+
+      - name: "Final Sweep Step 13 - Delete NAT Gateways"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================================="
+          echo "FINAL NAT GATEWAY CLEANUP"
+          echo "=============================================================="
+
+          VPC_IDS="$(cat /tmp/charlie-vpcs-final.txt 2>/dev/null || true)"
+
+          for VPC_ID in $VPC_IDS; do
+
+            NAT_IDS="$(
+              aws ec2 describe-nat-gateways \
+                --region "$AWS_REGION" \
+                --filter \
+                  "Name=vpc-id,Values=$VPC_ID" \
+                  "Name=state,Values=pending,available,failed,deleting" \
+                --query "NatGateways[].NatGatewayId" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            for NAT_ID in $NAT_IDS; do
+
+              [[ -z "$NAT_ID" ]] && continue
+              [[ "$NAT_ID" == "None" ]] && continue
+
+              echo ""
+              echo "Deleting NAT gateway:"
+              echo "  $NAT_ID"
+
+              aws ec2 delete-nat-gateway \
+                --nat-gateway-id "$NAT_ID" \
+                --region "$AWS_REGION" \
+                --no-cli-pager \
+                2>/dev/null || true
+
+            done
+
+          done
+
+          echo ""
+          echo "Waiting for NAT gateway deletion..."
+
+          for ATTEMPT in $(seq 1 30); do
+
+            REMAINING=0
+
+            for VPC_ID in $VPC_IDS; do
+
+              COUNT="$(
+                aws ec2 describe-nat-gateways \
+                  --region "$AWS_REGION" \
+                  --filter \
+                    "Name=vpc-id,Values=$VPC_ID" \
+                    "Name=state,Values=pending,available,deleting" \
+                  --query "NatGateways | length(@)" \
+                  --output text \
+                  --no-cli-pager \
+                  2>/dev/null || echo "0"
+              )"
+
+              REMAINING=$((REMAINING + COUNT))
+
+            done
+
+            echo "Attempt $ATTEMPT/30 - NAT gateways remaining: $REMAINING"
+
+            if [[ "$REMAINING" -eq 0 ]]; then
+              break
+            fi
+
+            sleep 10
+
+          done
+
+          echo ""
+          echo "Final NAT gateway cleanup completed."
+
+      # ===============================================================
+      # FINAL SWEEP STEP 14
+      # NETWORK INTERFACES
+      #
+      # Only AVAILABLE ENIs are deleted directly.
+      #
+      # AWS requester-managed ENIs are not forcibly deleted.
+      # They disappear after their parent resource disappears.
+      # ===============================================================
+
+      - name: "Final Sweep Step 14 - Cleanup Network Interfaces"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================================="
+          echo "FINAL NETWORK INTERFACE CLEANUP"
+          echo "=============================================================="
+
+          VPC_IDS="$(cat /tmp/charlie-vpcs-final.txt 2>/dev/null || true)"
+
+          for VPC_ID in $VPC_IDS; do
+
+            echo ""
+            echo "VPC:"
+            echo "  $VPC_ID"
+
+            ENIS="$(
+              aws ec2 describe-network-interfaces \
+                --region "$AWS_REGION" \
+                --filters "Name=vpc-id,Values=$VPC_ID" \
+                --query "NetworkInterfaces[?Status=='available'].NetworkInterfaceId" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            for ENI in $ENIS; do
+
+              [[ -z "$ENI" ]] && continue
+              [[ "$ENI" == "None" ]] && continue
+
+              echo ""
+              echo "Deleting available ENI:"
+              echo "  $ENI"
+
+              aws ec2 delete-network-interface \
+                --network-interface-id "$ENI" \
+                --region "$AWS_REGION" \
+                --no-cli-pager \
+                2>/dev/null || true
+
+            done
+
+          done
+
+          echo ""
+          echo "Final network interface cleanup completed."
+
+      # ===============================================================
+      # FINAL SWEEP STEP 15
+      # ELASTIC IPS
+      # ===============================================================
+
+      - name: "Final Sweep Step 15 - Release Elastic IPs"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================================="
+          echo "FINAL ELASTIC IP CLEANUP"
+          echo "=============================================================="
+
+          ALLOCATIONS="$(
+            aws ec2 describe-addresses \
+              --region "$AWS_REGION" \
+              --filters \
+                "Name=tag:$PROJECT_TAG_KEY,Values=$PROJECT_TAG_VALUE" \
+              --query "Addresses[].AllocationId" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )"
+
+          for ALLOCATION in $ALLOCATIONS; do
+
+            [[ -z "$ALLOCATION" ]] && continue
+            [[ "$ALLOCATION" == "None" ]] && continue
+
+            echo ""
+            echo "Releasing Elastic IP:"
+            echo "  $ALLOCATION"
+
+            aws ec2 release-address \
+              --allocation-id "$ALLOCATION" \
+              --region "$AWS_REGION" \
+              --no-cli-pager \
+              2>/dev/null || true
+
+          done
+
+          echo ""
+          echo "Final Elastic IP cleanup completed."
+
+      # ===============================================================
+      # FINAL SWEEP STEP 16
+      # SECURITY GROUPS
+      #
+      # Security groups are deleted after:
+      #
+      #   ECS
+      #   RDS
+      #   ALB
+      #   ENIs
+      # ===============================================================
+
+      - name: "Final Sweep Step 16 - Delete Security Groups"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================================="
+          echo "FINAL SECURITY GROUP CLEANUP"
+          echo "=============================================================="
+
+          VPC_IDS="$(cat /tmp/charlie-vpcs-final.txt 2>/dev/null || true)"
+
+          for VPC_ID in $VPC_IDS; do
+
+            SG_IDS="$(
+              aws ec2 describe-security-groups \
+                --region "$AWS_REGION" \
+                --filters "Name=vpc-id,Values=$VPC_ID" \
+                --query "SecurityGroups[?GroupName!='default'].GroupId" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            for SG_ID in $SG_IDS; do
+
+              [[ -z "$SG_ID" ]] && continue
+              [[ "$SG_ID" == "None" ]] && continue
+
+              MATCH="$(
+                aws ec2 describe-tags \
+                  --region "$AWS_REGION" \
+                  --filters \
+                    "Name=resource-id,Values=$SG_ID" \
+                    "Name=key,Values=$PROJECT_TAG_KEY" \
+                    "Name=value,Values=$PROJECT_TAG_VALUE" \
+                  --query "Tags[0].Value" \
+                  --output text \
+                  --no-cli-pager \
+                  2>/dev/null || true
+              )"
+
+              if [[ "$MATCH" != "$PROJECT_TAG_VALUE" ]]; then
+                continue
+              fi
+
+              echo ""
+              echo "Deleting security group:"
+              echo "  $SG_ID"
+
+              aws ec2 delete-security-group \
+                --group-id "$SG_ID" \
+                --region "$AWS_REGION" \
+                --no-cli-pager \
+                2>/dev/null || true
+
+            done
+
+          done
+
+          echo ""
+          echo "Final security group cleanup completed."
+
+      # ===============================================================
+      # FINAL SWEEP STEP 17
+      # SUBNETS
+      # ===============================================================
+
+      - name: "Final Sweep Step 17 - Delete Subnets"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================================="
+          echo "FINAL SUBNET CLEANUP"
+          echo "=============================================================="
+
+          VPC_IDS="$(cat /tmp/charlie-vpcs-final.txt 2>/dev/null || true)"
+
+          for VPC_ID in $VPC_IDS; do
+
+            SUBNETS="$(
+              aws ec2 describe-subnets \
+                --region "$AWS_REGION" \
+                --filters "Name=vpc-id,Values=$VPC_ID" \
+                --query "Subnets[].SubnetId" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            for SUBNET in $SUBNETS; do
+
+              [[ -z "$SUBNET" ]] && continue
+              [[ "$SUBNET" == "None" ]] && continue
+
+              MATCH="$(
+                aws ec2 describe-tags \
+                  --region "$AWS_REGION" \
+                  --filters \
+                    "Name=resource-id,Values=$SUBNET" \
+                    "Name=key,Values=$PROJECT_TAG_KEY" \
+                    "Name=value,Values=$PROJECT_TAG_VALUE" \
+                  --query "Tags[0].Value" \
+                  --output text \
+                  --no-cli-pager \
+                  2>/dev/null || true
+              )"
+
+              if [[ "$MATCH" != "$PROJECT_TAG_VALUE" ]]; then
+                continue
+              fi
+
+              echo ""
+              echo "Deleting subnet:"
+              echo "  $SUBNET"
+
+              aws ec2 delete-subnet \
+                --subnet-id "$SUBNET" \
+                --region "$AWS_REGION" \
+                --no-cli-pager \
+                2>/dev/null || true
+
+            done
+
+          done
+
+          echo ""
+          echo "Final subnet cleanup completed."
+
+      # ===============================================================
+      # FINAL SWEEP STEP 18
+      # ROUTE TABLES
+      # ===============================================================
+
+      - name: "Final Sweep Step 18 - Delete Route Tables"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================================="
+          echo "FINAL ROUTE TABLE CLEANUP"
+          echo "=============================================================="
+
+          VPC_IDS="$(cat /tmp/charlie-vpcs-final.txt 2>/dev/null || true)"
+
+          for VPC_ID in $VPC_IDS; do
+
+            RT_IDS="$(
+              aws ec2 describe-route-tables \
+                --region "$AWS_REGION" \
+                --filters "Name=vpc-id,Values=$VPC_ID" \
+                --query "RouteTables[].RouteTableId" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            for RT_ID in $RT_IDS; do
+
+              [[ -z "$RT_ID" ]] && continue
+              [[ "$RT_ID" == "None" ]] && continue
+
+              # -------------------------------------------------------
+              # Determine whether route table is the main route table.
+              # -------------------------------------------------------
+
+              MAIN="$(
+                aws ec2 describe-route-tables \
+                  --route-table-ids "$RT_ID" \
+                  --region "$AWS_REGION" \
+                  --query "RouteTables[0].Associations[?Main==\`true\`] | length(@)" \
+                  --output text \
+                  --no-cli-pager \
+                  2>/dev/null || echo "0"
+              )"
+
+              if [[ "$MAIN" == "1" ]]; then
+
+                echo ""
+                echo "Skipping main route table:"
+                echo "  $RT_ID"
+
+                continue
+
+              fi
+
+              MATCH="$(
+                aws ec2 describe-tags \
+                  --region "$AWS_REGION" \
+                  --filters \
+                    "Name=resource-id,Values=$RT_ID" \
+                    "Name=key,Values=$PROJECT_TAG_KEY" \
+                    "Name=value,Values=$PROJECT_TAG_VALUE" \
+                  --query "Tags[0].Value" \
+                  --output text \
+                  --no-cli-pager \
+                  2>/dev/null || true
+              )"
+
+              if [[ "$MATCH" != "$PROJECT_TAG_VALUE" ]]; then
+                continue
+              fi
+
+              echo ""
+              echo "Route table:"
+              echo "  $RT_ID"
+
+              ASSOCIATIONS="$(
+                aws ec2 describe-route-tables \
+                  --route-table-ids "$RT_ID" \
+                  --region "$AWS_REGION" \
+                  --query "RouteTables[0].Associations[?Main==\`false\`].RouteTableAssociationId" \
+                  --output text \
+                  --no-cli-pager \
+                  2>/dev/null || true
+              )"
+
+              for ASSOCIATION in $ASSOCIATIONS; do
+
+                [[ -z "$ASSOCIATION" ]] && continue
+                [[ "$ASSOCIATION" == "None" ]] && continue
+
+                echo "Disassociating:"
+                echo "  $ASSOCIATION"
+
+                aws ec2 disassociate-route-table \
+                  --association-id "$ASSOCIATION" \
+                  --region "$AWS_REGION" \
+                  --no-cli-pager \
+                  2>/dev/null || true
+
+              done
+
+              echo "Deleting route table..."
+
+              aws ec2 delete-route-table \
+                --route-table-id "$RT_ID" \
+                --region "$AWS_REGION" \
+                --no-cli-pager \
+                2>/dev/null || true
+
+            done
+
+          done
+
+          echo ""
+          echo "Final route table cleanup completed."
+
+      # ===============================================================
+      # FINAL SWEEP STEP 19
+      # INTERNET GATEWAYS
+      # ===============================================================
+
+      - name: "Final Sweep Step 19 - Delete Internet Gateways"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================================="
+          echo "FINAL INTERNET GATEWAY CLEANUP"
+          echo "=============================================================="
+
+          VPC_IDS="$(cat /tmp/charlie-vpcs-final.txt 2>/dev/null || true)"
+
+          for VPC_ID in $VPC_IDS; do
+
+            IGW_IDS="$(
+              aws ec2 describe-internet-gateways \
+                --region "$AWS_REGION" \
+                --filters "Name=attachment.vpc-id,Values=$VPC_ID" \
+                --query "InternetGateways[].InternetGatewayId" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            for IGW_ID in $IGW_IDS; do
+
+              [[ -z "$IGW_ID" ]] && continue
+              [[ "$IGW_ID" == "None" ]] && continue
+
+              echo ""
+              echo "Detaching internet gateway:"
+              echo "  $IGW_ID"
+
+              aws ec2 detach-internet-gateway \
+                --internet-gateway-id "$IGW_ID" \
+                --vpc-id "$VPC_ID" \
+                --region "$AWS_REGION" \
+                --no-cli-pager \
+                2>/dev/null || true
+
+              echo ""
+              echo "Deleting internet gateway..."
+
+              aws ec2 delete-internet-gateway \
+                --internet-gateway-id "$IGW_ID" \
+                --region "$AWS_REGION" \
+                --no-cli-pager \
+                2>/dev/null || true
+
+            done
+
+          done
+
+          echo ""
+          echo "Final internet gateway cleanup completed."
+
+      # ===============================================================
+      # FINAL SWEEP STEP 20
+      # FINAL VPC DELETE
+      #
+      # VPC deletion is attempted repeatedly because AWS dependencies
+      # may take time to disappear.
+      #
+      # IMPORTANT:
+      #
+      # The VPC itself is restricted to VPCs discovered by the safety
+      # filters in Final Sweep Step 4.
+      # ===============================================================
+
+      - name: "Final Sweep Step 20 - Delete All Charlie Cafe VPCs"
+        id: final_vpc_delete
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================================="
+          echo "FINAL CHARLIE CAFE VPC DELETION"
+          echo "=============================================================="
+
+          VPC_IDS="$(cat /tmp/charlie-vpcs-final.txt 2>/dev/null || true)"
+
+          if [[ -z "$VPC_IDS" ]]; then
+
+            echo ""
+            echo "No Charlie Cafe VPCs were discovered."
+
+          else
+
+            for ATTEMPT in $(seq 1 60); do
+
+              REMAINING=0
+
+              echo ""
+              echo "=============================================================="
+              echo "VPC DELETE PASS $ATTEMPT/60"
+              echo "=============================================================="
+
+              for VPC_ID in $VPC_IDS; do
+
+                [[ -z "$VPC_ID" ]] && continue
+
+                EXISTS="$(
+                  aws ec2 describe-vpcs \
+                    --vpc-ids "$VPC_ID" \
+                    --region "$AWS_REGION" \
+                    --query "Vpcs[0].VpcId" \
+                    --output text \
+                    --no-cli-pager \
+                    2>/dev/null || true
+                )"
+
+                if [[ "$EXISTS" == "None" ||
+                      "$EXISTS" == "null" ||
+                      -z "$EXISTS" ]]; then
+
+                  echo ""
+                  echo "VPC already deleted:"
+                  echo "  $VPC_ID"
+
+                  continue
+
+                fi
+
+                REMAINING=$((REMAINING + 1))
+
+                echo ""
+                echo "Attempting VPC deletion:"
+                echo "  $VPC_ID"
+
+                aws ec2 delete-vpc \
+                  --vpc-id "$VPC_ID" \
+                  --region "$AWS_REGION" \
+                  --no-cli-pager \
+                  2>/dev/null || true
+
+              done
+
+              echo ""
+              echo "VPCs remaining:"
+              echo "  $REMAINING"
+
+              if [[ "$REMAINING" -eq 0 ]]; then
+
+                echo ""
+                echo "ALL TARGET VPCS HAVE BEEN DELETED."
+
+                break
+
+              fi
+
+              sleep 10
+
+            done
+
+          fi
+
+          echo ""
+          echo "Final VPC deletion pass completed."
+
+      # ===============================================================
+      # FINAL SWEEP STEP 21
+      # FINAL RESOURCE VERIFICATION
+      #
+      # This is deliberately informational.
+      #
+      # The main cleanup job has already performed its own verification.
+      # This second verification tells you what the NEW final sweep was
+      # able to remove.
+      # ===============================================================
+
+      - name: "Final Sweep Step 21 - Final AWS Resource Verification"
+        id: final_verification
+        shell: bash
+        run: |
+          set -u
+
+          echo "================================================================"
+          echo "FINAL AWS MULTI-RESOURCE CLEANUP VERIFICATION"
+          echo "================================================================"
+
+          REMAINING=0
+
+          echo ""
+          echo "1. VPC VERIFICATION"
+          echo "---------------------------------------------------------------"
+
+          VPCS="$(
+            aws ec2 describe-vpcs \
+              --region "$AWS_REGION" \
+              --filters \
+                "Name=tag:$PROJECT_TAG_KEY,Values=$PROJECT_TAG_VALUE" \
+              --query "Vpcs[].VpcId" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )"
+
+          if [[ -n "$VPCS" &&
+                "$VPCS" != "None" ]]; then
+
+            echo "Remaining Project-tagged VPCs:"
+            echo "$VPCS"
+
+            REMAINING=$((REMAINING + 1))
+
+          else
+
+            echo "[OK] No Project-tagged VPC remains."
+
+          fi
+
+          echo ""
+          echo "2. RDS VERIFICATION"
+          echo "---------------------------------------------------------------"
+
+          RDS_LEFT="$(
+            aws rds describe-db-instances \
+              --region "$AWS_REGION" \
+              --query "DBInstances[?starts_with(DBInstanceIdentifier, 'charliecafe-tf-')].DBInstanceIdentifier" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )"
+
+          if [[ -n "$RDS_LEFT" &&
+                "$RDS_LEFT" != "None" ]]; then
+
+            echo "Remaining Charlie Cafe RDS:"
+            echo "$RDS_LEFT"
+
+            REMAINING=$((REMAINING + 1))
+
+          else
+
+            echo "[OK] No charliecafe-tf-* RDS instance remains."
+
+          fi
+
+          echo ""
+          echo "3. S3 VERIFICATION"
+          echo "---------------------------------------------------------------"
+
+          S3_LEFT="$(
+            aws s3api list-buckets \
+              --query "Buckets[?starts_with(Name, 'terraform-')].Name" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )"
+
+          if [[ -n "$S3_LEFT" &&
+                "$S3_LEFT" != "None" ]]; then
+
+            echo "Remaining terraform-* S3 buckets:"
+            echo "$S3_LEFT"
+
+            # Backend may intentionally remain protected.
+            if [[ -n "${BACKEND_BUCKET:-}" ]]; then
+              echo "Terraform backend may be intentionally protected."
+            fi
+
+          else
+
+            echo "[OK] No terraform-* S3 bucket remains."
+
+          fi
+
+          echo ""
+          echo "4. ECR VERIFICATION"
+          echo "---------------------------------------------------------------"
+
+          ECR_LEFT="$(
+            aws ecr describe-repositories \
+              --region "$AWS_REGION" \
+              --query "repositories[?repositoryName=='$ECR_REPOSITORY_NAME' || starts_with(repositoryName, 'charlie-cafe-tf-')].repositoryName" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )"
+
+          if [[ -n "$ECR_LEFT" &&
+                "$ECR_LEFT" != "None" ]]; then
+
+            echo "Remaining ECR:"
+            echo "$ECR_LEFT"
+
+            REMAINING=$((REMAINING + 1))
+
+          else
+
+            echo "[OK] No Charlie Cafe ECR repository remains."
+
+          fi
+
+          echo ""
+          echo "5. ALB VERIFICATION"
+          echo "---------------------------------------------------------------"
+
+          ALB_LEFT="$(
+            aws elbv2 describe-load-balancers \
+              --region "$AWS_REGION" \
+              --query "LoadBalancers[?starts_with(LoadBalancerName, 'CharlieCafe-TF-')].LoadBalancerName" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )"
+
+          if [[ -n "$ALB_LEFT" &&
+                "$ALB_LEFT" != "None" ]]; then
+
+            echo "Remaining Charlie Cafe ALB:"
+            echo "$ALB_LEFT"
+
+            REMAINING=$((REMAINING + 1))
+
+          else
+
+            echo "[OK] No CharlieCafe-TF-* ALB remains."
+
+          fi
+
+          echo ""
+          echo "6. EC2 VERIFICATION"
+          echo "---------------------------------------------------------------"
+
+          EC2_LEFT="$(
+            aws ec2 describe-instances \
+              --region "$AWS_REGION" \
+              --filters \
+                "Name=tag:$PROJECT_TAG_KEY,Values=$PROJECT_TAG_VALUE" \
+                "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+              --query "Reservations[].Instances[].InstanceId" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )"
+
+          if [[ -n "$EC2_LEFT" &&
+                "$EC2_LEFT" != "None" ]]; then
+
+            echo "Remaining Project-tagged EC2:"
+            echo "$EC2_LEFT"
+
+            REMAINING=$((REMAINING + 1))
+
+          else
+
+            echo "[OK] No Project-tagged EC2 remains."
+
+          fi
+
+          echo ""
+          echo "7. ECS VERIFICATION"
+          echo "---------------------------------------------------------------"
+
+          ECS_LEFT="$(
+            aws ecs list-clusters \
+              --region "$AWS_REGION" \
+              --query "clusterArns[]" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )"
+
+          ECS_MATCH=""
+
+          for CLUSTER_ARN in $ECS_LEFT; do
+
+            [[ -z "$CLUSTER_ARN" ]] && continue
+            [[ "$CLUSTER_ARN" == "None" ]] && continue
+
+            CLUSTER_NAME="${CLUSTER_ARN##*/}"
+
+            if [[ "$CLUSTER_NAME" == CharlieCafe-TF-* ]]; then
+              ECS_MATCH="$ECS_MATCH $CLUSTER_NAME"
+            fi
+
+          done
+
+          if [[ -n "$ECS_MATCH" ]]; then
+
+            echo "Remaining ECS clusters:"
+            echo "$ECS_MATCH"
+
+            REMAINING=$((REMAINING + 1))
+
+          else
+
+            echo "[OK] No CharlieCafe-TF-* ECS cluster remains."
+
+          fi
+
+          echo ""
+          echo "================================================================"
+          echo "FINAL SWEEP RESULT"
+          echo "================================================================"
+
+          echo ""
+          echo "Remaining critical resource categories:"
+          echo "  $REMAINING"
+
+          if [[ "$REMAINING" -eq 0 ]]; then
+
+            echo ""
+            echo "================================================================"
+            echo ""
+            echo "  FINAL AWS MULTI-RESOURCE CLEANUP SUCCESSFUL"
+            echo ""
+            echo "================================================================"
+            echo ""
+
+            echo "[OK] VPC"
+            echo "[OK] S3"
+            echo "[OK] EC2"
+            echo "[OK] VPC Endpoints"
+            echo "[OK] RDS"
+            echo "[OK] ECS"
+            echo "[OK] ECR"
+            echo "[OK] Application Load Balancer"
+            echo "[OK] Target Groups"
+            echo ""
+            echo "Final AWS sweep completed successfully."
+
+          else
+
+            echo ""
+            echo "================================================================"
+            echo ""
+            echo "  WARNING: SOME AWS RESOURCES MAY STILL REMAIN"
+            echo ""
+            echo "================================================================"
+            echo ""
+
+            echo "The final sweep attempted cleanup of all requested resources."
+            echo "Review the AWS resource output above."
+
+          fi
+
+          echo ""
+          echo "================================================================"
+          echo "END OF FINAL AWS MULTI-RESOURCE SWEEP"
+          echo "================================================================"
+
+      # ===============================================================
+      # FINAL SWEEP STEP 22
+      # SUMMARY
+      #
+      # ALWAYS RUNS.
+      # ===============================================================
+
+      - name: "Final Sweep Step 22 - Cleanup Summary"
+        if: always()
+        shell: bash
+        run: |
+
+          echo ""
+          echo "================================================================"
+          echo "CHARLIE CAFE FINAL AWS CLEANUP SUMMARY"
+          echo "================================================================"
+
+          echo ""
+          echo "Main cleanup job result:"
+          echo "  ${{ needs.delete-lab.result }}"
+
+          echo ""
+          echo "AWS region:"
+          echo "  $AWS_REGION"
+
+          echo ""
+          echo "Project safety tag:"
+          echo "  $PROJECT_TAG_KEY=$PROJECT_TAG_VALUE"
+
+          echo ""
+          echo "Final sweep target resources:"
+          echo "  [1]  VPC"
+          echo "  [2]  S3 terraform-* buckets"
+          echo "  [3]  EC2"
+          echo "  [4]  VPC Endpoints"
+          echo "  [5]  RDS"
+          echo "  [6]  ECS"
+          echo "  [7]  ECR"
+          echo "  [8]  Application Load Balancers"
+          echo "  [9]  Target Groups"
+
+          echo ""
+          echo "Additional dependency cleanup:"
+          echo "  [A]  NAT Gateways"
+          echo "  [B]  Elastic IPs"
+          echo "  [C]  Network Interfaces"
+          echo "  [D]  Security Groups"
+          echo "  [E]  Subnets"
+          echo "  [F]  Route Tables"
+          echo "  [G]  Internet Gateways"
+          echo "  [H]  EFS"
+
+          echo ""
+          echo "Terraform working directory:"
+          echo "  $TERRAFORM_WORKING_DIRECTORY"
+
+          echo ""
+          echo "================================================================"
+          echo "END OF COMPLETE CHARLIE CAFE CLEANUP WORKFLOW"
           echo "================================================================"
