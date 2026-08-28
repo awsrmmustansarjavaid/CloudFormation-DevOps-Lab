@@ -235,7 +235,7 @@ aws_subnet.private[1].id
 
 tags = {
 
-```
+
 # Terraform-specific RDS subnet group name.
 
 Name = "CharlieCafe-TF-RDS-SubnetGroup"
@@ -251,7 +251,7 @@ Environment = var.environment
 # Infrastructure management tool.
 
 ManagedBy = "Terraform"
-```
+
 
 }
 }
@@ -574,7 +574,7 @@ skip_final_snapshot = true
 
 tags = {
 
-```
+
 # Terraform-specific database name.
 
 Name = "CharlieCafe-TF-RDS-MySQL"
@@ -590,7 +590,7 @@ Environment = var.environment
 # Infrastructure management tool.
 
 ManagedBy = "Terraform"
-```
+
 
 }
 }
