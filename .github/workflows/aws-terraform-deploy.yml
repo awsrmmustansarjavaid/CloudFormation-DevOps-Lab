@@ -9,7 +9,7 @@
 # PURPOSE
 # ------------------------------------------------------------
 #
-# This is the MAIN Terraform CI/CD workflow.
+# Main Terraform CI/CD workflow.
 #
 # Deployment flow:
 #
@@ -20,6 +20,9 @@
 #        |
 #        v
 #   Terraform Validate
+#        |
+#        v
+#   Terraform State Reconciliation
 #        |
 #        v
 #   Terraform Plan
@@ -34,16 +37,31 @@
 #   Docker Build + Test
 #        |
 #        v
-#   Docker Image
-#        |
-#        v
 #   Amazon ECR
 #        |
 #        v
 #   ECS Deployment Workflow
 #
+# IMPORTANT
+# ------------------------------------------------------------
+#
+# Terraform automatically behaves idempotently:
+#
+#   Resource exists in Terraform state
+#       -> Terraform refreshes it
+#       -> Missing/changed configuration is updated
+#       -> No changes means no action
+#
+# This workflow does NOT blindly ignore AWS errors.
+#
+# If a resource exists in AWS but is NOT in Terraform state,
+# Terraform cannot automatically know that it belongs to this
+# Terraform configuration. Such resources must be imported
+# into Terraform state.
+#
+# This is safer and more professional than ignoring errors.
+#
 # ============================================================
-
 
 name: AWS Terraform Deployment
 
@@ -54,23 +72,18 @@ name: AWS Terraform Deployment
 
 on:
 
-  # ----------------------------------------------------------
   # Automatically run when code is pushed to main.
-  # ----------------------------------------------------------
-
   push:
     branches:
       - main
 
-  # ----------------------------------------------------------
   # Allows manual execution from:
   #
   # GitHub
   #   -> Actions
   #   -> AWS Terraform Deployment
   #   -> Run workflow
-  # ----------------------------------------------------------
-
+  #
   workflow_dispatch:
 
 
@@ -83,63 +96,51 @@ env:
   # ----------------------------------------------------------
   # AWS REGION
   # ----------------------------------------------------------
-
   AWS_REGION: us-east-1
 
   # ----------------------------------------------------------
   # TERRAFORM WORKING DIRECTORY
   # ----------------------------------------------------------
-
   TERRAFORM_DIR: infrastructure/terraform
 
   # ----------------------------------------------------------
   # TERRAFORM VERSION
   # ----------------------------------------------------------
-
   TERRAFORM_VERSION: "1.9.8"
 
   # ----------------------------------------------------------
   # EC2 KEY PAIR
   # ----------------------------------------------------------
-
   KEY_PAIR_NAME: Lab-KeyPair
 
   # ----------------------------------------------------------
   # ECR REPOSITORY
-  #
-  # This repository must be created by Terraform.
   # ----------------------------------------------------------
-
   ECR_REPOSITORY: charlie-cafe-tf
 
   # ----------------------------------------------------------
   # ECS CLUSTER
   # ----------------------------------------------------------
-
   ECS_CLUSTER: CharlieCafe-TF-Cluster
 
   # ----------------------------------------------------------
   # ECS SERVICE
   # ----------------------------------------------------------
-
   ECS_SERVICE: CharlieCafe-TF-Service
 
   # ----------------------------------------------------------
   # ECS CONTAINER
   # ----------------------------------------------------------
-
   ECS_CONTAINER: CharlieCafe-TF
 
   # ----------------------------------------------------------
   # DOCKER IMAGE TAG
   # ----------------------------------------------------------
-
   IMAGE_TAG: latest
 
   # ----------------------------------------------------------
   # Tell Terraform that it is running in automation.
   # ----------------------------------------------------------
-
   TF_IN_AUTOMATION: "true"
 
 
@@ -161,7 +162,6 @@ jobs:
 
     runs-on: ubuntu-latest
 
-
     steps:
 
 
@@ -171,7 +171,6 @@ jobs:
       # ======================================================
 
       - name: Checkout Repository
-
         uses: actions/checkout@v4
 
 
@@ -181,15 +180,10 @@ jobs:
       # ======================================================
 
       - name: Configure AWS Credentials
-
         uses: aws-actions/configure-aws-credentials@v4
-
         with:
-
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
           aws-region: ${{ env.AWS_REGION }}
 
 
@@ -199,11 +193,8 @@ jobs:
       # ======================================================
 
       - name: Verify AWS CLI
-
         shell: bash
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -213,7 +204,6 @@ jobs:
           aws --version
 
           echo ""
-
           echo "=============================================="
           echo "AWS ACCOUNT INFORMATION"
           echo "=============================================="
@@ -222,7 +212,6 @@ jobs:
             --no-cli-pager
 
           echo ""
-
           echo "AWS authentication successful."
 
 
@@ -232,11 +221,8 @@ jobs:
       # ======================================================
 
       - name: Setup Terraform
-
         uses: hashicorp/setup-terraform@v3
-
         with:
-
           terraform_version: ${{ env.TERRAFORM_VERSION }}
 
 
@@ -246,11 +232,8 @@ jobs:
       # ======================================================
 
       - name: Verify Terraform
-
         shell: bash
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -260,7 +243,6 @@ jobs:
           terraform version
 
           echo ""
-
           echo "Terraform installation successful."
 
 
@@ -270,11 +252,8 @@ jobs:
       # ======================================================
 
       - name: Check Terraform Files
-
         shell: bash
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -282,24 +261,19 @@ jobs:
           echo "=============================================="
 
           if [ ! -d "$TERRAFORM_DIR" ]; then
-
             echo "ERROR: Terraform directory does not exist."
-
             echo "Expected directory:"
             echo "$TERRAFORM_DIR"
-
             exit 1
-
           fi
 
           echo ""
-
           echo "Terraform directory found:"
           echo "$TERRAFORM_DIR"
 
           echo ""
-
           echo "Terraform configuration files:"
+
           find "$TERRAFORM_DIR" \
             -maxdepth 1 \
             -type f \
@@ -316,18 +290,14 @@ jobs:
             | wc -l)
 
           if [ "$TF_FILE_COUNT" -eq 0 ]; then
-
             echo "ERROR: No Terraform .tf files were found."
-
             exit 1
-
           fi
 
           echo "Terraform configuration files found:"
           echo "$TF_FILE_COUNT"
 
           echo ""
-
           echo "Terraform directory check completed successfully."
 
 
@@ -337,13 +307,9 @@ jobs:
       # ======================================================
 
       - name: Terraform Init
-
         shell: bash
-
         working-directory: ${{ env.TERRAFORM_DIR }}
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -354,7 +320,6 @@ jobs:
             -input=false
 
           echo ""
-
           echo "Terraform initialization completed successfully."
 
 
@@ -364,13 +329,9 @@ jobs:
       # ======================================================
 
       - name: Terraform Format Check
-
         shell: bash
-
         working-directory: ${{ env.TERRAFORM_DIR }}
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -382,7 +343,6 @@ jobs:
             -recursive
 
           echo ""
-
           echo "Terraform formatting check passed."
 
 
@@ -392,13 +352,9 @@ jobs:
       # ======================================================
 
       - name: Terraform Validate
-
         shell: bash
-
         working-directory: ${{ env.TERRAFORM_DIR }}
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -408,7 +364,6 @@ jobs:
           terraform validate
 
           echo ""
-
           echo "Terraform validation completed successfully."
 
 
@@ -418,11 +373,8 @@ jobs:
       # ======================================================
 
       - name: Display Terraform Environment
-
         shell: bash
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -430,56 +382,45 @@ jobs:
           echo "=============================================="
 
           echo ""
-
           echo "AWS Region:"
           echo "$AWS_REGION"
 
           echo ""
-
           echo "Terraform Directory:"
           echo "$TERRAFORM_DIR"
 
           echo ""
-
           echo "Terraform Version:"
           terraform version
 
           echo ""
-
           echo "EC2 Key Pair:"
           echo "$KEY_PAIR_NAME"
 
           echo ""
-
           echo "ECR Repository:"
           echo "$ECR_REPOSITORY"
 
           echo ""
-
           echo "ECS Cluster:"
           echo "$ECS_CLUSTER"
 
           echo ""
-
           echo "ECS Service:"
           echo "$ECS_SERVICE"
 
           echo ""
-
           echo "ECS Container:"
           echo "$ECS_CONTAINER"
 
           echo ""
-
           echo "RDS Password Management:"
           echo "AWS Secrets Manager"
 
           echo ""
-
           echo "RDS password is NOT stored in GitHub Actions."
 
           echo ""
-
           echo "=============================================="
           echo "END TERRAFORM ENVIRONMENT"
           echo "=============================================="
@@ -487,21 +428,67 @@ jobs:
 
       # ======================================================
       # STEP 11
+      # TERRAFORM STATE RECONCILIATION
+      # ======================================================
+      #
+      # PURPOSE:
+      #
+      # Refresh Terraform's knowledge of resources that are
+      # already managed in the Terraform state.
+      #
+      # This is important when a previous workflow partially
+      # created infrastructure before failing.
+      #
+      # IMPORTANT:
+      #
+      # This does NOT automatically import resources that exist
+      # in AWS but are completely absent from Terraform state.
+      #
+      # Those resources require an explicit Terraform import.
+      #
+      # ======================================================
+
+      - name: Terraform State Reconciliation
+        shell: bash
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        run: |
+          set -e
+
+          echo "=============================================="
+          echo "TERRAFORM STATE RECONCILIATION"
+          echo "=============================================="
+
+          echo ""
+          echo "Refreshing Terraform-managed resources..."
+
+          terraform apply \
+            -refresh-only \
+            -input=false \
+            -auto-approve
+
+          echo ""
+          echo "Terraform state refresh completed."
+
+          echo ""
+          echo "Current Terraform state:"
+
+          terraform state list || true
+
+          echo ""
+          echo "State reconciliation completed successfully."
+
+
+      # ======================================================
+      # STEP 12
       # TERRAFORM PLAN
       # ======================================================
 
       - name: Terraform Plan
-
         shell: bash
-
         working-directory: ${{ env.TERRAFORM_DIR }}
-
         env:
-
           TF_VAR_key_pair_name: ${{ env.KEY_PAIR_NAME }}
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -509,39 +496,55 @@ jobs:
           echo "=============================================="
 
           if [ -z "$TF_VAR_key_pair_name" ]; then
-
             echo "ERROR: KEY_PAIR_NAME is empty."
-
             exit 1
-
           fi
 
           echo "EC2 Key Pair variable is configured."
 
           echo ""
+          echo "Generating Terraform plan..."
 
           terraform plan \
             -input=false \
             -out=tfplan
 
           echo ""
-
           echo "Terraform plan completed successfully."
+
+          echo ""
+          echo "Terraform plan summary:"
+
+          terraform show \
+            -no-color \
+            tfplan \
+            | tail -n 20 || true
 
 
       # ======================================================
-      # STEP 12
+      # STEP 13
       # TERRAFORM APPLY
+      # ======================================================
+      #
+      # Terraform apply is inherently idempotent.
+      #
+      # If the infrastructure already matches the Terraform
+      # configuration:
+      #
+      #     No changes. Your infrastructure matches...
+      #
+      # Terraform performs no changes and continues normally.
+      #
+      # If resources are missing or configuration has changed:
+      #
+      #     Terraform creates/updates them.
+      #
       # ======================================================
 
       - name: Terraform Apply
-
         shell: bash
-
         working-directory: ${{ env.TERRAFORM_DIR }}
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -554,25 +557,20 @@ jobs:
             tfplan
 
           echo ""
-
           echo "=============================================="
           echo "TERRAFORM APPLY COMPLETED"
           echo "=============================================="
 
 
       # ======================================================
-      # STEP 13
+      # STEP 14
       # DISPLAY TERRAFORM OUTPUTS
       # ======================================================
 
       - name: Display Terraform Outputs
-
         shell: bash
-
         working-directory: ${{ env.TERRAFORM_DIR }}
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -582,23 +580,18 @@ jobs:
           terraform output
 
           echo ""
-
           echo "Terraform outputs displayed successfully."
 
 
       # ======================================================
-      # STEP 14
+      # STEP 15
       # VERIFY TERRAFORM STATE
       # ======================================================
 
       - name: Verify Terraform State
-
         shell: bash
-
         working-directory: ${{ env.TERRAFORM_DIR }}
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -608,23 +601,18 @@ jobs:
           terraform state list
 
           echo ""
-
           echo "Terraform state verification completed."
 
 
       # ======================================================
-      # STEP 15
+      # STEP 16
       # VERIFY AWS INFRASTRUCTURE
       # ======================================================
 
       - name: Verify AWS Infrastructure
-
         shell: bash
-
         working-directory: ${{ env.TERRAFORM_DIR }}
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -632,34 +620,30 @@ jobs:
           echo "=============================================="
 
           echo ""
-
           echo "AWS identity:"
+
           aws sts get-caller-identity \
             --no-cli-pager
 
           echo ""
-
           echo "Terraform-managed resources:"
+
           terraform state list
 
           echo ""
-
           echo "=============================================="
           echo "AWS INFRASTRUCTURE VERIFICATION COMPLETE"
           echo "=============================================="
 
 
       # ======================================================
-      # STEP 16
+      # STEP 17
       # TERRAFORM JOB COMPLETE
       # ======================================================
 
       - name: Terraform Deployment Complete
-
         shell: bash
-
         run: |
-
           echo ""
 
           echo "=============================================="
@@ -667,27 +651,26 @@ jobs:
           echo "=============================================="
 
           echo ""
-
           echo "AWS Region:"
           echo "$AWS_REGION"
 
           echo ""
-
           echo "Terraform Directory:"
           echo "$TERRAFORM_DIR"
 
           echo ""
-
           echo "Infrastructure deployment:"
           echo "SUCCESS"
 
           echo ""
+          echo "Existing Terraform-managed resources:"
+          echo "REFRESHED / UPDATED / SKIPPED WHEN NO CHANGES REQUIRED"
 
+          echo ""
           echo "RDS Password Management:"
           echo "AWS Secrets Manager"
 
           echo ""
-
           echo "=============================================="
           echo "TERRAFORM STAGE COMPLETE"
           echo "=============================================="
@@ -707,7 +690,6 @@ jobs:
 
     runs-on: ubuntu-latest
 
-
     steps:
 
 
@@ -717,7 +699,6 @@ jobs:
       # ======================================================
 
       - name: Checkout Repository
-
         uses: actions/checkout@v4
 
 
@@ -727,15 +708,10 @@ jobs:
       # ======================================================
 
       - name: Configure AWS Credentials
-
         uses: aws-actions/configure-aws-credentials@v4
-
         with:
-
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
           aws-region: ${{ env.AWS_REGION }}
 
 
@@ -745,11 +721,8 @@ jobs:
       # ======================================================
 
       - name: Verify Docker
-
         shell: bash
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -759,7 +732,6 @@ jobs:
           docker --version
 
           echo ""
-
           echo "=============================================="
           echo "DOCKER COMPOSE VERSION"
           echo "=============================================="
@@ -773,11 +745,8 @@ jobs:
       # ======================================================
 
       - name: Check Docker Files
-
         shell: bash
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -785,14 +754,10 @@ jobs:
           echo "=============================================="
 
           if [ ! -f "docker/Dockerfile" ]; then
-
             echo "ERROR: Dockerfile was not found."
-
             echo "Expected:"
             echo "docker/Dockerfile"
-
             exit 1
-
           fi
 
           echo "Dockerfile found:"
@@ -801,20 +766,15 @@ jobs:
           echo ""
 
           if [ ! -f "docker-compose.yml" ]; then
-
             echo "ERROR: docker-compose.yml was not found."
-
             echo "Expected:"
             echo "docker-compose.yml"
-
             exit 1
-
           fi
 
           echo "docker-compose.yml found."
 
           echo ""
-
           echo "Docker files are ready."
 
 
@@ -824,11 +784,8 @@ jobs:
       # ======================================================
 
       - name: Validate Docker Compose
-
         shell: bash
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -838,7 +795,6 @@ jobs:
           docker compose config
 
           echo ""
-
           echo "Docker Compose configuration is valid."
 
 
@@ -848,11 +804,8 @@ jobs:
       # ======================================================
 
       - name: Build Docker Image
-
         shell: bash
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -865,7 +818,6 @@ jobs:
             docker
 
           echo ""
-
           echo "Docker image build completed successfully."
 
 
@@ -875,11 +827,8 @@ jobs:
       # ======================================================
 
       - name: Verify Docker Image
-
         shell: bash
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -903,11 +852,8 @@ jobs:
       # ======================================================
 
       - name: Start Docker Container
-
         shell: bash
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -921,7 +867,6 @@ jobs:
             "${ECR_REPOSITORY}:${IMAGE_TAG}"
 
           echo ""
-
           echo "Docker container started."
 
           echo ""
@@ -935,11 +880,8 @@ jobs:
       # ======================================================
 
       - name: Wait for Application
-
         shell: bash
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -957,11 +899,8 @@ jobs:
       # ======================================================
 
       - name: Test Docker Container
-
         shell: bash
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -969,7 +908,6 @@ jobs:
           echo "=============================================="
 
           echo ""
-
           echo "Testing:"
           echo "http://localhost:8080"
 
@@ -996,13 +934,9 @@ jobs:
       # ======================================================
 
       - name: Stop Local Test Container
-
         if: always()
-
         shell: bash
-
         run: |
-
           echo "=============================================="
           echo "STOPPING LOCAL TEST CONTAINER"
           echo "=============================================="
@@ -1021,11 +955,8 @@ jobs:
       # ======================================================
 
       - name: Login to Amazon ECR
-
         shell: bash
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -1048,7 +979,6 @@ jobs:
                 --password-stdin "$ECR_REGISTRY"
 
           echo ""
-
           echo "Amazon ECR login successful."
 
 
@@ -1058,11 +988,8 @@ jobs:
       # ======================================================
 
       - name: Verify ECR Repository
-
         shell: bash
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -1074,7 +1001,6 @@ jobs:
             --region "$AWS_REGION"
 
           echo ""
-
           echo "ECR repository exists:"
           echo "$ECR_REPOSITORY"
 
@@ -1085,11 +1011,8 @@ jobs:
       # ======================================================
 
       - name: Tag Docker Image for ECR
-
         shell: bash
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -1109,7 +1032,6 @@ jobs:
             "$ECR_IMAGE"
 
           echo ""
-
           echo "ECR image:"
           echo "$ECR_IMAGE"
 
@@ -1120,11 +1042,8 @@ jobs:
       # ======================================================
 
       - name: Push Docker Image to ECR
-
         shell: bash
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -1142,11 +1061,9 @@ jobs:
           docker push "$ECR_IMAGE"
 
           echo ""
-
           echo "Docker image pushed successfully."
 
           echo ""
-
           echo "ECR image:"
           echo "$ECR_IMAGE"
 
@@ -1157,11 +1074,8 @@ jobs:
       # ======================================================
 
       - name: Verify ECR Image
-
         shell: bash
-
         run: |
-
           set -e
 
           echo "=============================================="
@@ -1174,7 +1088,6 @@ jobs:
             --region "$AWS_REGION"
 
           echo ""
-
           echo "ECR image verification completed successfully."
 
 
@@ -1184,13 +1097,9 @@ jobs:
       # ======================================================
 
       - name: Display Docker Status
-
         if: always()
-
         shell: bash
-
         run: |
-
           echo "=============================================="
           echo "FINAL DOCKER STATUS"
           echo "=============================================="
@@ -1211,11 +1120,8 @@ jobs:
       # ======================================================
 
       - name: Docker Job Complete
-
         shell: bash
-
         run: |
-
           echo ""
 
           echo "=============================================="
@@ -1223,32 +1129,26 @@ jobs:
           echo "=============================================="
 
           echo ""
-
           echo "Docker build:"
           echo "SUCCESS"
 
           echo ""
-
           echo "Docker application test:"
           echo "PASSED"
 
           echo ""
-
           echo "ECR repository:"
           echo "$ECR_REPOSITORY"
 
           echo ""
-
           echo "Docker image:"
           echo "$IMAGE_TAG"
 
           echo ""
-
           echo "ECR push:"
           echo "SUCCESS"
 
           echo ""
-
           echo "=============================================="
           echo "DOCKER STAGE COMPLETE"
           echo "=============================================="
@@ -1259,8 +1159,6 @@ jobs:
   # ECS DEPLOYMENT
   # ==========================================================
   #
-  # IMPORTANT:
-  #
   # This is a REUSABLE WORKFLOW CALL.
   #
   # Therefore:
@@ -1270,10 +1168,10 @@ jobs:
   #
   # are allowed here.
   #
-  # The called workflow must contain:
+  # The called workflow contains:
   #
-  # on:
-  #   workflow_call:
+  #   on:
+  #     workflow_call:
   #
   # ==========================================================
 
@@ -1287,3 +1185,4 @@ jobs:
     uses: ./.github/workflows/aws-terraform-ecs-deploy.yml
 
     secrets: inherit
+

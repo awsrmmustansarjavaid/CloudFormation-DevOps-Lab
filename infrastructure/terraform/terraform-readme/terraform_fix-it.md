@@ -1282,4 +1282,234 @@ terraform -chdir=infrastructure/terraform apply tfplan
 This is safer than running a fresh apply after the plan because Terraform will apply the saved plan.
 
 ---
+## Best solution for your lab
 
+If these existing resources are the resources you want Terraform to manage, import them into Terraform state.
+
+You need to do this once.
+
+### 1. Check Terraform state first
+
+From your local project:
+
+```
+terraform -chdir=infrastructure/terraform state list
+```
+
+Look for:
+
+```
+aws_iam_role.ecs_task_execution
+aws_iam_role.ecs_task
+aws_lb.charlie_cafe
+aws_lb_target_group.charlie_cafe
+aws_db_subnet_group.mysql
+```
+
+If they are missing from the state, that confirms the problem.
+
+2. Find the ALB ARN
+
+Run:
+
+```
+aws elbv2 describe-load-balancers `
+  --names CharlieCafe-TF-ALB `
+  --region us-east-1 `
+  --query "LoadBalancers[0].LoadBalancerArn" `
+  --output text
+```
+
+Copy the returned ARN.
+
+Then import:
+
+```
+terraform -chdir=infrastructure/terraform import `
+  aws_lb.charlie_cafe `
+  <ALB-ARN>
+```
+
+3. Find the Target Group ARN
+
+```
+aws elbv2 describe-target-groups `
+  --names CharlieCafe-TF-TG `
+  --region us-east-1 `
+  --query "TargetGroups[0].TargetGroupArn" `
+  --output text
+```
+Then:
+
+```
+terraform -chdir=infrastructure/terraform import `
+  aws_lb_target_group.charlie_cafe `
+  <TARGET-GROUP-ARN>
+```
+
+4. Import the IAM roles
+
+For the execution role:
+
+```
+terraform -chdir=infrastructure/terraform import `
+  aws_iam_role.ecs_task_execution `
+  CharlieCafe-TF-ECSTaskExecutionRole
+```
+
+For the task role:
+
+```
+terraform -chdir=infrastructure/terraform import `
+  aws_iam_role.ecs_task `
+  CharlieCafe-TF-ECSTaskRole
+```
+5. Import the RDS subnet group
+
+```
+terraform -chdir=infrastructure/terraform import `
+  aws_db_subnet_group.mysql `
+  charliecafe-tf-rds-subnet-group
+```
+
+6. Verify the state
+
+Run:
+
+```
+terraform -chdir=infrastructure/terraform state list
+```
+
+You should now see:
+
+```
+aws_iam_role.ecs_task_execution
+aws_iam_role.ecs_task
+aws_lb.charlie_cafe
+aws_lb_target_group.charlie_cafe
+aws_db_subnet_group.mysql
+```
+Then:
+
+```
+terraform -chdir=infrastructure/terraform plan
+```
+
+### What I recommend for your CharlieCafe Terraform lab
+
+Before changing any .tf code, let's check three things:
+
+```
+terraform -chdir=infrastructure/terraform state list
+terraform -chdir=infrastructure/terraform show
+```
+
+and:
+
+```
+terraform -chdir=infrastructure/terraform init
+```
+
+Then we can determine whether your Terraform state is missing these 5 resources or whether there is another state/backend problem.
+
+---
+### Step 1 — Find your existing EC2 key pairs
+
+Run:
+
+```
+aws ec2 describe-key-pairs `
+  --region us-east-1 `
+  --query "KeyPairs[].KeyName" `
+  --output table
+```
+
+You should get something like:
+
+```
+-----------------------
+|    DescribeKeyPairs |
++---------------------+
+| CharlieCafe-KeyPair |
+| my-key              |
++---------------------+
+```
+
+### Step 2 — Check what Terraform currently has
+
+Run:
+
+```
+terraform -chdir=infrastructure/terraform console
+```
+
+Then:
+
+```
+var.key_pair_name
+```
+
+It will probably return:
+
+```
+""
+```
+
+Exit:
+
+```
+exit
+```
+
+
+----
+Before changing anything, let's inspect the Terraform configuration
+
+I don't want you deleting state blindly.
+
+Please run these commands from:
+
+```
+C:\Users\musta\Downloads\AWS-Labs\CloudFormation-DevOps-Lab
+```
+
+Command 1
+
+```
+terraform -chdir=infrastructure/terraform state list
+```
+
+Command 2
+
+```
+terraform -chdir=infrastructure/terraform state show aws_lb_target_group.charlie_cafe
+```
+
+
+Command 3
+
+```
+terraform -chdir=infrastructure/terraform state show aws_db_subnet_group.mysql
+```
+
+Command 4
+
+```
+aws rds describe-db-instances `
+  --region us-east-1 `
+  --query "DBInstances[].{Identifier:DBInstanceIdentifier,Status:DBInstanceStatus,VPC:DBSubnetGroup.VpcId,SubnetGroup:DBSubnetGroup.DBSubnetGroupName}" `
+  --output table
+```
+
+Command 5
+
+```
+aws ecs list-clusters `
+  --region us-east-1 `
+  --query "clusterArns[]" `
+  --output table
+```
+
+
+
+---
