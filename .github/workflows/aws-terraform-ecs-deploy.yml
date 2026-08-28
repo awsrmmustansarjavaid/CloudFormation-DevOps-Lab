@@ -45,7 +45,7 @@
 # This workflow assumes your Terraform ECS configuration is
 # located at:
 #
-#   infrastructure/terraform/ecs
+#   infrastructure/terraform
 #
 # Expected Terraform structure:
 #
@@ -141,7 +141,7 @@ env:
   # Terraform ECS infrastructure directory.
   #
 
-  TERRAFORM_DIR: infrastructure/terraform/ecs
+  TERRAFORM_DIR: infrastructure/terraform
 
   # ----------------------------------------------------------
   # APPLICATION NAME
