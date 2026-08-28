@@ -1024,10 +1024,10 @@ variable "ecs_desired_count" {
   description = "Number of Terraform-managed ECS Fargate tasks to keep running."
 
   type    = number
-  default = 0
+  default = 1
 
   validation {
-    condition     = var.ecs_desired_count >= 0
+    condition     = var.ecs_desired_count >= 1
     error_message = "ecs_desired_count cannot be negative."
   }
 }

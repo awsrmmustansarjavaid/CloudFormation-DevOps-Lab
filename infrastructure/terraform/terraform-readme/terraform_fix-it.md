@@ -1142,3 +1142,144 @@ The immediate fix is to provide the name of an existing EC2 Key Pair.
 **Run the `describe-key-pairs` command above and paste its output here.** Then I can tell you exactly what value to use and, after that, we can fix the GitHub Actions workflow so it receives `TF_VAR_key_pair_name` automatically rather than relying on your local PowerShell environment.
 ---
 
+3. Verify there are no old references
+
+After saving both files, run:
+
+```
+cd "C:\Users\musta\Downloads\AWS-Labs\CloudFormation-DevOps-Lab"
+
+Get-ChildItem -Path .\infrastructure\terraform -Recurse -Filter *.tf |
+    Select-String -Pattern 'data\.aws_region\.current\.name'
+```
+
+Expected result:
+
+No output
+
+Then check the new references:
+
+```
+Get-ChildItem -Path .\infrastructure\terraform -Recurse -Filter *.tf |
+    Select-String -Pattern 'data\.aws_region\.current\.region'
+```
+
+You should see the six expected references.
+
+4. Format Terraform
+
+Run:
+
+```
+terraform -chdir=infrastructure/terraform fmt
+```
+
+Then:
+
+```
+terraform -chdir=infrastructure/terraform validate
+```
+
+Expected:
+
+```
+Success! The configuration is valid.
+```
+
+Then run:
+
+```
+terraform -chdir=infrastructure/terraform plan
+```
+
+You should no longer get:
+
+```
+Warning: Deprecated value used
+
+name is deprecated. Use region instead.
+```
+
+---
+### 1. First verify there are no .name references left
+
+Run this from your project root:
+
+```
+cd "C:\Users\musta\Downloads\AWS-Labs\CloudFormation-DevOps-Lab"
+
+Get-ChildItem -Path .\infrastructure\terraform -Recurse -Filter *.tf |
+    Select-String -Pattern 'data\.aws_region\.current\.name'
+```
+
+Expected result:
+
+```
+No output
+```
+
+If you get no output, you have successfully removed the deprecated references.
+
+### 2. Then format and validate
+
+Run:
+
+```
+terraform -chdir=infrastructure/terraform fmt -recursive
+```
+
+Then:
+
+```
+terraform -chdir=infrastructure/terraform validate
+```
+
+You want:
+
+```
+Success! The configuration is valid.
+```
+
+### 3. Run the plan again
+
+Because your previous plan showed:
+
+```
+Plan: 40 to add, 0 to change, 0 to destroy.
+```
+
+run:
+
+```
+terraform -chdir=infrastructure/terraform plan
+```
+
+If everything is correct, you should still see approximately:
+
+```
+Plan: 40 to add, 0 to change, 0 to destroy.
+```
+
+but the deprecated warning should disappear.
+
+---
+### Current status
+
+I would not make more changes just because of this plan. The configuration has passed validation, and the plan is internally consistent.
+
+Before applying, I recommend running:
+
+```
+terraform -chdir=infrastructure/terraform plan -out=tfplan
+```
+
+Then, if the displayed plan is exactly what you expect:
+
+```
+terraform -chdir=infrastructure/terraform apply tfplan
+```
+
+This is safer than running a fresh apply after the plan because Terraform will apply the saved plan.
+
+---
+

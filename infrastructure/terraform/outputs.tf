@@ -765,7 +765,7 @@ output "deployment_summary" {
     # AWS region
     # --------------------------------------------------------
 
-    aws_region = data.aws_region.current.name
+    aws_region = data.aws_region.current.region
 
 
     # --------------------------------------------------------

@@ -286,7 +286,7 @@ resource "aws_vpc_endpoint" "ecr_api" {
   vpc_id = aws_vpc.lab.id
 
   # Build regional ECR API service name automatically.
-  service_name = "com.amazonaws.${data.aws_region.current.name}.ecr.api"
+  service_name = "com.amazonaws.${data.aws_region.current.region}.ecr.api"
 
   vpc_endpoint_type = "Interface"
 
@@ -334,7 +334,7 @@ resource "aws_vpc_endpoint" "ecr_dkr" {
   # Existing VPC from network.tf
   vpc_id = aws_vpc.lab.id
 
-  service_name = "com.amazonaws.${data.aws_region.current.name}.ecr.dkr"
+  service_name = "com.amazonaws.${data.aws_region.current.region}.ecr.dkr"
 
   vpc_endpoint_type = "Interface"
 
@@ -383,7 +383,7 @@ resource "aws_vpc_endpoint" "s3" {
   # Existing VPC from network.tf
   vpc_id = aws_vpc.lab.id
 
-  service_name = "com.amazonaws.${data.aws_region.current.name}.s3"
+  service_name = "com.amazonaws.${data.aws_region.current.region}.s3"
 
   vpc_endpoint_type = "Gateway"
 
@@ -422,7 +422,7 @@ resource "aws_vpc_endpoint" "cloudwatch_logs" {
   # Existing VPC from network.tf
   vpc_id = aws_vpc.lab.id
 
-  service_name = "com.amazonaws.${data.aws_region.current.name}.logs"
+  service_name = "com.amazonaws.${data.aws_region.current.region}.logs"
 
   vpc_endpoint_type = "Interface"
 
@@ -1204,7 +1204,7 @@ resource "aws_ecs_task_definition" "charlie_cafe" {
 
           "awslogs-group" = aws_cloudwatch_log_group.ecs.name
 
-          "awslogs-region" = data.aws_region.current.name
+          "awslogs-region" = data.aws_region.current.region
 
           "awslogs-stream-prefix" = "ecs-tf"
         }
