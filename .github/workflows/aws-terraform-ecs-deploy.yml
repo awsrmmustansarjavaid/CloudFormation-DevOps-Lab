@@ -1,1826 +1,1459 @@
 # ============================================================
-
 # CharlieCafe-TF - Terraform ECS Deployment Workflow
-
 # ============================================================
-
 #
-
 # File:
-
 # .github/workflows/aws-terraform-ecs-deploy.yml
-
 #
-
 # PURPOSE
-
 # ------------------------------------------------------------
-
+# Deploy CharlieCafe-TF to Amazon ECS Fargate using:
 #
-
-# Reusable workflow responsible for deploying the
-
-# CharlieCafe-TF application to Amazon ECS Fargate.
-
-#
-
-# Deployment flow:
-
-#
-
 # GitHub Actions
-
-# |
-
-# v
-
-# Checkout Repository
-
-# |
-
-# v
-
-# Configure AWS Credentials
-
-# |
-
-# v
-
-# Verify AWS
-
-# |
-
-# v
-
-# Setup Terraform
-
-# |
-
-# v
-
-# Terraform Init
-
-# |
-
-# v
-
-# Terraform Format
-
-# |
-
-# v
-
-# Terraform Validate
-
-# |
-
-# v
-
-# Verify Existing Network
-
-# |
-
-# v
-
-# Terraform State Reconciliation
-
-# |
-
-# v
-
-# Terraform Plan
-
-# |
-
-# v
-
-# Terraform Apply
-
-# |
-
-# v
-
-# ECR Verification
-
-# |
-
-# v
-
+#      |
+#      v
+# AWS Authentication
+#      |
+#      v
+# Terraform Init / Format / Validate
+#      |
+#      v
+# Terraform Resource Reconciliation
+#      |
+#      v
+# Ensure ECR Repository
+#      |
+#      v
 # Docker Build
-
-# |
-
-# v
-
+#      |
+#      v
 # Docker Push
-
-# |
-
-# v
-
-# ECS Verification
-
-# |
-
-# v
-
+#      |
+#      v
+# Terraform Plan
+#      |
+#      v
+# Terraform Apply
+#      |
+#      v
 # ECS Deployment
-
-# |
-
-# v
-
-# ECS Stability Check
-
-# |
-
-# v
-
-# ALB Verification
-
-# |
-
-# v
-
-# Target Health Verification
-
-# |
-
-# v
-
-# Application HTTP Test
-
-# |
-
-# v
-
+#      |
+#      v
+# ECS Stability
+#      |
+#      v
+# ALB / Target Health
+#      |
+#      v
+# HTTP Application Test
+#      |
+#      v
 # CloudWatch Verification
-
 #
-
-# ============================================================
-
-#
-
-# TERRAFORM RESOURCE MANAGEMENT
-
-# ------------------------------------------------------------
-
-#
-
-# Terraform follows the normal IaC lifecycle:
-
-#
-
-# Resource exists in Terraform state
-
-# -> Terraform manages it
-
-#
-
-# Resource exists in AWS but not in Terraform state
-
-# -> Known resource can be imported/adopted
-
-#
-
-# Resource does not exist
-
-# -> Terraform creates it
-
-#
-
-# Resource exists but configuration differs
-
-# -> Terraform updates it
-
-#
-
-# Resource already matches configuration
-
-# -> Terraform makes no change
-
-#
-
-# IMPORTANT
-
-# ------------------------------------------------------------
-
-#
-
-# Terraform import only works when the destination resource
-
-# address exists in the Terraform configuration.
-
-#
-
-# Therefore this workflow only attempts imports for resource
-
-# addresses that are expected to exist in the current
-
-# CharlieCafe-TF Terraform configuration.
-
-#
-
 # ============================================================
 
 name: CharlieCafe-TF - Terraform ECS Deployment
 
 # ============================================================
-
 # WORKFLOW TRIGGERS
-
 # ============================================================
 
 on:
 
-# ----------------------------------------------------------
+  # Reusable workflow
+  workflow_call:
 
-# Reusable workflow trigger.
+  # Manual execution from GitHub Actions
+  workflow_dispatch:
 
-#
-
-# Called from:
-
-# aws-terraform-deploy.yml
-
-#
-
-# The calling workflow uses:
-
-#
-
-# secrets: inherit
-
-#
-
-# ----------------------------------------------------------
-
-workflow_call:
-
-# ----------------------------------------------------------
-
-# Manual execution.
-
-#
-
-# This allows the workflow to be executed directly from:
-
-#
-
-# GitHub
-
-# -> Actions
-
-# -> CharlieCafe-TF - Terraform ECS Deployment
-
-# -> Run workflow
-
-#
-
-# ----------------------------------------------------------
-
-workflow_dispatch:
 
 # ============================================================
-
-# GLOBAL ENVIRONMENT VARIABLES
-
+# GLOBAL ENVIRONMENT
 # ============================================================
 
 env:
 
-# ----------------------------------------------------------
+  # AWS
+  AWS_REGION: us-east-1
 
-# AWS REGION
+  # Terraform
+  TERRAFORM_DIR: infrastructure/terraform
+  TERRAFORM_VERSION: "1.9.8"
 
-# ----------------------------------------------------------
+  # Application
+  APPLICATION_NAME: CharlieCafe-TF
 
-AWS_REGION: us-east-1
+  # ECR
+  ECR_REPOSITORY: charlie-cafe-tf
 
-# ----------------------------------------------------------
+  # ECS
+  ECS_CLUSTER: CharlieCafe-TF-Cluster
+  ECS_SERVICE: CharlieCafe-TF-Service
 
-# TERRAFORM WORKING DIRECTORY
+  # ECS container
+  CONTAINER_NAME: charlie-cafe-tf
+  CONTAINER_PORT: "80"
 
-# ----------------------------------------------------------
+  # ECS task
+  TASK_CPU: "256"
+  TASK_MEMORY: "512"
 
-TERRAFORM_DIR: infrastructure/terraform
+  # ECS desired count
+  #
+  # Terraform infrastructure is created/reconciled first.
+  # ECS is explicitly started later after the image is pushed.
+  ECS_DESIRED_COUNT: "1"
 
-# ----------------------------------------------------------
+  # Docker
+  IMAGE_TAG: latest
 
-# TERRAFORM VERSION
+  # Terraform automation
+  TF_IN_AUTOMATION: "true"
 
-# ----------------------------------------------------------
-
-TERRAFORM_VERSION: "1.9.8"
-
-# ----------------------------------------------------------
-
-# APPLICATION NAME
-
-# ----------------------------------------------------------
-
-APPLICATION_NAME: CharlieCafe-TF
-
-# ----------------------------------------------------------
-
-# ECR REPOSITORY
-
-# ----------------------------------------------------------
-
-ECR_REPOSITORY: charlie-cafe-tf
-
-# ----------------------------------------------------------
-
-# ECS CLUSTER
-
-# ----------------------------------------------------------
-
-ECS_CLUSTER: CharlieCafe-TF-Cluster
-
-# ----------------------------------------------------------
-
-# ECS SERVICE
-
-# ----------------------------------------------------------
-
-ECS_SERVICE: CharlieCafe-TF-Service
-
-# ----------------------------------------------------------
-
-# ECS CONTAINER PORT
-
-# ----------------------------------------------------------
-
-CONTAINER_PORT: "80"
-
-# ----------------------------------------------------------
-
-# ECS TASK CPU
-
-# ----------------------------------------------------------
-
-TASK_CPU: "256"
-
-# ----------------------------------------------------------
-
-# ECS TASK MEMORY
-
-# ----------------------------------------------------------
-
-TASK_MEMORY: "512"
-
-# ----------------------------------------------------------
-
-# ECS DESIRED COUNT
-
-# ----------------------------------------------------------
-
-ECS_DESIRED_COUNT: "1"
-
-# ----------------------------------------------------------
-
-# DOCKER IMAGE TAG
-
-# ----------------------------------------------------------
-
-IMAGE_TAG: latest
-
-# ----------------------------------------------------------
-
-# Terraform automation mode.
-
-# ----------------------------------------------------------
-
-TF_IN_AUTOMATION: "true"
 
 # ============================================================
-
 # JOBS
-
 # ============================================================
 
 jobs:
 
-# ==========================================================
-
-# JOB
-
-# TERRAFORM + DOCKER + ECS DEPLOYMENT
-
-# ==========================================================
-
-deploy:
-
-
-name: Terraform ECS Infrastructure and Application Deploy
-
-runs-on: ubuntu-latest
-
-# --------------------------------------------------------
-# Prevent a deployment from running indefinitely.
-# --------------------------------------------------------
-
-timeout-minutes: 45
-
-# --------------------------------------------------------
-# Minimum GitHub permission required.
-# --------------------------------------------------------
-
-permissions:
-  contents: read
-
-
-# ========================================================
-# STEPS
-# ========================================================
-
-steps:
-
-
-  # ======================================================
-  # STEP 1
-  # CHECKOUT REPOSITORY
-  # ======================================================
-
-  - name: Checkout repository
-    uses: actions/checkout@v4
-
-
-  # ======================================================
-  # STEP 2
-  # VERIFY REQUIRED SECRETS
-  # ======================================================
-  #
-  # These checks happen before AWS configuration so that
-  # a missing GitHub secret produces a clear error.
-  #
-  # ======================================================
-
-  - name: Verify required GitHub secrets
-    shell: bash
-    env:
-      AWS_ACCESS_KEY_ID_VALUE: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY_VALUE: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      ECS_VPC_ID_VALUE: ${{ secrets.ECS_VPC_ID }}
-      ECS_PUBLIC_SUBNET_1_VALUE: ${{ secrets.ECS_PUBLIC_SUBNET_1 }}
-      ECS_PUBLIC_SUBNET_2_VALUE: ${{ secrets.ECS_PUBLIC_SUBNET_2 }}
-      ECS_PRIVATE_SUBNET_1_VALUE: ${{ secrets.ECS_PRIVATE_SUBNET_1 }}
-      ECS_PRIVATE_SUBNET_2_VALUE: ${{ secrets.ECS_PRIVATE_SUBNET_2 }}
-      ECS_PRIVATE_ROUTE_TABLE_ID_VALUE: ${{ secrets.ECS_PRIVATE_ROUTE_TABLE_ID }}
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "VERIFYING REQUIRED GITHUB SECRETS"
-      echo "=================================================="
-
-      REQUIRED_VALUES=(
-        "AWS_ACCESS_KEY_ID_VALUE"
-        "AWS_SECRET_ACCESS_KEY_VALUE"
-        "ECS_VPC_ID_VALUE"
-        "ECS_PUBLIC_SUBNET_1_VALUE"
-        "ECS_PUBLIC_SUBNET_2_VALUE"
-        "ECS_PRIVATE_SUBNET_1_VALUE"
-        "ECS_PRIVATE_SUBNET_2_VALUE"
-        "ECS_PRIVATE_ROUTE_TABLE_ID_VALUE"
-      )
-
-      for VALUE_NAME in "${REQUIRED_VALUES[@]}"; do
-        if [ -z "${!VALUE_NAME:-}" ]; then
-          echo "ERROR: Required GitHub secret is missing:"
-          echo "$VALUE_NAME"
-          exit 1
-        fi
-      done
-
-      echo ""
-      echo "All required GitHub secrets are available."
-
-      echo ""
-      echo "Secret values are intentionally not printed."
-
-
-  # ======================================================
-  # STEP 3
-  # CONFIGURE AWS CREDENTIALS
-  # ======================================================
-
-  - name: Configure AWS credentials
-    uses: aws-actions/configure-aws-credentials@v4
-    with:
-      aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      aws-region: ${{ env.AWS_REGION }}
-
-
-  # ======================================================
-  # STEP 4
-  # VERIFY AWS IDENTITY
-  # ======================================================
-
-  - name: Verify AWS identity
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "AWS IDENTITY"
-      echo "=================================================="
-
-      aws --version
-
-      echo ""
-
-      aws sts get-caller-identity \
-        --no-cli-pager
-
-      echo ""
-      echo "AWS Region:"
-      echo "$AWS_REGION"
-
-      echo ""
-      echo "AWS authentication SUCCESS."
-
-
-  # ======================================================
-  # STEP 5
-  # SETUP TERRAFORM
-  # ======================================================
-
-  - name: Setup Terraform
-    uses: hashicorp/setup-terraform@v3
-    with:
-      terraform_version: ${{ env.TERRAFORM_VERSION }}
-
-
-  # ======================================================
-  # STEP 6
-  # VERIFY TERRAFORM
-  # ======================================================
-
-  - name: Verify Terraform installation
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "TERRAFORM VERSION"
-      echo "=================================================="
-
-      terraform version
-
-      echo ""
-      echo "Terraform installation SUCCESS."
-
-
-  # ======================================================
-  # STEP 7
-  # VERIFY TERRAFORM DIRECTORY
-  # ======================================================
-
-  - name: Verify Terraform configuration
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "VERIFYING TERRAFORM CONFIGURATION"
-      echo "=================================================="
-
-      if [ ! -d "$TERRAFORM_DIR" ]; then
-        echo "ERROR: Terraform directory was not found."
-        echo "Expected:"
-        echo "$TERRAFORM_DIR"
-        exit 1
-      fi
-
-      TF_FILE_COUNT=$(find "$TERRAFORM_DIR" \
-        -maxdepth 1 \
-        -type f \
-        -name "*.tf" \
-        | wc -l)
-
-      if [ "$TF_FILE_COUNT" -eq 0 ]; then
-        echo "ERROR: No Terraform .tf files were found."
-        exit 1
-      fi
-
-      echo ""
-      echo "Terraform directory:"
-      echo "$TERRAFORM_DIR"
-
-      echo ""
-      echo "Terraform files:"
-
-      find "$TERRAFORM_DIR" \
-        -maxdepth 1 \
-        -type f \
-        -name "*.tf" \
-        -print \
-        | sort
-
-      echo ""
-      echo "Terraform files found:"
-      echo "$TF_FILE_COUNT"
-
-
-  # ======================================================
-  # STEP 8
-  # TERRAFORM INIT
-  # ======================================================
-
-  - name: Terraform init
-    shell: bash
-    working-directory: ${{ env.TERRAFORM_DIR }}
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "TERRAFORM INIT"
-      echo "=================================================="
-
-      terraform init \
-        -input=false
-
-      echo ""
-      echo "Terraform initialization SUCCESS."
-
-
-  # ======================================================
-  # STEP 9
-  # TERRAFORM FORMAT CHECK
-  # ======================================================
-
-  - name: Check Terraform formatting
-    shell: bash
-    working-directory: ${{ env.TERRAFORM_DIR }}
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "TERRAFORM FORMAT CHECK"
-      echo "=================================================="
-
-      terraform fmt \
-        -check \
-        -recursive
-
-      echo ""
-      echo "Terraform formatting SUCCESS."
-
-
-  # ======================================================
-  # STEP 10
-  # TERRAFORM VALIDATE
-  # ======================================================
-
-  - name: Terraform validate
-    shell: bash
-    working-directory: ${{ env.TERRAFORM_DIR }}
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "TERRAFORM VALIDATION"
-      echo "=================================================="
-
-      terraform validate
-
-      echo ""
-      echo "Terraform validation SUCCESS."
-
-
-  # ======================================================
-  # STEP 11
-  # EXPORT TERRAFORM VARIABLES
-  # ======================================================
-  #
-  # IMPORTANT:
-  #
-  # The previous workflow attempted to read ECS_VPC_ID and
-  # subnet variables from the shell environment even though
-  # they were only available as GitHub Secrets.
-  #
-  # This version explicitly maps the secrets to TF_VAR_*
-  # environment variables.
-  #
-  # Terraform will use these values only when matching
-  # variable declarations exist in the Terraform
-  # configuration.
-  #
-  # ======================================================
-
-  - name: Configure Terraform deployment variables
-    shell: bash
-    env:
-      TF_VAR_aws_region: ${{ env.AWS_REGION }}
-      TF_VAR_vpc_id: ${{ secrets.ECS_VPC_ID }}
-      TF_VAR_public_subnet_1: ${{ secrets.ECS_PUBLIC_SUBNET_1 }}
-      TF_VAR_public_subnet_2: ${{ secrets.ECS_PUBLIC_SUBNET_2 }}
-      TF_VAR_private_subnet_1: ${{ secrets.ECS_PRIVATE_SUBNET_1 }}
-      TF_VAR_private_subnet_2: ${{ secrets.ECS_PRIVATE_SUBNET_2 }}
-      TF_VAR_private_route_table_id: ${{ secrets.ECS_PRIVATE_ROUTE_TABLE_ID }}
-      TF_VAR_application_name: ${{ env.APPLICATION_NAME }}
-      TF_VAR_ecr_repository_name: ${{ env.ECR_REPOSITORY }}
-      TF_VAR_ecs_cluster_name: ${{ env.ECS_CLUSTER }}
-      TF_VAR_ecs_service_name: ${{ env.ECS_SERVICE }}
-      TF_VAR_container_port: ${{ env.CONTAINER_PORT }}
-      TF_VAR_task_cpu: ${{ env.TASK_CPU }}
-      TF_VAR_task_memory: ${{ env.TASK_MEMORY }}
-      TF_VAR_ecs_desired_count: ${{ env.ECS_DESIRED_COUNT }}
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "TERRAFORM DEPLOYMENT VARIABLES"
-      echo "=================================================="
-
-      # Export variables to all following GitHub Actions
-      # steps.
-      {
-        echo "TF_VAR_aws_region=$TF_VAR_aws_region"
-        echo "TF_VAR_vpc_id=$TF_VAR_vpc_id"
-        echo "TF_VAR_public_subnet_1=$TF_VAR_public_subnet_1"
-        echo "TF_VAR_public_subnet_2=$TF_VAR_public_subnet_2"
-        echo "TF_VAR_private_subnet_1=$TF_VAR_private_subnet_1"
-        echo "TF_VAR_private_subnet_2=$TF_VAR_private_subnet_2"
-        echo "TF_VAR_private_route_table_id=$TF_VAR_private_route_table_id"
-        echo "TF_VAR_application_name=$TF_VAR_application_name"
-        echo "TF_VAR_ecr_repository_name=$TF_VAR_ecr_repository_name"
-        echo "TF_VAR_ecs_cluster_name=$TF_VAR_ecs_cluster_name"
-        echo "TF_VAR_ecs_service_name=$TF_VAR_ecs_service_name"
-        echo "TF_VAR_container_port=$TF_VAR_container_port"
-        echo "TF_VAR_task_cpu=$TF_VAR_task_cpu"
-        echo "TF_VAR_task_memory=$TF_VAR_task_memory"
-        echo "TF_VAR_ecs_desired_count=$TF_VAR_ecs_desired_count"
-      } >> "$GITHUB_ENV"
-
-      echo ""
-      echo "Terraform deployment variables configured."
-
-      echo ""
-      echo "Sensitive values are not printed."
-
-
-  # ======================================================
-  # STEP 12
-  # VERIFY NETWORK
-  # ======================================================
-
-  - name: Verify required network values
-    shell: bash
-    env:
-      ECS_VPC_ID: ${{ secrets.ECS_VPC_ID }}
-      ECS_PUBLIC_SUBNET_1: ${{ secrets.ECS_PUBLIC_SUBNET_1 }}
-      ECS_PUBLIC_SUBNET_2: ${{ secrets.ECS_PUBLIC_SUBNET_2 }}
-      ECS_PRIVATE_SUBNET_1: ${{ secrets.ECS_PRIVATE_SUBNET_1 }}
-      ECS_PRIVATE_SUBNET_2: ${{ secrets.ECS_PRIVATE_SUBNET_2 }}
-      ECS_PRIVATE_ROUTE_TABLE_ID: ${{ secrets.ECS_PRIVATE_ROUTE_TABLE_ID }}
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "VERIFYING NETWORK VALUES"
-      echo "=================================================="
-
-      REQUIRED_NETWORK_VALUES=(
-        "ECS_VPC_ID"
-        "ECS_PUBLIC_SUBNET_1"
-        "ECS_PUBLIC_SUBNET_2"
-        "ECS_PRIVATE_SUBNET_1"
-        "ECS_PRIVATE_SUBNET_2"
-        "ECS_PRIVATE_ROUTE_TABLE_ID"
-      )
-
-      for VALUE_NAME in "${REQUIRED_NETWORK_VALUES[@]}"; do
-
-        VALUE="${!VALUE_NAME:-}"
-
-        if [ -z "$VALUE" ]; then
-          echo "ERROR: $VALUE_NAME is missing."
-          exit 1
-        fi
-
-        echo "$VALUE_NAME: configured"
-
-      done
-
-      echo ""
-      echo "Required network values are available."
-
-
-  # ======================================================
-  # STEP 13
-  # VERIFY VPC
-  # ======================================================
-
-  - name: Verify VPC
-    shell: bash
-    env:
-      ECS_VPC_ID: ${{ secrets.ECS_VPC_ID }}
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "VERIFYING VPC"
-      echo "=================================================="
-
-      aws ec2 describe-vpcs \
-        --region "$AWS_REGION" \
-        --vpc-ids "$ECS_VPC_ID" \
-        --query 'Vpcs[0].[VpcId,State,CidrBlock]' \
-        --output table
-
-      echo ""
-      echo "VPC verification SUCCESS."
-
-
-  # ======================================================
-  # STEP 14
-  # VERIFY ECS SUBNETS
-  # ======================================================
-
-  - name: Verify ECS subnets
-    shell: bash
-    env:
-      ECS_PUBLIC_SUBNET_1: ${{ secrets.ECS_PUBLIC_SUBNET_1 }}
-      ECS_PUBLIC_SUBNET_2: ${{ secrets.ECS_PUBLIC_SUBNET_2 }}
-      ECS_PRIVATE_SUBNET_1: ${{ secrets.ECS_PRIVATE_SUBNET_1 }}
-      ECS_PRIVATE_SUBNET_2: ${{ secrets.ECS_PRIVATE_SUBNET_2 }}
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "VERIFYING ECS SUBNETS"
-      echo "=================================================="
-
-      aws ec2 describe-subnets \
-        --region "$AWS_REGION" \
-        --subnet-ids \
-          "$ECS_PUBLIC_SUBNET_1" \
-          "$ECS_PUBLIC_SUBNET_2" \
-          "$ECS_PRIVATE_SUBNET_1" \
-          "$ECS_PRIVATE_SUBNET_2" \
-        --query 'Subnets[].[SubnetId,VpcId,AvailabilityZone,CidrBlock,MapPublicIpOnLaunch]' \
-        --output table
-
-      echo ""
-      echo "Subnet verification SUCCESS."
-
-
-  # ======================================================
-  # STEP 15
-  # VERIFY PRIVATE ROUTE TABLE
-  # ======================================================
-
-  - name: Verify private route table
-    shell: bash
-    env:
-      ECS_PRIVATE_ROUTE_TABLE_ID: ${{ secrets.ECS_PRIVATE_ROUTE_TABLE_ID }}
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "VERIFYING PRIVATE ROUTE TABLE"
-      echo "=================================================="
-
-      aws ec2 describe-route-tables \
-        --region "$AWS_REGION" \
-        --route-table-ids "$ECS_PRIVATE_ROUTE_TABLE_ID" \
-        --query 'RouteTables[0].[RouteTableId,VpcId]' \
-        --output table
-
-      echo ""
-      echo "Private route table verification SUCCESS."
-
-
-  # ======================================================
-  # STEP 16
-  # DISPLAY TERRAFORM STATE
-  # ======================================================
-
-  - name: Display Terraform state before reconciliation
-    shell: bash
-    working-directory: ${{ env.TERRAFORM_DIR }}
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "TERRAFORM STATE BEFORE RECONCILIATION"
-      echo "=================================================="
-
-      terraform state list || true
-
-
-  # ======================================================
-  # STEP 17
-  # RECONCILE KNOWN EXISTING RESOURCES
-  # ======================================================
-  #
-  # This step adopts only the known resources from the
-  # CharlieCafe-TF migration.
-  #
-  # It does NOT blindly import every AWS resource.
-  #
-  # Terraform import requires a valid Terraform resource
-  # address in the configuration.
-  #
-  # ======================================================
-
-  - name: Reconcile existing Terraform resources
-    shell: bash
-    working-directory: ${{ env.TERRAFORM_DIR }}
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "TERRAFORM RESOURCE RECONCILIATION"
-      echo "=================================================="
-
-      echo ""
-      echo "Current Terraform state:"
-      terraform state list || true
-
-
-      # --------------------------------------------------
-      # Function:
-      #
-      # Import a resource only when:
-      #
-      #   1. It is absent from Terraform state.
-      #   2. It exists in AWS.
-      #
-      # If it does not exist in AWS, Terraform will create
-      # it during the normal plan/apply process.
-      # --------------------------------------------------
-
-      adopt_resource() {
-
-        local RESOURCE_ADDRESS="$1"
-        local RESOURCE_ID="$2"
-        local AWS_CHECK_COMMAND="$3"
-
-        echo ""
-        echo "--------------------------------------------------"
-        echo "RESOURCE: $RESOURCE_ADDRESS"
-        echo "--------------------------------------------------"
-
-        if terraform state list | grep -Fxq "$RESOURCE_ADDRESS"; then
-          echo "Already present in Terraform state."
-          echo "ACTION: KEEP / MANAGE"
-          return 0
-        fi
-
-        echo "Resource is NOT in Terraform state."
-
-        if bash -c "$AWS_CHECK_COMMAND"; then
-
-          echo "Resource exists in AWS."
-          echo "ACTION: IMPORT / ADOPT"
-
-          terraform import \
-            -input=false \
-            "$RESOURCE_ADDRESS" \
-            "$RESOURCE_ID"
-
-          echo "Resource imported successfully."
-
-        else
-
-          echo "Resource does not exist in AWS."
-          echo "ACTION: SKIP"
-
-          echo "Terraform will create it during apply."
-
-        fi
-      }
-
-
-      # ==================================================
-      # RDS SUBNET GROUP
-      # ==================================================
-
-      adopt_resource \
-        "aws_db_subnet_group.mysql" \
-        "charliecafe-tf-rds-subnet-group" \
-        'aws rds describe-db-subnet-groups --region "$AWS_REGION" --db-subnet-group-name "charliecafe-tf-rds-subnet-group" >/dev/null 2>&1'
-
-
-      # ==================================================
-      # ECS TASK IAM ROLE
-      # ==================================================
-
-      adopt_resource \
-        "aws_iam_role.ecs_task" \
-        "CharlieCafe-TF-ECS-TaskRole" \
-        'aws iam get-role --role-name "CharlieCafe-TF-ECS-TaskRole" >/dev/null 2>&1'
-
-
-      # ==================================================
-      # ECS TASK EXECUTION IAM ROLE
-      # ==================================================
-
-      adopt_resource \
-        "aws_iam_role.ecs_task_execution" \
-        "CharlieCafe-TF-ECS-TaskExecutionRole" \
-        'aws iam get-role --role-name "CharlieCafe-TF-ECS-TaskExecutionRole" >/dev/null 2>&1'
-
-
-      # ==================================================
-      # APPLICATION LOAD BALANCER
-      # ==================================================
-
-      adopt_resource \
-        "aws_lb.charlie_cafe" \
-        "CharlieCafe-TF-ALB" \
-        'aws elbv2 describe-load-balancers --region "$AWS_REGION" --names "CharlieCafe-TF-ALB" >/dev/null 2>&1'
-
-
-      # ==================================================
-      # ALB TARGET GROUP
-      # ==================================================
-      #
-      # Target groups are imported using their ARN.
-      #
-      # First discover the ARN.
-      #
-      # ==================================================
-
-      TARGET_GROUP_ARN=$(aws elbv2 describe-target-groups \
-        --region "$AWS_REGION" \
-        --names "CharlieCafe-TF-TG" \
-        --query 'TargetGroups[0].TargetGroupArn' \
-        --output text \
-        2>/dev/null || true)
-
-      if [ -n "$TARGET_GROUP_ARN" ] && [ "$TARGET_GROUP_ARN" != "None" ]; then
-
-        adopt_resource \
-          "aws_lb_target_group.charlie_cafe" \
-          "$TARGET_GROUP_ARN" \
-          "true"
-
-      else
-
-        echo ""
-        echo "--------------------------------------------------"
-        echo "RESOURCE: aws_lb_target_group.charlie_cafe"
-        echo "--------------------------------------------------"
-        echo "Target group does not exist."
-        echo "ACTION: SKIP"
-        echo "Terraform will create it during apply."
-
-      fi
-
-
-      echo ""
-      echo "=================================================="
-      echo "RESOURCE RECONCILIATION COMPLETE"
-      echo "=================================================="
-
-      echo ""
-      echo "Final Terraform state:"
-
-      terraform state list || true
-
-
-  # ======================================================
-  # STEP 18
-  # TERRAFORM PLAN
-  # ======================================================
-
-  - name: Terraform plan
-    shell: bash
-    working-directory: ${{ env.TERRAFORM_DIR }}
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "TERRAFORM PLAN"
-      echo "=================================================="
-
-      terraform plan \
-        -input=false \
-        -out=tfplan
-
-      echo ""
-      echo "Terraform plan SUCCESS."
-
-
-  # ======================================================
-  # STEP 19
-  # SHOW TERRAFORM PLAN
-  # ======================================================
-
-  - name: Show Terraform plan
-    shell: bash
-    working-directory: ${{ env.TERRAFORM_DIR }}
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "TERRAFORM PLAN SUMMARY"
-      echo "=================================================="
-
-      terraform show \
-        -no-color \
-        tfplan
-
-
-  # ======================================================
-  # STEP 20
-  # TERRAFORM APPLY
-  # ======================================================
-
-  - name: Terraform apply
-    shell: bash
-    working-directory: ${{ env.TERRAFORM_DIR }}
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "TERRAFORM APPLY"
-      echo "=================================================="
-
-      terraform apply \
-        -input=false \
-        -auto-approve \
-        tfplan
-
-      echo ""
-      echo "=================================================="
-      echo "TERRAFORM INFRASTRUCTURE DEPLOYMENT SUCCESS"
-      echo "=================================================="
-
-
-  # ======================================================
-  # STEP 21
-  # DISPLAY TERRAFORM OUTPUTS
-  # ======================================================
-
-  - name: Display Terraform outputs
-    shell: bash
-    working-directory: ${{ env.TERRAFORM_DIR }}
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "TERRAFORM OUTPUTS"
-      echo "=================================================="
-
-      terraform output || true
-
-
-  # ======================================================
-  # STEP 22
-  # DISPLAY FINAL TERRAFORM STATE
-  # ======================================================
-
-  - name: Display final Terraform state
-    shell: bash
-    working-directory: ${{ env.TERRAFORM_DIR }}
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "FINAL TERRAFORM STATE"
-      echo "=================================================="
-
-      terraform state list
-
-
-  # ======================================================
-  # STEP 23
-  # GET ECR REPOSITORY URI
-  # ======================================================
-
-  - name: Get ECR repository URI
-    id: ecr
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "GETTING ECR REPOSITORY URI"
-      echo "=================================================="
-
-      ECR_URI=$(aws ecr describe-repositories \
-        --region "$AWS_REGION" \
-        --repository-names "$ECR_REPOSITORY" \
-        --query 'repositories[0].repositoryUri' \
-        --output text \
-        2>/dev/null || true)
-
-      if [ -z "$ECR_URI" ] || [ "$ECR_URI" = "None" ]; then
-
-        echo ""
-        echo "ERROR: ECR repository was not found."
-        echo ""
-        echo "Terraform completed, but the expected ECR repository"
-        echo "is unavailable:"
-        echo "$ECR_REPOSITORY"
-
-        exit 1
-
-      fi
-
-      echo ""
-      echo "ECR URI:"
-      echo "$ECR_URI"
-
-      echo "ECR_URI=$ECR_URI" >> "$GITHUB_ENV"
-      echo "repository_uri=$ECR_URI" >> "$GITHUB_OUTPUT"
-
-
-  # ======================================================
-  # STEP 24
-  # VERIFY ECR REPOSITORY
-  # ======================================================
-
-  - name: Verify ECR repository
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "VERIFYING ECR REPOSITORY"
-      echo "=================================================="
-
-      aws ecr describe-repositories \
-        --region "$AWS_REGION" \
-        --repository-names "$ECR_REPOSITORY" \
-        --query 'repositories[0].[repositoryName,repositoryUri,imageTagMutability]' \
-        --output table
-
-      echo ""
-      echo "ECR repository verification SUCCESS."
-
-
-  # ======================================================
-  # STEP 25
-  # LOGIN TO AMAZON ECR
-  # ======================================================
-
-  - name: Login to Amazon ECR
-    uses: aws-actions/amazon-ecr-login@v2
-
-
-  # ======================================================
-  # STEP 26
-  # VERIFY DOCKER FILES
-  # ======================================================
-
-  - name: Verify Docker build files
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "VERIFYING DOCKER BUILD FILES"
-      echo "=================================================="
-
-      if [ ! -f "docker/Dockerfile" ]; then
-        echo "ERROR: docker/Dockerfile was not found."
-        exit 1
-      fi
-
-      if [ ! -d "application" ]; then
-        echo "ERROR: application directory was not found."
-        exit 1
-      fi
-
-      echo ""
-      echo "Dockerfile found."
-      echo "Application directory found."
-
-
-  # ======================================================
-  # STEP 27
-  # BUILD DOCKER IMAGE
-  # ======================================================
-  #
-  # Build context is the repository root.
-  #
-  # This allows docker/Dockerfile to access:
-  #
-  #   application/
-  #
-  # and other repository files required by the Dockerfile.
-  #
-  # ======================================================
-
-  - name: Build Docker image
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "BUILDING DOCKER IMAGE"
-      echo "=================================================="
-
-      docker build \
-        --file docker/Dockerfile \
-        --tag "$ECR_URI:$IMAGE_TAG" \
-        .
-
-      echo ""
-      echo "Docker image build SUCCESS."
-
-
-  # ======================================================
-  # STEP 28
-  # PUSH DOCKER IMAGE
-  # ======================================================
-
-  - name: Push Docker image to ECR
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "PUSHING DOCKER IMAGE TO ECR"
-      echo "=================================================="
-
-      docker push "$ECR_URI:$IMAGE_TAG"
-
-      echo ""
-      echo "Docker image push SUCCESS."
-
-
-  # ======================================================
-  # STEP 29
-  # VERIFY ECR IMAGE
-  # ======================================================
-
-  - name: Verify ECR latest image
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "VERIFYING ECR IMAGE"
-      echo "=================================================="
-
-      IMAGE_COUNT=$(aws ecr describe-images \
-        --region "$AWS_REGION" \
-        --repository-name "$ECR_REPOSITORY" \
-        --filter tagStatus=TAGGED \
-        --query 'imageDetails[?contains(imageTags, `latest`)] | length(@)' \
-        --output text)
-
-      echo ""
-      echo "Latest image count:"
-      echo "$IMAGE_COUNT"
-
-      if [ "$IMAGE_COUNT" -lt 1 ]; then
-        echo "ERROR: latest image was not found in ECR."
-        exit 1
-      fi
-
-      echo ""
-      echo "ECR image verification SUCCESS."
-
-
-  # ======================================================
-  # STEP 30
-  # VERIFY ECS CLUSTER
-  # ======================================================
-
-  - name: Verify ECS cluster
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "VERIFYING ECS CLUSTER"
-      echo "=================================================="
-
-      CLUSTER_STATUS=$(aws ecs describe-clusters \
-        --region "$AWS_REGION" \
-        --clusters "$ECS_CLUSTER" \
-        --query 'clusters[0].status' \
-        --output text)
-
-      echo ""
-      echo "Cluster status:"
-      echo "$CLUSTER_STATUS"
-
-      if [ "$CLUSTER_STATUS" != "ACTIVE" ]; then
-        echo "ERROR: ECS cluster is not ACTIVE."
-        exit 1
-      fi
-
-      echo ""
-      echo "ECS cluster verification SUCCESS."
-
-
-  # ======================================================
-  # STEP 31
-  # VERIFY ECS SERVICE
-  # ======================================================
-
-  - name: Verify ECS service
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "VERIFYING ECS SERVICE"
-      echo "=================================================="
-
-      SERVICE_STATUS=$(aws ecs describe-services \
-        --region "$AWS_REGION" \
-        --cluster "$ECS_CLUSTER" \
-        --services "$ECS_SERVICE" \
-        --query 'services[0].status' \
-        --output text \
-        2>/dev/null || true)
-
-      echo ""
-      echo "Service status:"
-      echo "$SERVICE_STATUS"
-
-      if [ -z "$SERVICE_STATUS" ] || \
-         [ "$SERVICE_STATUS" = "None" ] || \
-         [ "$SERVICE_STATUS" = "null" ]; then
-
-        echo ""
-        echo "ERROR: ECS service was not found."
-        echo ""
-        echo "Terraform completed, but the expected ECS service"
-        echo "was not found:"
-        echo "$ECS_SERVICE"
-
-        exit 1
-      fi
-
-      if [ "$SERVICE_STATUS" != "ACTIVE" ]; then
-
-        echo ""
-        echo "ERROR: ECS service exists but is not ACTIVE."
-        echo "Current status: $SERVICE_STATUS"
-
-        exit 1
-      fi
-
-      aws ecs describe-services \
-        --region "$AWS_REGION" \
-        --cluster "$ECS_CLUSTER" \
-        --services "$ECS_SERVICE" \
-        --query 'services[0].[serviceName,status,desiredCount,runningCount,pendingCount]' \
-        --output table
-
-      echo ""
-      echo "ECS service verification SUCCESS."
-
-
-  # ======================================================
-  # STEP 32
-  # FORCE NEW ECS DEPLOYMENT
-  # ======================================================
-  #
-  # The Docker image uses the "latest" tag.
-  #
-  # Force a new deployment so ECS starts tasks using the
-  # newly pushed image.
-  #
-  # ======================================================
-
-  - name: Force new ECS deployment
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "FORCING NEW ECS DEPLOYMENT"
-      echo "=================================================="
-
-      aws ecs update-service \
-        --region "$AWS_REGION" \
-        --cluster "$ECS_CLUSTER" \
-        --service "$ECS_SERVICE" \
-        --desired-count "$ECS_DESIRED_COUNT" \
-        --force-new-deployment
-
-      echo ""
-      echo "ECS deployment started."
-
-
-  # ======================================================
-  # STEP 33
-  # WAIT FOR ECS SERVICE TO STABILIZE
-  # ======================================================
-
-  - name: Wait for ECS service to stabilize
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "WAITING FOR ECS SERVICE TO STABILIZE"
-      echo "=================================================="
-
-      aws ecs wait services-stable \
-        --region "$AWS_REGION" \
-        --cluster "$ECS_CLUSTER" \
-        --services "$ECS_SERVICE"
-
-      echo ""
-      echo "ECS service is stable."
-
-
-  # ======================================================
-  # STEP 34
-  # SHOW RUNNING ECS TASKS
-  # ======================================================
-
-  - name: Show running ECS tasks
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "RUNNING ECS TASKS"
-      echo "=================================================="
-
-      TASK_ARNS=$(aws ecs list-tasks \
-        --region "$AWS_REGION" \
-        --cluster "$ECS_CLUSTER" \
-        --service-name "$ECS_SERVICE" \
-        --desired-status RUNNING \
-        --query 'taskArns' \
-        --output text)
-
-      if [ -z "$TASK_ARNS" ] || [ "$TASK_ARNS" = "None" ]; then
-        echo "ERROR: No running ECS tasks were found."
-        exit 1
-      fi
-
-      aws ecs describe-tasks \
-        --region "$AWS_REGION" \
-        --cluster "$ECS_CLUSTER" \
-        --tasks $TASK_ARNS \
-        --query 'tasks[*].[taskArn,lastStatus,healthStatus,taskDefinition]' \
-        --output table
-
-      echo ""
-      echo "Running ECS task verification SUCCESS."
-
-
-  # ======================================================
-  # STEP 35
-  # GET ALB INFORMATION
-  # ======================================================
-
-  - name: Get ALB information
-    id: alb
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "GETTING APPLICATION LOAD BALANCER"
-      echo "=================================================="
-
-      ALB_DNS=$(aws elbv2 describe-load-balancers \
-        --region "$AWS_REGION" \
-        --names "${APPLICATION_NAME}-ALB" \
-        --query 'LoadBalancers[0].DNSName' \
-        --output text)
-
-      if [ -z "$ALB_DNS" ] || [ "$ALB_DNS" = "None" ]; then
-        echo "ERROR: Application Load Balancer was not found."
-        exit 1
-      fi
-
-      APPLICATION_URL="http://$ALB_DNS"
-
-      echo ""
-      echo "ALB DNS:"
-      echo "$ALB_DNS"
-
-      echo ""
-      echo "Application URL:"
-      echo "$APPLICATION_URL"
-
-      echo "application_url=$APPLICATION_URL" >> "$GITHUB_OUTPUT"
-
-
-  # ======================================================
-  # STEP 36
-  # GET TARGET GROUP
-  # ======================================================
-
-  - name: Get ALB target group
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "GETTING ALB TARGET GROUP"
-      echo "=================================================="
-
-      TARGET_GROUP_ARN=$(aws elbv2 describe-target-groups \
-        --region "$AWS_REGION" \
-        --names "CharlieCafe-TF-TG" \
-        --query 'TargetGroups[0].TargetGroupArn' \
-        --output text)
-
-      if [ -z "$TARGET_GROUP_ARN" ] || [ "$TARGET_GROUP_ARN" = "None" ]; then
-        echo "ERROR: ALB target group was not found."
-        exit 1
-      fi
-
-      echo ""
-      echo "Target Group ARN:"
-      echo "$TARGET_GROUP_ARN"
-
-      echo "TARGET_GROUP_ARN=$TARGET_GROUP_ARN" >> "$GITHUB_ENV"
-
-
-  # ======================================================
-  # STEP 37
-  # VERIFY ALB TARGET HEALTH
-  # ======================================================
-
-  - name: Verify ALB target health
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "VERIFYING ALB TARGET HEALTH"
-      echo "=================================================="
-
-      aws elbv2 describe-target-health \
-        --region "$AWS_REGION" \
-        --target-group-arn "$TARGET_GROUP_ARN" \
-        --query 'TargetHealthDescriptions[*].[Target.Id,Target.Port,TargetHealth.State,TargetHealth.Reason]' \
-        --output table
-
-      HEALTHY_TARGET_COUNT=$(aws elbv2 describe-target-health \
-        --region "$AWS_REGION" \
-        --target-group-arn "$TARGET_GROUP_ARN" \
-        --query 'TargetHealthDescriptions[?TargetHealth.State==`healthy`] | length(@)' \
-        --output text)
-
-      echo ""
-      echo "Healthy target count:"
-      echo "$HEALTHY_TARGET_COUNT"
-
-      if [ "$HEALTHY_TARGET_COUNT" -lt 1 ]; then
-        echo "ERROR: No healthy ALB targets were found."
-        exit 1
-      fi
-
-      echo ""
-      echo "ALB target health verification SUCCESS."
-
-
-  # ======================================================
-  # STEP 38
-  # TEST APPLICATION
-  # ======================================================
-
-  - name: Test application URL
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "TESTING APPLICATION"
-      echo "=================================================="
-
-      APPLICATION_URL="${{ steps.alb.outputs.application_url }}"
-
-      for attempt in {1..10}; do
-
-        echo ""
-        echo "HTTP test attempt: $attempt/10"
-
-        HTTP_CODE=$(curl \
-          --silent \
-          --show-error \
-          --output /tmp/application-response.txt \
-          --write-out "%{http_code}" \
-          --max-time 15 \
-          "$APPLICATION_URL" \
-          2>/dev/null || true)
-
-        echo "HTTP status: $HTTP_CODE"
-
-        if [[ "$HTTP_CODE" =~ ^[0-9]+$ ]] && \
-           [ "$HTTP_CODE" -ge 200 ] && \
-           [ "$HTTP_CODE" -lt 400 ]; then
+  # ==========================================================
+  # DEPLOYMENT JOB
+  # ==========================================================
+
+  deploy:
+
+    name: Terraform ECS Infrastructure and Application Deploy
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 60
+
+    permissions:
+      contents: read
+
+    # Prevent two deployments from modifying the same
+    # Terraform/AWS infrastructure at the same time.
+    concurrency:
+      group: charliecafe-tf-ecs-deployment
+      cancel-in-progress: false
+
+    # ========================================================
+    # STEPS
+    # ========================================================
+
+    steps:
+
+      # ======================================================
+      # 1. CHECKOUT
+      # ======================================================
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      # ======================================================
+      # 2. VERIFY REQUIRED SECRETS
+      # ======================================================
+
+      - name: Verify required GitHub secrets
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID_VALUE: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY_VALUE: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+          ECS_VPC_ID_VALUE: ${{ secrets.ECS_VPC_ID }}
+          ECS_PUBLIC_SUBNET_1_VALUE: ${{ secrets.ECS_PUBLIC_SUBNET_1 }}
+          ECS_PUBLIC_SUBNET_2_VALUE: ${{ secrets.ECS_PUBLIC_SUBNET_2 }}
+          ECS_PRIVATE_SUBNET_1_VALUE: ${{ secrets.ECS_PRIVATE_SUBNET_1 }}
+          ECS_PRIVATE_SUBNET_2_VALUE: ${{ secrets.ECS_PRIVATE_SUBNET_2 }}
+          ECS_PRIVATE_ROUTE_TABLE_ID_VALUE: ${{ secrets.ECS_PRIVATE_ROUTE_TABLE_ID }}
+
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "VERIFYING REQUIRED GITHUB SECRETS"
+          echo "=================================================="
+
+          REQUIRED_VALUES=(
+            "AWS_ACCESS_KEY_ID_VALUE"
+            "AWS_SECRET_ACCESS_KEY_VALUE"
+            "ECS_VPC_ID_VALUE"
+            "ECS_PUBLIC_SUBNET_1_VALUE"
+            "ECS_PUBLIC_SUBNET_2_VALUE"
+            "ECS_PRIVATE_SUBNET_1_VALUE"
+            "ECS_PRIVATE_SUBNET_2_VALUE"
+            "ECS_PRIVATE_ROUTE_TABLE_ID_VALUE"
+          )
+
+          for VALUE_NAME in "${REQUIRED_VALUES[@]}"; do
+            if [ -z "${!VALUE_NAME:-}" ]; then
+              echo "ERROR: Required GitHub secret is missing:"
+              echo "$VALUE_NAME"
+              exit 1
+            fi
+          done
 
           echo ""
-          echo "Application HTTP test SUCCESS."
-          exit 0
-
-        fi
-
-        if [ "$attempt" -lt 10 ]; then
-          sleep 15
-        fi
-
-      done
-
-      echo ""
-      echo "ERROR: Application did not return a successful HTTP response."
-      exit 1
+          echo "All required GitHub secrets are configured."
 
 
-  # ======================================================
-  # STEP 39
-  # VERIFY CLOUDWATCH LOG GROUP
-  # ======================================================
+      # ======================================================
+      # 3. CONFIGURE AWS
+      # ======================================================
 
-  - name: Verify CloudWatch log group
-    shell: bash
-    run: |
-      set -euo pipefail
-
-      echo "=================================================="
-      echo "VERIFYING CLOUDWATCH LOG GROUP"
-      echo "=================================================="
-
-      LOG_GROUP_COUNT=$(aws logs describe-log-groups \
-        --region "$AWS_REGION" \
-        --log-group-name-prefix "/ecs/charlie-cafe-tf" \
-        --query 'length(logGroups)' \
-        --output text)
-
-      echo ""
-      echo "Matching log groups:"
-      echo "$LOG_GROUP_COUNT"
-
-      if [ "$LOG_GROUP_COUNT" -lt 1 ]; then
-        echo "ERROR: CloudWatch log group was not found."
-        exit 1
-      fi
-
-      echo ""
-      echo "CloudWatch Logs verification SUCCESS."
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
 
-  # ======================================================
-  # STEP 40
-  # FINAL DEPLOYMENT SUMMARY
-  # ======================================================
+      # ======================================================
+      # 4. VERIFY AWS
+      # ======================================================
 
-  - name: Deployment complete
-    shell: bash
-    run: |
-      echo ""
-      echo "======================================================"
-      echo "       CHARLIECAFE-TF ECS DEPLOYMENT COMPLETE"
-      echo "======================================================"
+      - name: Verify AWS identity
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      echo ""
-      echo "AWS Region:"
-      echo "$AWS_REGION"
+          echo "=================================================="
+          echo "AWS IDENTITY"
+          echo "=================================================="
 
-      echo ""
-      echo "Terraform Directory:"
-      echo "$TERRAFORM_DIR"
+          aws --version
 
-      echo ""
-      echo "ECR Repository:"
-      echo "$ECR_REPOSITORY"
+          aws sts get-caller-identity \
+            --no-cli-pager
 
-      echo ""
-      echo "ECS Cluster:"
-      echo "$ECS_CLUSTER"
+          echo ""
+          echo "AWS Region:"
+          echo "$AWS_REGION"
 
-      echo ""
-      echo "ECS Service:"
-      echo "$ECS_SERVICE"
+          echo ""
+          echo "AWS authentication SUCCESS."
 
-      echo ""
-      echo "Application URL:"
-      echo "${{ steps.alb.outputs.application_url }}"
 
-      echo ""
-      echo "======================================================"
-      echo "                 DEPLOYMENT STATUS"
-      echo "======================================================"
+      # ======================================================
+      # 5. SETUP TERRAFORM
+      # ======================================================
 
-      echo ""
-      echo "Terraform          : SUCCESS"
-      echo "Resource Reconcile : SUCCESS"
-      echo "ECR Repository     : SUCCESS"
-      echo "Docker Image       : SUCCESS"
-      echo "ECS Cluster        : SUCCESS"
-      echo "ECS Service        : SUCCESS"
-      echo "Fargate Task       : SUCCESS"
-      echo "Application LB     : SUCCESS"
-      echo "ALB Target Health  : SUCCESS"
-      echo "CloudWatch Logs    : SUCCESS"
-      echo "Application HTTP   : SUCCESS"
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
 
-      echo ""
-      echo "======================================================"
-      echo "CharlieCafe-TF is now running on ECS Fargate."
-      echo "======================================================"
+
+      # ======================================================
+      # 6. VERIFY TERRAFORM
+      # ======================================================
+
+      - name: Verify Terraform installation
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "TERRAFORM VERSION"
+          echo "=================================================="
+
+          terraform version
+
+
+      # ======================================================
+      # 7. VERIFY TERRAFORM DIRECTORY
+      # ======================================================
+
+      - name: Verify Terraform configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "VERIFYING TERRAFORM DIRECTORY"
+          echo "=================================================="
+
+          if [ ! -d "$TERRAFORM_DIR" ]; then
+            echo "ERROR: Terraform directory does not exist:"
+            echo "$TERRAFORM_DIR"
+            exit 1
+          fi
+
+          TF_FILE_COUNT=$(find "$TERRAFORM_DIR" \
+            -maxdepth 1 \
+            -type f \
+            -name "*.tf" \
+            | wc -l)
+
+          if [ "$TF_FILE_COUNT" -eq 0 ]; then
+            echo "ERROR: No Terraform .tf files found."
+            exit 1
+          fi
+
+          echo ""
+          echo "Terraform directory:"
+          echo "$TERRAFORM_DIR"
+
+          echo ""
+          echo "Terraform files:"
+          find "$TERRAFORM_DIR" \
+            -maxdepth 1 \
+            -type f \
+            -name "*.tf" \
+            -print \
+            | sort
+
+          echo ""
+          echo "Terraform files found: $TF_FILE_COUNT"
+
+
+      # ======================================================
+      # 8. EXPORT TERRAFORM VARIABLES
+      # ======================================================
+
+      - name: Configure Terraform deployment variables
+        shell: bash
+        env:
+          TF_VAR_aws_region: ${{ env.AWS_REGION }}
+
+          TF_VAR_vpc_id: ${{ secrets.ECS_VPC_ID }}
+          TF_VAR_public_subnet_1: ${{ secrets.ECS_PUBLIC_SUBNET_1 }}
+          TF_VAR_public_subnet_2: ${{ secrets.ECS_PUBLIC_SUBNET_2 }}
+          TF_VAR_private_subnet_1: ${{ secrets.ECS_PRIVATE_SUBNET_1 }}
+          TF_VAR_private_subnet_2: ${{ secrets.ECS_PRIVATE_SUBNET_2 }}
+          TF_VAR_private_route_table_id: ${{ secrets.ECS_PRIVATE_ROUTE_TABLE_ID }}
+
+          TF_VAR_application_name: ${{ env.APPLICATION_NAME }}
+          TF_VAR_ecr_repository_name: ${{ env.ECR_REPOSITORY }}
+          TF_VAR_ecs_cluster_name: ${{ env.ECS_CLUSTER }}
+          TF_VAR_ecs_service_name: ${{ env.ECS_SERVICE }}
+          TF_VAR_container_port: ${{ env.CONTAINER_PORT }}
+          TF_VAR_task_cpu: ${{ env.TASK_CPU }}
+          TF_VAR_task_memory: ${{ env.TASK_MEMORY }}
+
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "CONFIGURING TERRAFORM VARIABLES"
+          echo "=================================================="
+
+          {
+            echo "TF_VAR_aws_region=$TF_VAR_aws_region"
+
+            echo "TF_VAR_vpc_id=$TF_VAR_vpc_id"
+            echo "TF_VAR_public_subnet_1=$TF_VAR_public_subnet_1"
+            echo "TF_VAR_public_subnet_2=$TF_VAR_public_subnet_2"
+            echo "TF_VAR_private_subnet_1=$TF_VAR_private_subnet_1"
+            echo "TF_VAR_private_subnet_2=$TF_VAR_private_subnet_2"
+            echo "TF_VAR_private_route_table_id=$TF_VAR_private_route_table_id"
+
+            echo "TF_VAR_application_name=$TF_VAR_application_name"
+            echo "TF_VAR_ecr_repository_name=$TF_VAR_ecr_repository_name"
+            echo "TF_VAR_ecs_cluster_name=$TF_VAR_ecs_cluster_name"
+            echo "TF_VAR_ecs_service_name=$TF_VAR_ecs_service_name"
+            echo "TF_VAR_container_port=$TF_VAR_container_port"
+            echo "TF_VAR_task_cpu=$TF_VAR_task_cpu"
+            echo "TF_VAR_task_memory=$TF_VAR_task_memory"
+          } >> "$GITHUB_ENV"
+
+          echo "Terraform variables configured."
+
+
+      # ======================================================
+      # 9. TERRAFORM INIT
+      # ======================================================
+
+      - name: Terraform init
+        shell: bash
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "TERRAFORM INIT"
+          echo "=================================================="
+
+          terraform init \
+            -input=false \
+            -upgrade
+
+          echo ""
+          echo "Terraform initialization SUCCESS."
+
+
+      # ======================================================
+      # 10. TERRAFORM FORMAT
+      # ======================================================
+
+      - name: Check Terraform formatting
+        shell: bash
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "TERRAFORM FORMAT CHECK"
+          echo "=================================================="
+
+          terraform fmt \
+            -check \
+            -recursive
+
+          echo ""
+          echo "Terraform formatting SUCCESS."
+
+
+      # ======================================================
+      # 11. TERRAFORM VALIDATE
+      # ======================================================
+
+      - name: Terraform validate
+        shell: bash
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "TERRAFORM VALIDATION"
+          echo "=================================================="
+
+          terraform validate
+
+          echo ""
+          echo "Terraform validation SUCCESS."
+
+
+      # ======================================================
+      # 12. VERIFY NETWORK
+      # ======================================================
+
+      - name: Verify required network
+        shell: bash
+        env:
+          ECS_VPC_ID: ${{ secrets.ECS_VPC_ID }}
+          ECS_PUBLIC_SUBNET_1: ${{ secrets.ECS_PUBLIC_SUBNET_1 }}
+          ECS_PUBLIC_SUBNET_2: ${{ secrets.ECS_PUBLIC_SUBNET_2 }}
+          ECS_PRIVATE_SUBNET_1: ${{ secrets.ECS_PRIVATE_SUBNET_1 }}
+          ECS_PRIVATE_SUBNET_2: ${{ secrets.ECS_PRIVATE_SUBNET_2 }}
+          ECS_PRIVATE_ROUTE_TABLE_ID: ${{ secrets.ECS_PRIVATE_ROUTE_TABLE_ID }}
+
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "VERIFYING NETWORK"
+          echo "=================================================="
+
+          aws ec2 describe-vpcs \
+            --region "$AWS_REGION" \
+            --vpc-ids "$ECS_VPC_ID" \
+            --query 'Vpcs[0].[VpcId,State,CidrBlock]' \
+            --output table
+
+          aws ec2 describe-subnets \
+            --region "$AWS_REGION" \
+            --subnet-ids \
+              "$ECS_PUBLIC_SUBNET_1" \
+              "$ECS_PUBLIC_SUBNET_2" \
+              "$ECS_PRIVATE_SUBNET_1" \
+              "$ECS_PRIVATE_SUBNET_2" \
+            --query 'Subnets[].[SubnetId,VpcId,AvailabilityZone,CidrBlock,MapPublicIpOnLaunch]' \
+            --output table
+
+          aws ec2 describe-route-tables \
+            --region "$AWS_REGION" \
+            --route-table-ids "$ECS_PRIVATE_ROUTE_TABLE_ID" \
+            --query 'RouteTables[0].[RouteTableId,VpcId]' \
+            --output table
+
+          echo ""
+          echo "Network verification SUCCESS."
+
+
+      # ======================================================
+      # 13. DISPLAY CURRENT TERRAFORM STATE
+      # ======================================================
+
+      - name: Display Terraform state
+        shell: bash
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "CURRENT TERRAFORM STATE"
+          echo "=================================================="
+
+          terraform state list || true
+
+
+      # ======================================================
+      # 14. RECONCILE KNOWN EXISTING RESOURCES
+      # ======================================================
+      #
+      # IMPORTANT:
+      #
+      # Terraform import requires the resource address to
+      # exist in the Terraform configuration.
+      #
+      # The resource names below are based on the current
+      # CharlieCafe-TF Terraform configuration.
+      #
+      # ======================================================
+
+      - name: Reconcile known AWS resources
+        shell: bash
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "TERRAFORM RESOURCE RECONCILIATION"
+          echo "=================================================="
+
+          import_if_exists() {
+
+            local ADDRESS="$1"
+            local ID="$2"
+
+            echo ""
+            echo "--------------------------------------------------"
+            echo "Checking: $ADDRESS"
+            echo "--------------------------------------------------"
+
+            if terraform state list | grep -Fxq "$ADDRESS"; then
+              echo "Already managed by Terraform."
+              return 0
+            fi
+
+            echo "Not present in Terraform state."
+
+            if terraform import \
+              -input=false \
+              "$ADDRESS" \
+              "$ID"; then
+
+              echo "Import successful."
+
+            else
+
+              echo "Import skipped/failed."
+              echo "Terraform will evaluate this resource normally."
+
+            fi
+          }
+
+
+          # --------------------------------------------------
+          # RDS SUBNET GROUP
+          # --------------------------------------------------
+
+          if aws rds describe-db-subnet-groups \
+            --region "$AWS_REGION" \
+            --db-subnet-group-name "charliecafe-tf-rds-subnet-group" \
+            >/dev/null 2>&1; then
+
+            import_if_exists \
+              "aws_db_subnet_group.mysql" \
+              "charliecafe-tf-rds-subnet-group"
+
+          fi
+
+
+          # --------------------------------------------------
+          # ECS TASK ROLE
+          # --------------------------------------------------
+          #
+          # IMPORTANT:
+          # Correct Terraform/AWS name:
+          #
+          # CharlieCafe-TF-ECSTaskRole
+          #
+          # NOT:
+          # CharlieCafe-TF-ECS-TaskRole
+          #
+          # --------------------------------------------------
+
+          if aws iam get-role \
+            --role-name "CharlieCafe-TF-ECSTaskRole" \
+            >/dev/null 2>&1; then
+
+            import_if_exists \
+              "aws_iam_role.ecs_task" \
+              "CharlieCafe-TF-ECSTaskRole"
+
+          fi
+
+
+          # --------------------------------------------------
+          # ECS TASK EXECUTION ROLE
+          # --------------------------------------------------
+
+          if aws iam get-role \
+            --role-name "CharlieCafe-TF-ECSTaskExecutionRole" \
+            >/dev/null 2>&1; then
+
+            import_if_exists \
+              "aws_iam_role.ecs_task_execution" \
+              "CharlieCafe-TF-ECSTaskExecutionRole"
+
+          fi
+
+
+          # --------------------------------------------------
+          # ECR REPOSITORY
+          # --------------------------------------------------
+
+          if aws ecr describe-repositories \
+            --region "$AWS_REGION" \
+            --repository-names "$ECR_REPOSITORY" \
+            >/dev/null 2>&1; then
+
+            import_if_exists \
+              "aws_ecr_repository.charlie_cafe" \
+              "$ECR_REPOSITORY"
+
+          fi
+
+
+          # --------------------------------------------------
+          # ECS CLUSTER
+          # --------------------------------------------------
+
+          CLUSTER_STATUS=$(aws ecs describe-clusters \
+            --region "$AWS_REGION" \
+            --clusters "$ECS_CLUSTER" \
+            --query 'clusters[0].status' \
+            --output text 2>/dev/null || true)
+
+          if [ "$CLUSTER_STATUS" = "ACTIVE" ]; then
+
+            import_if_exists \
+              "aws_ecs_cluster.charlie_cafe" \
+              "$ECS_CLUSTER"
+
+          fi
+
+
+          # --------------------------------------------------
+          # CLOUDWATCH LOG GROUP
+          # --------------------------------------------------
+
+          LOG_GROUP="/ecs/charlie-cafe-tf"
+
+          if aws logs describe-log-groups \
+            --region "$AWS_REGION" \
+            --log-group-name-prefix "$LOG_GROUP" \
+            --query "logGroups[?logGroupName==\`$LOG_GROUP\`].logGroupName" \
+            --output text \
+            | grep -Fxq "$LOG_GROUP"; then
+
+            import_if_exists \
+              "aws_cloudwatch_log_group.ecs" \
+              "$LOG_GROUP"
+
+          fi
+
+
+          # --------------------------------------------------
+          # APPLICATION LOAD BALANCER
+          # --------------------------------------------------
+
+          ALB_ARN=$(aws elbv2 describe-load-balancers \
+            --region "$AWS_REGION" \
+            --names "CharlieCafe-TF-ALB" \
+            --query 'LoadBalancers[0].LoadBalancerArn' \
+            --output text \
+            2>/dev/null || true)
+
+          if [ -n "$ALB_ARN" ] && [ "$ALB_ARN" != "None" ]; then
+
+            import_if_exists \
+              "aws_lb.charlie_cafe" \
+              "$ALB_ARN"
+
+          fi
+
+
+          # --------------------------------------------------
+          # TARGET GROUP
+          # --------------------------------------------------
+
+          TARGET_GROUP_ARN=$(aws elbv2 describe-target-groups \
+            --region "$AWS_REGION" \
+            --names "CharlieCafe-TF-TG" \
+            --query 'TargetGroups[0].TargetGroupArn' \
+            --output text \
+            2>/dev/null || true)
+
+          if [ -n "$TARGET_GROUP_ARN" ] && \
+             [ "$TARGET_GROUP_ARN" != "None" ]; then
+
+            import_if_exists \
+              "aws_lb_target_group.charlie_cafe" \
+              "$TARGET_GROUP_ARN"
+
+          fi
+
+
+          echo ""
+          echo "=================================================="
+          echo "RESOURCE RECONCILIATION COMPLETE"
+          echo "=================================================="
+
+          echo ""
+          echo "Terraform state after reconciliation:"
+
+          terraform state list || true
+
+
+      # ======================================================
+      # 15. ENSURE ECR EXISTS
+      # ======================================================
+      #
+      # This step is intentionally BEFORE the Docker build.
+      #
+      # This solves the bootstrap problem where Terraform
+      # attempts to start ECS before an image exists.
+      #
+      # ======================================================
+
+      - name: Ensure ECR repository exists
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "ENSURING ECR REPOSITORY"
+          echo "=================================================="
+
+          if aws ecr describe-repositories \
+            --region "$AWS_REGION" \
+            --repository-names "$ECR_REPOSITORY" \
+            >/dev/null 2>&1; then
+
+            echo "ECR repository already exists:"
+            echo "$ECR_REPOSITORY"
+
+          else
+
+            echo "ECR repository does not exist."
+            echo "Creating repository..."
+
+            aws ecr create-repository \
+              --region "$AWS_REGION" \
+              --repository-name "$ECR_REPOSITORY" \
+              --image-scanning-configuration scanOnPush=true \
+              --image-tag-mutability MUTABLE
+
+            echo "ECR repository created."
+
+          fi
+
+
+      # ======================================================
+      # 16. GET ECR URI
+      # ======================================================
+
+      - name: Get ECR repository URI
+        id: ecr
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "GETTING ECR REPOSITORY URI"
+          echo "=================================================="
+
+          ECR_URI=$(aws ecr describe-repositories \
+            --region "$AWS_REGION" \
+            --repository-names "$ECR_REPOSITORY" \
+            --query 'repositories[0].repositoryUri' \
+            --output text)
+
+          if [ -z "$ECR_URI" ] || [ "$ECR_URI" = "None" ]; then
+            echo "ERROR: ECR repository URI could not be determined."
+            exit 1
+          fi
+
+          echo "ECR_URI=$ECR_URI" >> "$GITHUB_ENV"
+          echo "repository_uri=$ECR_URI" >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "ECR repository:"
+          echo "$ECR_REPOSITORY"
+
+          echo ""
+          echo "ECR URI:"
+          echo "$ECR_URI"
+
+
+      # ======================================================
+      # 17. LOGIN TO ECR
+      # ======================================================
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+
+      # ======================================================
+      # 18. VERIFY DOCKER FILES
+      # ======================================================
+
+      - name: Verify Docker build files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "VERIFYING DOCKER BUILD FILES"
+          echo "=================================================="
+
+          if [ ! -f "docker/Dockerfile" ]; then
+            echo "ERROR: docker/Dockerfile not found."
+            exit 1
+          fi
+
+          if [ ! -d "application" ]; then
+            echo "ERROR: application directory not found."
+            exit 1
+          fi
+
+          echo ""
+          echo "Dockerfile:"
+          echo "docker/Dockerfile"
+
+          echo ""
+          echo "Application directory:"
+          echo "application"
+
+          echo ""
+          echo "Docker build files SUCCESS."
+
+
+      # ======================================================
+      # 19. BUILD DOCKER IMAGE
+      # ======================================================
+
+      - name: Build Docker image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "BUILDING DOCKER IMAGE"
+          echo "=================================================="
+
+          docker build \
+            --file docker/Dockerfile \
+            --tag "$ECR_URI:$IMAGE_TAG" \
+            .
+
+          echo ""
+          echo "Docker image build SUCCESS."
+
+
+      # ======================================================
+      # 20. PUSH DOCKER IMAGE
+      # ======================================================
+
+      - name: Push Docker image to ECR
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "PUSHING DOCKER IMAGE"
+          echo "=================================================="
+
+          docker push "$ECR_URI:$IMAGE_TAG"
+
+          echo ""
+          echo "Docker image push SUCCESS."
+
+
+      # ======================================================
+      # 21. VERIFY ECR IMAGE
+      # ======================================================
+
+      - name: Verify ECR latest image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "VERIFYING ECR IMAGE"
+          echo "=================================================="
+
+          IMAGE_COUNT=$(aws ecr describe-images \
+            --region "$AWS_REGION" \
+            --repository-name "$ECR_REPOSITORY" \
+            --filter tagStatus=TAGGED \
+            --query 'imageDetails[?contains(imageTags, `latest`)] | length(@)' \
+            --output text)
+
+          echo ""
+          echo "latest image count:"
+          echo "$IMAGE_COUNT"
+
+          if [ "$IMAGE_COUNT" -lt 1 ]; then
+            echo "ERROR: latest image was not found in ECR."
+            exit 1
+          fi
+
+          echo ""
+          echo "ECR image verification SUCCESS."
+
+
+      # ======================================================
+      # 22. TERRAFORM PLAN
+      # ======================================================
+
+      - name: Terraform plan
+        shell: bash
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "TERRAFORM PLAN"
+          echo "=================================================="
+
+          rm -f tfplan
+
+          terraform plan \
+            -input=false \
+            -out=tfplan
+
+          echo ""
+          echo "Terraform plan SUCCESS."
+
+
+      # ======================================================
+      # 23. SHOW TERRAFORM PLAN
+      # ======================================================
+
+      - name: Show Terraform plan
+        shell: bash
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "TERRAFORM PLAN SUMMARY"
+          echo "=================================================="
+
+          terraform show \
+            -no-color \
+            tfplan
+
+
+      # ======================================================
+      # 24. TERRAFORM APPLY
+      # ======================================================
+
+      - name: Terraform apply
+        shell: bash
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "TERRAFORM APPLY"
+          echo "=================================================="
+
+          terraform apply \
+            -input=false \
+            -auto-approve \
+            tfplan
+
+          echo ""
+          echo "Terraform infrastructure deployment SUCCESS."
+
+
+      # ======================================================
+      # 25. DISPLAY TERRAFORM OUTPUTS
+      # ======================================================
+
+      - name: Display Terraform outputs
+        shell: bash
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "TERRAFORM OUTPUTS"
+          echo "=================================================="
+
+          terraform output || true
+
+
+      # ======================================================
+      # 26. VERIFY ECS CLUSTER
+      # ======================================================
+
+      - name: Verify ECS cluster
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "VERIFYING ECS CLUSTER"
+          echo "=================================================="
+
+          CLUSTER_STATUS=$(aws ecs describe-clusters \
+            --region "$AWS_REGION" \
+            --clusters "$ECS_CLUSTER" \
+            --query 'clusters[0].status' \
+            --output text)
+
+          echo ""
+          echo "Cluster:"
+          echo "$ECS_CLUSTER"
+
+          echo ""
+          echo "Status:"
+          echo "$CLUSTER_STATUS"
+
+          if [ "$CLUSTER_STATUS" != "ACTIVE" ]; then
+            echo "ERROR: ECS cluster is not ACTIVE."
+            exit 1
+          fi
+
+          echo ""
+          echo "ECS cluster verification SUCCESS."
+
+
+      # ======================================================
+      # 27. VERIFY ECS SERVICE
+      # ======================================================
+
+      - name: Verify ECS service
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "VERIFYING ECS SERVICE"
+          echo "=================================================="
+
+          SERVICE_STATUS=$(aws ecs describe-services \
+            --region "$AWS_REGION" \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --query 'services[0].status' \
+            --output text \
+            2>/dev/null || true)
+
+          echo ""
+          echo "Service:"
+          echo "$ECS_SERVICE"
+
+          echo ""
+          echo "Status:"
+          echo "$SERVICE_STATUS"
+
+          if [ -z "$SERVICE_STATUS" ] || \
+             [ "$SERVICE_STATUS" = "None" ] || \
+             [ "$SERVICE_STATUS" = "null" ]; then
+
+            echo "ERROR: ECS service was not found."
+            exit 1
+
+          fi
+
+          if [ "$SERVICE_STATUS" != "ACTIVE" ]; then
+
+            echo "ERROR: ECS service is not ACTIVE."
+            echo "Current status: $SERVICE_STATUS"
+
+            exit 1
+
+          fi
+
+          echo ""
+          echo "ECS service verification SUCCESS."
+
+
+      # ======================================================
+      # 28. FORCE ECS DEPLOYMENT
+      # ======================================================
+      #
+      # The image has now been pushed to ECR.
+      #
+      # ECS can safely start/restart the service.
+      #
+      # ======================================================
+
+      - name: Deploy application to ECS
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "DEPLOYING APPLICATION TO ECS"
+          echo "=================================================="
+
+          aws ecs update-service \
+            --region "$AWS_REGION" \
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE" \
+            --desired-count "$ECS_DESIRED_COUNT" \
+            --force-new-deployment
+
+          echo ""
+          echo "ECS application deployment started."
+
+
+      # ======================================================
+      # 29. WAIT FOR ECS STABILITY
+      # ======================================================
+
+      - name: Wait for ECS service to stabilize
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "WAITING FOR ECS SERVICE"
+          echo "=================================================="
+
+          aws ecs wait services-stable \
+            --region "$AWS_REGION" \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE"
+
+          echo ""
+          echo "ECS service is stable."
+
+
+      # ======================================================
+      # 30. SHOW ECS TASKS
+      # ======================================================
+
+      - name: Verify running ECS tasks
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "RUNNING ECS TASKS"
+          echo "=================================================="
+
+          TASK_ARNS=$(aws ecs list-tasks \
+            --region "$AWS_REGION" \
+            --cluster "$ECS_CLUSTER" \
+            --service-name "$ECS_SERVICE" \
+            --desired-status RUNNING \
+            --query 'taskArns' \
+            --output text)
+
+          if [ -z "$TASK_ARNS" ] || [ "$TASK_ARNS" = "None" ]; then
+            echo "ERROR: No running ECS tasks found."
+            exit 1
+          fi
+
+          aws ecs describe-tasks \
+            --region "$AWS_REGION" \
+            --cluster "$ECS_CLUSTER" \
+            --tasks $TASK_ARNS \
+            --query 'tasks[*].[taskArn,lastStatus,healthStatus,taskDefinition]' \
+            --output table
+
+          echo ""
+          echo "ECS task verification SUCCESS."
+
+
+      # ======================================================
+      # 31. GET ALB
+      # ======================================================
+
+      - name: Get ALB information
+        id: alb
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "GETTING APPLICATION LOAD BALANCER"
+          echo "=================================================="
+
+          ALB_DNS=$(aws elbv2 describe-load-balancers \
+            --region "$AWS_REGION" \
+            --names "CharlieCafe-TF-ALB" \
+            --query 'LoadBalancers[0].DNSName' \
+            --output text)
+
+          if [ -z "$ALB_DNS" ] || [ "$ALB_DNS" = "None" ]; then
+            echo "ERROR: CharlieCafe-TF-ALB was not found."
+            exit 1
+          fi
+
+          APPLICATION_URL="http://$ALB_DNS"
+
+          echo ""
+          echo "ALB DNS:"
+          echo "$ALB_DNS"
+
+          echo ""
+          echo "Application URL:"
+          echo "$APPLICATION_URL"
+
+          echo "application_url=$APPLICATION_URL" >> "$GITHUB_OUTPUT"
+
+
+      # ======================================================
+      # 32. GET TARGET GROUP
+      # ======================================================
+
+      - name: Get ALB target group
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "GETTING ALB TARGET GROUP"
+          echo "=================================================="
+
+          TARGET_GROUP_ARN=$(aws elbv2 describe-target-groups \
+            --region "$AWS_REGION" \
+            --names "CharlieCafe-TF-TG" \
+            --query 'TargetGroups[0].TargetGroupArn' \
+            --output text)
+
+          if [ -z "$TARGET_GROUP_ARN" ] || \
+             [ "$TARGET_GROUP_ARN" = "None" ]; then
+
+            echo "ERROR: CharlieCafe-TF-TG was not found."
+            exit 1
+
+          fi
+
+          echo "TARGET_GROUP_ARN=$TARGET_GROUP_ARN" >> "$GITHUB_ENV"
+
+          echo ""
+          echo "Target Group ARN:"
+          echo "$TARGET_GROUP_ARN"
+
+
+      # ======================================================
+      # 33. TARGET HEALTH
+      # ======================================================
+
+      - name: Verify ALB target health
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "VERIFYING ALB TARGET HEALTH"
+          echo "=================================================="
+
+          aws elbv2 describe-target-health \
+            --region "$AWS_REGION" \
+            --target-group-arn "$TARGET_GROUP_ARN" \
+            --query 'TargetHealthDescriptions[*].[Target.Id,Target.Port,TargetHealth.State,TargetHealth.Reason]' \
+            --output table
+
+          HEALTHY_TARGET_COUNT=$(aws elbv2 describe-target-health \
+            --region "$AWS_REGION" \
+            --target-group-arn "$TARGET_GROUP_ARN" \
+            --query 'TargetHealthDescriptions[?TargetHealth.State==`healthy`] | length(@)' \
+            --output text)
+
+          echo ""
+          echo "Healthy target count:"
+          echo "$HEALTHY_TARGET_COUNT"
+
+          if [ "$HEALTHY_TARGET_COUNT" -lt 1 ]; then
+            echo "ERROR: No healthy ALB targets found."
+            exit 1
+          fi
+
+          echo ""
+          echo "ALB target health SUCCESS."
+
+
+      # ======================================================
+      # 34. APPLICATION HTTP TEST
+      # ======================================================
+
+      - name: Test application URL
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "TESTING APPLICATION"
+          echo "=================================================="
+
+          APPLICATION_URL="${{ steps.alb.outputs.application_url }}"
+
+          for attempt in {1..10}; do
+
+            echo ""
+            echo "HTTP test attempt: $attempt/10"
+
+            HTTP_CODE=$(curl \
+              --silent \
+              --show-error \
+              --output /tmp/application-response.txt \
+              --write-out "%{http_code}" \
+              --max-time 15 \
+              "$APPLICATION_URL" \
+              2>/dev/null || true)
+
+            echo "HTTP status: $HTTP_CODE"
+
+            if [[ "$HTTP_CODE" =~ ^[0-9]+$ ]] && \
+               [ "$HTTP_CODE" -ge 200 ] && \
+               [ "$HTTP_CODE" -lt 400 ]; then
+
+              echo ""
+              echo "Application HTTP test SUCCESS."
+              exit 0
+
+            fi
+
+            if [ "$attempt" -lt 10 ]; then
+              sleep 15
+            fi
+
+          done
+
+          echo ""
+          echo "ERROR: Application did not return HTTP 2xx/3xx."
+          exit 1
+
+
+      # ======================================================
+      # 35. CLOUDWATCH VERIFICATION
+      # ======================================================
+
+      - name: Verify CloudWatch log group
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "VERIFYING CLOUDWATCH LOG GROUP"
+          echo "=================================================="
+
+          LOG_GROUP="/ecs/charlie-cafe-tf"
+
+          LOG_GROUP_COUNT=$(aws logs describe-log-groups \
+            --region "$AWS_REGION" \
+            --log-group-name-prefix "$LOG_GROUP" \
+            --query "length(logGroups[?logGroupName==\`$LOG_GROUP\`])" \
+            --output text)
+
+          echo ""
+          echo "Log group:"
+          echo "$LOG_GROUP"
+
+          echo ""
+          echo "Matching log groups:"
+          echo "$LOG_GROUP_COUNT"
+
+          if [ "$LOG_GROUP_COUNT" -lt 1 ]; then
+            echo "ERROR: CloudWatch log group was not found."
+            exit 1
+          fi
+
+          echo ""
+          echo "CloudWatch verification SUCCESS."
+
+
+      # ======================================================
+      # 36. FINAL TERRAFORM STATE
+      # ======================================================
+
+      - name: Display final Terraform state
+        shell: bash
+        working-directory: ${{ env.TERRAFORM_DIR }}
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "FINAL TERRAFORM STATE"
+          echo "=================================================="
+
+          terraform state list
+
+
+      # ======================================================
+      # 37. FINAL DEPLOYMENT SUMMARY
+      # ======================================================
+
+      - name: Deployment complete
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo ""
+          echo "======================================================"
+          echo "       CHARLIECAFE-TF ECS DEPLOYMENT COMPLETE"
+          echo "======================================================"
+
+          echo ""
+          echo "AWS Region:"
+          echo "$AWS_REGION"
+
+          echo ""
+          echo "Terraform Directory:"
+          echo "$TERRAFORM_DIR"
+
+          echo ""
+          echo "Application:"
+          echo "$APPLICATION_NAME"
+
+          echo ""
+          echo "ECR Repository:"
+          echo "$ECR_REPOSITORY"
+
+          echo ""
+          echo "ECS Cluster:"
+          echo "$ECS_CLUSTER"
+
+          echo ""
+          echo "ECS Service:"
+          echo "$ECS_SERVICE"
+
+          echo ""
+          echo "Application URL:"
+          echo "${{ steps.alb.outputs.application_url }}"
+
+          echo ""
+          echo "======================================================"
+          echo "                 DEPLOYMENT STATUS"
+          echo "======================================================"
+
+          echo ""
+          echo "AWS Authentication : SUCCESS"
+          echo "Terraform Init     : SUCCESS"
+          echo "Terraform Format   : SUCCESS"
+          echo "Terraform Validate : SUCCESS"
+          echo "Network            : SUCCESS"
+          echo "Resource Reconcile : SUCCESS"
+          echo "ECR Repository     : SUCCESS"
+          echo "Docker Build       : SUCCESS"
+          echo "Docker Push        : SUCCESS"
+          echo "Terraform Plan     : SUCCESS"
+          echo "Terraform Apply    : SUCCESS"
+          echo "ECS Cluster        : SUCCESS"
+          echo "ECS Service        : SUCCESS"
+          echo "Fargate Tasks      : SUCCESS"
+          echo "ALB                : SUCCESS"
+          echo "Target Health      : SUCCESS"
+          echo "Application HTTP   : SUCCESS"
+          echo "CloudWatch Logs    : SUCCESS"
+
+          echo ""
+          echo "======================================================"
+          echo "CharlieCafe-TF is running on ECS Fargate."
+          echo "======================================================"
 
