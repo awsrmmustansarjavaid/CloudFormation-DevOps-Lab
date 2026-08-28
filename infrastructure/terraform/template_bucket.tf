@@ -14,6 +14,13 @@
 #
 # This bucket is separate from the application/lab S3 bucket
 # defined in s3.tf.
+#
+# New naming:
+#
+#   AWS-CloudFormation-TF-Lab -> CharlieCafe-TF-Lab
+#   CharlieCafe              -> CharlieCafe-TF
+#   charlie-cafe             -> charlie-cafe-tf
+#
 # =========================================================
 
 
@@ -50,9 +57,13 @@ resource "aws_s3_bucket" "template_bucket" {
   #
   #   var.template_bucket_name
   #
+  # Recommended naming pattern:
+  #
+  #   charlie-cafe-tf-templates-<unique-suffix>
+  #
   # Example:
   #
-  #   cloudformation-devops-lab-537236558357-us-east-1
+  #   charlie-cafe-tf-templates-537236558357-us-east-1
   #
   # -------------------------------------------------------
 
@@ -64,7 +75,8 @@ resource "aws_s3_bucket" "template_bucket" {
   # -------------------------------------------------------
 
   tags = {
-    Name    = "Lab-CloudFormation-Templates"
+    Name    = "CharlieCafe-TF-CloudFormation-Templates"
+    Project = "CharlieCafe-TF-Lab"
     Purpose = "CloudFormation-Nested-Templates"
   }
 }
@@ -104,3 +116,8 @@ resource "aws_s3_bucket_versioning" "template_bucket" {
     status = "Enabled"
   }
 }
+
+
+# =========================================================
+# END OF template_bucket.tf
+# =========================================================

@@ -1,51 +1,106 @@
 # ============================================================
-# Charlie Cafe
-# Terraform Infrastructure
+# CHARLIE CAFE - TERRAFORM DEVOPS LAB
 #
 # File:
 #   ecs_ecr.tf
 #
 # Purpose:
 #   Creates the ECS Fargate + ECR infrastructure for the
-#   Charlie Cafe application.
+#   Charlie Cafe Terraform application.
+#
+# ============================================================
+#
+# TERRAFORM NAMING STANDARD
+# ============================================================
+#
+# This repository contains BOTH:
+#
+#   1. AWS CloudFormation infrastructure
+#   2. AWS Terraform infrastructure
+#
+# To prevent resource-name confusion and AWS naming conflicts,
+# all Terraform-created AWS resources use the "TF" identifier.
+#
+# Main naming convention:
+#
+#   CharlieCafe-TF-<Resource>
+#
+# ECR naming convention:
+#
+#   charlie-cafe-tf
+#
+# Examples:
+#
+#   CharlieCafe-TF-Lab
+#   CharlieCafe-TF-Cluster
+#   CharlieCafe-TF-Service
+#   CharlieCafe-TF
+#   charlie-cafe-tf
+#
+# ============================================================
 #
 # IMPORTANT:
 #
-#   Networking resources are NOT created in this file.
+# Terraform resource addresses such as:
 #
-#   They are already created by network.tf:
+#   aws_ecs_cluster.charlie_cafe
+#   aws_ecs_service.charlie_cafe
+#   aws_ecr_repository.charlie_cafe
 #
-#     - VPC
-#     - Public Subnet 1
-#     - Public Subnet 2
-#     - Private Subnet 1
-#     - Private Subnet 2
-#     - Private Route Table
+# are INTERNAL Terraform identifiers.
 #
-#   Therefore this file directly references those Terraform
-#   resources instead of using undefined networking variables.
+# They do NOT need to match the AWS resource name.
+#
+# Therefore they are intentionally preserved so that existing
+# Terraform references and state relationships do not needlessly
+# change.
+#
+# ============================================================
+#
+# NETWORKING
+# ============================================================
+#
+# Networking resources are NOT created in this file.
+#
+# They are already created by network.tf:
+#
+#   - VPC
+#   - Public Subnet 1
+#   - Public Subnet 2
+#   - Private Subnet 1
+#   - Private Subnet 2
+#   - Private Route Table
+#
+# Therefore this file directly references those Terraform
+# resources.
 #
 # ============================================================
 #
 # NETWORK RESOURCE REFERENCES
+# ============================================================
 #
-#   VPC:
-#     aws_vpc.lab.id
+# VPC:
 #
-#   Public subnets:
-#     aws_subnet.public[0].id
-#     aws_subnet.public[1].id
+#   aws_vpc.lab.id
 #
-#   Private subnets:
-#     aws_subnet.private[0].id
-#     aws_subnet.private[1].id
+# Public subnets:
 #
-#   Private route table:
-#     aws_route_table.private.id
+#   aws_subnet.public[0].id
+#   aws_subnet.public[1].id
 #
-#   Private subnet CIDRs:
-#     aws_subnet.private[0].cidr_block
-#     aws_subnet.private[1].cidr_block
+# Private subnets:
+#
+#   aws_subnet.private[0].id
+#   aws_subnet.private[1].id
+#
+# Private route table:
+#
+#   aws_route_table.private.id
+#
+# Private subnet CIDRs:
+#
+#   aws_subnet.private[0].cidr_block
+#   aws_subnet.private[1].cidr_block
 #
 # ============================================================
 #
@@ -97,10 +152,10 @@
 # 1. AWS REGION DATA SOURCE
 # ============================================================
 #
-# The AWS provider already determines the active region.
+# The AWS provider determines the active region.
 #
 # Using aws_region.current.name avoids requiring an additional
-# aws_region Terraform variable.
+# AWS region data source variable.
 #
 # ============================================================
 
@@ -122,21 +177,19 @@ data "aws_region" "current" {}
 # ECS tasks communicate with these endpoints over HTTPS
 # using TCP port 443.
 #
-# The source CIDRs are taken directly from the private
-# subnets created in network.tf.
-#
 # ============================================================
 
 resource "aws_security_group" "vpc_endpoint" {
 
+  # ----------------------------------------------------------
+  # Terraform-specific AWS resource name
+  # ----------------------------------------------------------
+
   name = "${var.application_name}-VPC-Endpoint-SG"
 
-  description = "Allow HTTPS from Charlie Cafe private subnets to AWS VPC endpoints"
+  description = "Allow HTTPS from Charlie Cafe Terraform private subnets to AWS VPC endpoints"
 
-  # ----------------------------------------------------------
   # Existing VPC from network.tf
-  # ----------------------------------------------------------
-
   vpc_id = aws_vpc.lab.id
 
 
@@ -146,7 +199,7 @@ resource "aws_security_group" "vpc_endpoint" {
 
   ingress {
 
-    description = "HTTPS from Charlie Cafe Private Subnet 1"
+    description = "HTTPS from CharlieCafe-TF Private Subnet 1"
 
     protocol = "tcp"
 
@@ -166,7 +219,7 @@ resource "aws_security_group" "vpc_endpoint" {
 
   ingress {
 
-    description = "HTTPS from Charlie Cafe Private Subnet 2"
+    description = "HTTPS from CharlieCafe-TF Private Subnet 2"
 
     protocol = "tcp"
 
@@ -204,7 +257,9 @@ resource "aws_security_group" "vpc_endpoint" {
 
     Name = "${var.application_name}-VPC-Endpoint-SG"
 
-    Project = var.application_name
+    Project = var.project_name
+
+    Terraform = "true"
   }
 }
 
@@ -251,7 +306,9 @@ resource "aws_vpc_endpoint" "ecr_api" {
 
     Name = "${var.application_name}-ECR-API-VPC-Endpoint"
 
-    Project = var.application_name
+    Project = var.project_name
+
+    Terraform = "true"
   }
 }
 
@@ -297,7 +354,9 @@ resource "aws_vpc_endpoint" "ecr_dkr" {
 
     Name = "${var.application_name}-ECR-DKR-VPC-Endpoint"
 
-    Project = var.application_name
+    Project = var.project_name
+
+    Terraform = "true"
   }
 }
 
@@ -316,8 +375,6 @@ resource "aws_vpc_endpoint" "ecr_dkr" {
 #
 # Gateway endpoints are associated with route tables rather
 # than subnets.
-#
-# The private route table is created in network.tf.
 #
 # ============================================================
 
@@ -339,7 +396,9 @@ resource "aws_vpc_endpoint" "s3" {
 
     Name = "${var.application_name}-S3-Gateway-VPC-Endpoint"
 
-    Project = var.application_name
+    Project = var.project_name
+
+    Terraform = "true"
   }
 }
 
@@ -353,10 +412,8 @@ resource "aws_vpc_endpoint" "s3" {
 #
 # Container stdout/stderr is sent to CloudWatch Logs.
 #
-# Because ECS tasks run in private subnets and this
-# architecture does not require a NAT Gateway for AWS service
-# connectivity, a private CloudWatch Logs interface endpoint
-# is provided.
+# Because ECS tasks run in private subnets, a private
+# CloudWatch Logs interface endpoint is provided.
 #
 # ============================================================
 
@@ -385,7 +442,9 @@ resource "aws_vpc_endpoint" "cloudwatch_logs" {
 
     Name = "${var.application_name}-CloudWatch-Logs-VPC-Endpoint"
 
-    Project = var.application_name
+    Project = var.project_name
+
+    Terraform = "true"
   }
 }
 
@@ -395,19 +454,21 @@ resource "aws_vpc_endpoint" "cloudwatch_logs" {
 # 7. ECR REPOSITORY
 # ============================================================
 #
-# Stores the Charlie Cafe Docker image.
+# Stores the Charlie Cafe Terraform Docker image.
 #
-# Terraform creates the repository.
+# IMPORTANT:
 #
-# Terraform does NOT build or push the Docker image.
+# The variable ecr_repository_name in variables.tf has been
+# changed from:
 #
-# GitHub Actions is responsible for:
+#   charlie-cafe
 #
-#   1. Building the Docker image
-#   2. Authenticating with ECR
-#   3. Tagging the image
-#   4. Pushing the image to ECR
-#   5. Triggering the ECS deployment
+# to:
+#
+#   charlie-cafe-tf
+#
+# This prevents the Terraform ECR repository from conflicting
+# with the CloudFormation ECR repository.
 #
 # ============================================================
 
@@ -429,12 +490,11 @@ resource "aws_ecr_repository" "charlie_cafe" {
   # ----------------------------------------------------------
   # Mutable image tags
   #
-  # This allows:
+  # Allows:
   #
   #   latest
   #
   # to be updated by the CI/CD pipeline.
-  #
   # ----------------------------------------------------------
 
   image_tag_mutability = "MUTABLE"
@@ -454,7 +514,9 @@ resource "aws_ecr_repository" "charlie_cafe" {
 
     Name = "${var.application_name}-ECR"
 
-    Project = var.application_name
+    Project = var.project_name
+
+    Terraform = "true"
   }
 }
 
@@ -464,13 +526,12 @@ resource "aws_ecr_repository" "charlie_cafe" {
 # 8. ECS CLUSTER
 # ============================================================
 #
-# Creates the ECS cluster used by the Charlie Cafe application.
+# Creates the ECS cluster used by the Charlie Cafe Terraform
+# application.
 #
-# ECS Fargate is serverless container infrastructure.
+# New AWS-visible name:
 #
-# No EC2 instances are required.
-#
-# AWS manages the underlying compute infrastructure.
+#   CharlieCafe-TF-Cluster
 #
 # ============================================================
 
@@ -495,7 +556,9 @@ resource "aws_ecs_cluster" "charlie_cafe" {
 
     Name = var.ecs_cluster_name
 
-    Project = var.application_name
+    Project = var.project_name
+
+    Terraform = "true"
   }
 }
 
@@ -507,22 +570,29 @@ resource "aws_ecs_cluster" "charlie_cafe" {
 #
 # ECS container logs are written here.
 #
-# Log group:
+# Terraform-specific log group:
 #
-#   /ecs/charlie-cafe
+#   /ecs/charlie-cafe-tf
+#
+# This prevents the Terraform ECS deployment from sharing the
+# CloudFormation application's CloudWatch log group.
 #
 # ============================================================
 
 resource "aws_cloudwatch_log_group" "ecs" {
 
-  name = "/ecs/charlie-cafe"
+  name = "/ecs/charlie-cafe-tf"
 
   retention_in_days = 30
 
 
   tags = {
 
-    Project = var.application_name
+    Name = "CharlieCafe-TF-ECS-Logs"
+
+    Project = var.project_name
+
+    Terraform = "true"
   }
 }
 
@@ -539,10 +609,9 @@ resource "aws_cloudwatch_log_group" "ecs" {
 #   - Pull container images from ECR
 #   - Send container logs to CloudWatch Logs
 #
-# IMPORTANT:
+# New AWS-visible role name:
 #
-# The execution role is NOT the same as the application
-# task role.
+#   CharlieCafe-TF-ECSTaskExecutionRole
 #
 # ============================================================
 
@@ -582,14 +651,16 @@ resource "aws_iam_role" "ecs_task_execution" {
 
     Name = "${var.application_name}-ECSTaskExecutionRole"
 
-    Project = var.application_name
+    Project = var.project_name
+
+    Terraform = "true"
   }
 }
 
 
 
 # ============================================================
-# 11. ECS TASK EXECUTION POLICY
+# 11. ECS TASK EXECUTION POLICY ATTACHMENT
 # ============================================================
 #
 # AWS managed policy providing the standard permissions
@@ -597,6 +668,17 @@ resource "aws_iam_role" "ecs_task_execution" {
 #
 #   - ECR image pulling
 #   - CloudWatch Logs
+#
+# IMPORTANT:
+#
+# The AWS-managed policy ARN is intentionally NOT renamed.
+#
+# This is an AWS-managed policy:
+#
+#   arn:aws:iam::aws:policy/service-role/
+#   AmazonECSTaskExecutionRolePolicy
+#
+# We only rename our Terraform-created IAM role.
 #
 # ============================================================
 
@@ -616,16 +698,9 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution" {
 # This role belongs to the application running INSIDE the
 # Docker container.
 #
-# It is intentionally created with no additional permissions
-# for the current ECS/ECR lab.
+# New AWS-visible role name:
 #
-# Additional permissions can later be attached if the
-# application needs AWS APIs such as:
-#
-#   - S3
-#   - DynamoDB
-#   - Secrets Manager
-#   - KMS
+#   CharlieCafe-TF-ECSTaskRole
 #
 # ============================================================
 
@@ -663,7 +738,9 @@ resource "aws_iam_role" "ecs_task" {
 
     Name = "${var.application_name}-ECSTaskRole"
 
-    Project = var.application_name
+    Project = var.project_name
+
+    Terraform = "true"
   }
 }
 
@@ -682,13 +759,17 @@ resource "aws_iam_role" "ecs_task" {
 # The Application Load Balancer accepts HTTP traffic from
 # the internet.
 #
+# Terraform-specific name:
+#
+#   CharlieCafe-TF-ALB-SG
+#
 # ============================================================
 
 resource "aws_security_group" "alb" {
 
   name = "${var.application_name}-ALB-SG"
 
-  description = "Allow HTTP traffic to Charlie Cafe Application Load Balancer"
+  description = "Allow HTTP traffic to CharlieCafe-TF Application Load Balancer"
 
   # Existing VPC from network.tf.
   vpc_id = aws_vpc.lab.id
@@ -738,7 +819,9 @@ resource "aws_security_group" "alb" {
 
     Name = "${var.application_name}-ALB-SG"
 
-    Project = var.application_name
+    Project = var.project_name
+
+    Terraform = "true"
   }
 }
 
@@ -764,13 +847,17 @@ resource "aws_security_group" "alb" {
 # Only the ALB security group can access the ECS task on the
 # application container port.
 #
+# Terraform-specific name:
+#
+#   CharlieCafe-TF-ECS-Task-SG
+#
 # ============================================================
 
 resource "aws_security_group" "ecs_task" {
 
   name = "${var.application_name}-ECS-Task-SG"
 
-  description = "Allow application traffic only from the ALB"
+  description = "Allow CharlieCafe-TF application traffic only from the ALB"
 
   # Existing VPC from network.tf.
   vpc_id = aws_vpc.lab.id
@@ -782,7 +869,7 @@ resource "aws_security_group" "ecs_task" {
 
   ingress {
 
-    description = "Allow application traffic from ALB"
+    description = "Allow application traffic from Terraform ALB"
 
     protocol = "tcp"
 
@@ -820,7 +907,9 @@ resource "aws_security_group" "ecs_task" {
 
     Name = "${var.application_name}-ECS-Task-SG"
 
-    Project = var.application_name
+    Project = var.project_name
+
+    Terraform = "true"
   }
 }
 
@@ -832,13 +921,9 @@ resource "aws_security_group" "ecs_task" {
 #
 # Creates an internet-facing Application Load Balancer.
 #
-# ALB:
+# Terraform-specific name:
 #
-#   - Runs in public subnets
-#   - Accepts internet traffic
-#   - Forwards traffic to ECS tasks
-#
-# ECS tasks remain in private subnets.
+#   CharlieCafe-TF-ALB
 #
 # ============================================================
 
@@ -868,7 +953,9 @@ resource "aws_lb" "charlie_cafe" {
 
     Name = "${var.application_name}-ALB"
 
-    Project = var.application_name
+    Project = var.project_name
+
+    Terraform = "true"
   }
 }
 
@@ -886,8 +973,9 @@ resource "aws_lb" "charlie_cafe" {
 #
 #   target_type = "ip"
 #
-# ECS automatically registers task private IP addresses with
-# this target group.
+# Terraform-specific name:
+#
+#   CharlieCafe-TF-TG
 #
 # ============================================================
 
@@ -933,7 +1021,9 @@ resource "aws_lb_target_group" "charlie_cafe" {
 
     Name = "${var.application_name}-TG"
 
-    Project = var.application_name
+    Project = var.project_name
+
+    Terraform = "true"
   }
 }
 
@@ -947,10 +1037,8 @@ resource "aws_lb_target_group" "charlie_cafe" {
 #
 #   Port 80
 #
-# The listener forwards requests to the ECS target group.
-#
-# HTTPS/ACM is intentionally outside this beginner Terraform
-# configuration.
+# The listener forwards requests to the Terraform ECS target
+# group.
 #
 # ============================================================
 
@@ -983,16 +1071,9 @@ resource "aws_lb_listener" "http" {
 #
 # Defines the Docker container configuration.
 #
-# Includes:
+# Terraform-specific ECS task family:
 #
-#   - Fargate networking
-#   - CPU
-#   - Memory
-#   - Docker image
-#   - Container port
-#   - Execution role
-#   - Application task role
-#   - CloudWatch logging
+#   CharlieCafe-TF
 #
 # ============================================================
 
@@ -1045,32 +1126,45 @@ resource "aws_ecs_task_definition" "charlie_cafe" {
   task_role_arn = aws_iam_role.ecs_task.arn
 
 
-  # ----------------------------------------------------------
-  # Container definition
-  # ----------------------------------------------------------
+  # ==========================================================
+  # CONTAINER DEFINITION
+  # ==========================================================
   #
-  # Terraform requires ECS container definitions as JSON.
+  # IMPORTANT:
   #
-  # jsonencode() converts the Terraform object into the JSON
-  # format expected by ECS.
+  # The old container name:
   #
-  # ----------------------------------------------------------
+  #   charlie-cafe
+  #
+  # has been changed to:
+  #
+  #   charlie-cafe-tf
+  #
+  # This is important because the ECS service's
+  # load_balancer.container_name must match this value.
+  #
+  # ==========================================================
 
   container_definitions = jsonencode([
 
     {
 
-      name = "charlie-cafe"
+      name = "charlie-cafe-tf"
 
 
       # ------------------------------------------------------
       # Docker image
       #
-      # GitHub Actions will push:
+      # GitHub Actions will push the Terraform application
+      # image to:
       #
-      #   charlie-cafe:latest
+      #   charlie-cafe-tf
       #
-      # ECS will pull the image from this ECR repository.
+      # with the:
+      #
+      #   latest
+      #
+      # tag.
       # ------------------------------------------------------
 
       image = "${aws_ecr_repository.charlie_cafe.repository_url}:latest"
@@ -1095,6 +1189,11 @@ resource "aws_ecs_task_definition" "charlie_cafe" {
 
       # ------------------------------------------------------
       # CloudWatch Logs
+      #
+      # Terraform-specific log group:
+      #
+      #   /ecs/charlie-cafe-tf
+      #
       # ------------------------------------------------------
 
       logConfiguration = {
@@ -1107,7 +1206,7 @@ resource "aws_ecs_task_definition" "charlie_cafe" {
 
           "awslogs-region" = data.aws_region.current.name
 
-          "awslogs-stream-prefix" = "ecs"
+          "awslogs-stream-prefix" = "ecs-tf"
         }
       }
     }
@@ -1118,7 +1217,9 @@ resource "aws_ecs_task_definition" "charlie_cafe" {
 
     Name = var.ecs_task_family
 
-    Project = var.application_name
+    Project = var.project_name
+
+    Terraform = "true"
   }
 }
 
@@ -1131,14 +1232,9 @@ resource "aws_ecs_task_definition" "charlie_cafe" {
 # The ECS service maintains the desired number of running
 # tasks.
 #
-# If a task fails, ECS attempts to replace it.
+# New AWS-visible service name:
 #
-# The service:
-#
-#   - Uses Fargate
-#   - Runs in private subnets
-#   - Does NOT receive a public IP
-#   - Registers tasks with the ALB
+#   CharlieCafe-TF-Service
 #
 # ============================================================
 
@@ -1184,12 +1280,20 @@ resource "aws_ecs_service" "charlie_cafe" {
   # ----------------------------------------------------------
   # Connect ECS container to ALB target group
   # ----------------------------------------------------------
+  #
+  # IMPORTANT:
+  #
+  # This container_name MUST match the container definition:
+  #
+  #   charlie-cafe-tf
+  #
+  # ----------------------------------------------------------
 
   load_balancer {
 
     target_group_arn = aws_lb_target_group.charlie_cafe.arn
 
-    container_name = "charlie-cafe"
+    container_name = "charlie-cafe-tf"
 
     container_port = var.container_port
   }
@@ -1228,7 +1332,9 @@ resource "aws_ecs_service" "charlie_cafe" {
 
     Name = var.ecs_service_name
 
-    Project = var.application_name
+    Project = var.project_name
+
+    Terraform = "true"
   }
 }
 
@@ -1238,26 +1344,83 @@ resource "aws_ecs_service" "charlie_cafe" {
 # END OF ecs_ecr.tf
 # ============================================================
 #
+# TERRAFORM NAMING SUMMARY
+# ============================================================
+#
+# ECR:
+#
+#   charlie-cafe-tf
+#
+# ECS Cluster:
+#
+#   CharlieCafe-TF-Cluster
+#
+# ECS Service:
+#
+#   CharlieCafe-TF-Service
+#
+# ECS Task Family:
+#
+#   CharlieCafe-TF
+#
+# ECS Container:
+#
+#   charlie-cafe-tf
+#
+# CloudWatch Log Group:
+#
+#   /ecs/charlie-cafe-tf
+#
+# ECS Execution Role:
+#
+#   CharlieCafe-TF-ECSTaskExecutionRole
+#
+# ECS Task Role:
+#
+#   CharlieCafe-TF-ECSTaskRole
+#
+# ALB:
+#
+#   CharlieCafe-TF-ALB
+#
+# ALB Target Group:
+#
+#   CharlieCafe-TF-TG
+#
+# ALB Security Group:
+#
+#   CharlieCafe-TF-ALB-SG
+#
+# ECS Task Security Group:
+#
+#   CharlieCafe-TF-ECS-Task-SG
+#
+# VPC Endpoint Security Group:
+#
+#   CharlieCafe-TF-VPC-Endpoint-SG
+#
+# ============================================================
+#
 # IMPORTANT:
 #
-# Outputs should be kept in:
+# The Terraform resource addresses remain unchanged:
+#
+#   aws_ecr_repository.charlie_cafe
+#   aws_ecs_cluster.charlie_cafe
+#   aws_ecs_task_definition.charlie_cafe
+#   aws_ecs_service.charlie_cafe
+#   aws_lb.charlie_cafe
+#   aws_lb_target_group.charlie_cafe
+#
+# These are Terraform INTERNAL identifiers and are not AWS
+# resource names.
+#
+# ============================================================
+#
+# Outputs should remain in:
 #
 #   outputs.tf
 #
-# Do NOT duplicate output blocks here if outputs.tf already
-# contains them.
-#
-# Expected outputs can include:
-#
-#   - ECR repository name
-#   - ECR repository URI
-#   - ECS cluster name
-#   - ECS service name
-#   - ECS task definition ARN
-#   - ALB DNS name
-#   - Application URL
-#   - ALB security group ID
-#   - ECS task security group ID
-#   - VPC endpoint security group ID
+# Do NOT duplicate output blocks here.
 #
 # ============================================================

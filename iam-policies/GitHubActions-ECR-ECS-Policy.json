@@ -1,0 +1,30 @@
+{
+	"Version": "2012-10-17",
+	"Statement": [
+		{
+			"Sid": "ECRAccess",
+			"Effect": "Allow",
+			"Action": [
+				"ecr:GetAuthorizationToken",
+				"ecr:DescribeRepositories",
+				"ecr:DescribeImages",
+				"ecr:BatchCheckLayerAvailability",
+				"ecr:InitiateLayerUpload",
+				"ecr:UploadLayerPart",
+				"ecr:CompleteLayerUpload",
+				"ecr:PutImage"
+			],
+			"Resource": "*"
+		},
+		{
+			"Sid": "ECSDeploymentAccess",
+			"Effect": "Allow",
+			"Action": [
+				"ecs:DescribeClusters",
+				"ecs:DescribeServices",
+				"ecs:UpdateService"
+			],
+			"Resource": "*"
+		}
+	]
+}

@@ -6,7 +6,7 @@
 #   terraform.tfvars.example
 #
 # Purpose:
-#   Example Terraform variable values for the Charlie Cafe
+#   Example Terraform variable values for the CharlieCafe-TF
 #   infrastructure.
 #
 # IMPORTANT:
@@ -18,6 +18,18 @@
 #       terraform.tfvars
 #
 #   and customize the values for your environment.
+#
+# ============================================================
+#
+# New naming convention:
+#
+#   AWS-CloudFormation-TF-Lab -> CharlieCafe-TF-Lab
+#   CharlieCafe              -> CharlieCafe-TF
+#   charlie-cafe             -> charlie-cafe-tf
+#   CharlieCafe-Cluster      -> CharlieCafe-TF-Cluster
+#   CharlieCafe-Service      -> CharlieCafe-TF-Service
+#   CharlieCafe (task family)-> CharlieCafe-TF
+#   tf-labdb                 -> tflabdb
 #
 # ============================================================
 #
@@ -40,7 +52,6 @@
 # ============================================================
 
 
-
 # ============================================================
 # 1. APPLICATION NAME
 # ============================================================
@@ -55,12 +66,13 @@
 #   - IAM roles
 #   - ECS resources
 #
-# Keep this value consistent across the project.
+# New naming:
+#
+#   CharlieCafe -> CharlieCafe-TF
 #
 # ============================================================
 
-application_name = "CharlieCafe"
-
+application_name = "CharlieCafe-TF"
 
 
 # ============================================================
@@ -75,15 +87,9 @@ application_name = "CharlieCafe"
 #   us-east-1
 #   eu-west-1
 #
-# IMPORTANT:
-#
-# Your provider configuration should use this variable if
-# your versions.tf/provider configuration is designed that way.
-#
 # ============================================================
 
 aws_region = "ap-southeast-1"
-
 
 
 # ============================================================
@@ -92,16 +98,19 @@ aws_region = "ap-southeast-1"
 #
 # Name of the Amazon ECR repository.
 #
+# New naming:
+#
+#   charlie-cafe -> charlie-cafe-tf
+#
 # GitHub Actions will push the Docker image here.
 #
 # Expected image:
 #
-#   charlie-cafe:latest
+#   charlie-cafe-tf:latest
 #
 # ============================================================
 
-ecr_repository_name = "charlie-cafe"
-
+ecr_repository_name = "charlie-cafe-tf"
 
 
 # ============================================================
@@ -110,10 +119,15 @@ ecr_repository_name = "charlie-cafe"
 #
 # Name of the ECS cluster.
 #
+# New naming:
+#
+#   CharlieCafe-Cluster
+#          ->
+#   CharlieCafe-TF-Cluster
+#
 # ============================================================
 
-ecs_cluster_name = "CharlieCafe-Cluster"
-
+ecs_cluster_name = "CharlieCafe-TF-Cluster"
 
 
 # ============================================================
@@ -122,10 +136,15 @@ ecs_cluster_name = "CharlieCafe-Cluster"
 #
 # Name of the ECS Fargate service.
 #
+# New naming:
+#
+#   CharlieCafe-Service
+#          ->
+#   CharlieCafe-TF-Service
+#
 # ============================================================
 
-ecs_service_name = "CharlieCafe-Service"
-
+ecs_service_name = "CharlieCafe-TF-Service"
 
 
 # ============================================================
@@ -137,10 +156,15 @@ ecs_service_name = "CharlieCafe-Service"
 # Every new revision of the task definition belongs to this
 # family.
 #
+# New naming:
+#
+#   CharlieCafe
+#       ->
+#   CharlieCafe-TF
+#
 # ============================================================
 
-ecs_task_family = "CharlieCafe-Task"
-
+ecs_task_family = "CharlieCafe-TF"
 
 
 # ============================================================
@@ -167,7 +191,6 @@ ecs_task_family = "CharlieCafe-Task"
 container_port = 80
 
 
-
 # ============================================================
 # 8. ECS TASK CPU
 # ============================================================
@@ -187,7 +210,6 @@ container_port = 80
 task_cpu = 256
 
 
-
 # ============================================================
 # 9. ECS TASK MEMORY
 # ============================================================
@@ -203,7 +225,6 @@ task_cpu = 256
 # ============================================================
 
 task_memory = 512
-
 
 
 # ============================================================
@@ -224,7 +245,6 @@ task_memory = 512
 ecs_desired_count = 1
 
 
-
 # ============================================================
 # OPTIONAL NETWORK VARIABLES
 # ============================================================
@@ -240,7 +260,7 @@ ecs_desired_count = 1
 #
 # to this file if network.tf creates those resources.
 #
-# ecs_ecr.tf now directly references:
+# ecs_ecr.tf directly references:
 #
 #   aws_vpc.lab.id
 #
@@ -255,7 +275,6 @@ ecs_desired_count = 1
 # This avoids duplicating networking configuration.
 #
 # ============================================================
-
 
 
 # ============================================================

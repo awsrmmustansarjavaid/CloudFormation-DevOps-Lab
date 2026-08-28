@@ -1,0 +1,32 @@
+{
+	"Version": "2012-10-17",
+	"Statement": [
+		{
+			"Sid": "S3BucketPermissions",
+			"Effect": "Allow",
+			"Action": [
+				"s3:CreateBucket",
+				"s3:PutBucketVersioning",
+				"s3:TagResource"
+			],
+			"Resource": "*"
+		},
+		{
+			"Sid": "RDSPermissions",
+			"Effect": "Allow",
+			"Action": [
+				"rds:CreateDBInstance",
+				"rds:CreateDBSubnetGroup",
+				"rds:DescribeDBInstances",
+				"rds:DescribeDBSubnetGroups",
+				"rds:ModifyDBInstance",
+				"rds:ModifyDBSubnetGroup",
+				"rds:DeleteDBInstance",
+				"rds:DeleteDBSubnetGroup",
+				"rds:AddTagsToResource",
+				"rds:ListTagsForResource"
+			],
+			"Resource": "*"
+		}
+	]
+}

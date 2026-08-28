@@ -2,6 +2,8 @@
 # SECURITY GROUPS
 # =======================================================
 #
+# CharlieCafe Terraform Lab
+#
 # CloudFormation resources converted:
 #
 # Main template:
@@ -9,6 +11,12 @@
 #
 # RDS nested stack:
 #   AWS::EC2::SecurityGroup
+#
+# New project naming:
+#
+#   AWS-CloudFormation-TF-Lab -> CharlieCafe-TF-Lab
+#   CharlieCafe              -> CharlieCafe-TF
+#   charlie-cafe             -> charlie-cafe-tf
 #
 # =======================================================
 
@@ -32,8 +40,8 @@
 
 resource "aws_security_group" "web" {
 
-  name        = "Lab-Web-SG"
-  description = "Allow SSH, HTTP and HTTPS"
+  name        = "CharlieCafe-TF-Web-SG"
+  description = "Allow SSH, HTTP and HTTPS for CharlieCafe-TF"
   vpc_id      = aws_vpc.lab.id
 
   # -----------------------------------------------------
@@ -104,7 +112,8 @@ resource "aws_security_group" "web" {
   }
 
   tags = {
-    Name = "Lab-Web-SG"
+    Name    = "CharlieCafe-TF-Web-SG"
+    Project = "CharlieCafe-TF-Lab"
   }
 }
 
@@ -129,8 +138,8 @@ resource "aws_security_group" "web" {
 
 resource "aws_security_group" "rds" {
 
-  name        = "Lab-RDS-SG"
-  description = "Allow MySQL from EC2 only"
+  name        = "CharlieCafe-TF-RDS-SG"
+  description = "Allow MySQL from CharlieCafe-TF EC2 only"
   vpc_id      = aws_vpc.lab.id
 
   # -----------------------------------------------------
@@ -166,6 +175,12 @@ resource "aws_security_group" "rds" {
   }
 
   tags = {
-    Name = "Lab-RDS-SG"
+    Name    = "CharlieCafe-TF-RDS-SG"
+    Project = "CharlieCafe-TF-Lab"
   }
 }
+
+
+# =======================================================
+# END OF security_groups.tf
+# =======================================================

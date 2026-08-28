@@ -10,6 +10,60 @@
 #   Defines all configurable input variables used by the Terraform
 #   infrastructure for the Charlie Cafe AWS DevOps Lab.
 #
+# =====================================================================
+# IMPORTANT RESOURCE NAMING CONVENTION
+# =====================================================================
+#
+# This Terraform project exists alongside a separate CloudFormation
+# implementation of the same Charlie Cafe lab.
+#
+# To prevent naming conflicts between the Terraform and CloudFormation
+# infrastructures, Terraform-created AWS resources should use:
+#
+#   TF
+#
+# as their unique naming identifier.
+#
+# Recommended naming pattern:
+#
+#   CharlieCafe-TF-<Resource>
+#
+# Examples:
+#
+#   CharlieCafe-TF-VPC
+#   CharlieCafe-TF-InternetGateway
+#   CharlieCafe-TF-PublicSubnet-1
+#   CharlieCafe-TF-PrivateSubnet-1
+#   CharlieCafe-TF-ALB
+#   CharlieCafe-TF-TargetGroup
+#   CharlieCafe-TF-Cluster
+#   CharlieCafe-TF-Service
+#   CharlieCafe-TF-Task
+#   CharlieCafe-TF-CloudFormation-ServiceRole
+#
+# IMPORTANT:
+#
+# The "TF" naming convention is intentionally applied to AWS resource
+# names/defaults. Terraform internal resource addresses do NOT need
+# to contain "TF".
+#
+# For example:
+#
+#   resource "aws_vpc" "main" { ... }
+#
+# can remain:
+#
+#   aws_vpc.main
+#
+# while the actual AWS resource name can be:
+#
+#   CharlieCafe-TF-VPC
+#
+# This keeps Terraform code clean while making AWS resources clearly
+# identifiable.
+#
+# =====================================================================
+#
 # Design principles:
 #   - Keep environment-specific values configurable.
 #   - Avoid hard-coding AWS resource IDs where possible.
@@ -19,6 +73,7 @@
 #     GitHub Actions secrets, environment variables, or tfvars files.
 #
 # IMPORTANT:
+#
 #   Do NOT put passwords, access keys, secret keys, or database
 #   credentials in this file.
 #
@@ -50,7 +105,7 @@
 # ---------------------------------------------------------------------
 
 variable "aws_region" {
-  description = "AWS region where the lab infrastructure will be deployed."
+  description = "AWS region where the Terraform lab infrastructure will be deployed."
 
   type    = string
   default = "us-east-1"
@@ -68,13 +123,18 @@ variable "aws_region" {
 #
 # Logical project name used for resource naming and tagging.
 #
+# IMPORTANT:
+#
+#   The project name now explicitly identifies this infrastructure
+#   as the Terraform implementation.
+#
 # ---------------------------------------------------------------------
 
 variable "project_name" {
   description = "Name of the AWS Terraform project."
 
   type    = string
-  default = "AWS-CloudFormation-Lab"
+  default = "CharlieCafe-TF-Lab"
 
   validation {
     condition     = length(trimspace(var.project_name)) > 0
@@ -95,21 +155,24 @@ variable "project_name" {
 #   staging
 #   production
 #
+# The default is Terraform-specific so it is easy to distinguish
+# Terraform resources from CloudFormation resources.
+#
 # ---------------------------------------------------------------------
 
 variable "environment" {
-  description = "Environment name used for resource naming and tagging."
+  description = "Environment name used for Terraform resource naming and tagging."
 
   type    = string
-  default = "lab"
+  default = "tf-lab"
 
   validation {
     condition = contains(
-      ["lab", "dev", "development", "staging", "prod", "production"],
+      ["lab", "dev", "development", "staging", "prod", "production", "tf-lab"],
       lower(var.environment)
     )
 
-    error_message = "Environment must be one of: lab, dev, development, staging, prod, production."
+    error_message = "Environment must be one of: lab, dev, development, staging, prod, production, tf-lab."
   }
 }
 
@@ -123,7 +186,7 @@ variable "environment" {
 # VPC CIDR
 # ---------------------------------------------------------------------
 #
-# Primary CIDR block for the Charlie Cafe VPC.
+# Primary CIDR block for the Charlie Cafe Terraform VPC.
 #
 # Default:
 #   10.0.0.0/16
@@ -131,7 +194,7 @@ variable "environment" {
 # ---------------------------------------------------------------------
 
 variable "vpc_cidr" {
-  description = "CIDR block for the Charlie Cafe VPC."
+  description = "CIDR block for the Charlie Cafe Terraform VPC."
 
   type    = string
   default = "10.0.0.0/16"
@@ -159,7 +222,7 @@ variable "vpc_cidr" {
 # ---------------------------------------------------------------------
 
 variable "availability_zones" {
-  description = "Two Availability Zones used by the lab infrastructure."
+  description = "Two Availability Zones used by the Charlie Cafe Terraform infrastructure."
 
   type = list(string)
 
@@ -170,7 +233,7 @@ variable "availability_zones" {
 
   validation {
     condition     = length(var.availability_zones) == 2
-    error_message = "The lab requires exactly two Availability Zones."
+    error_message = "The Terraform lab requires exactly two Availability Zones."
   }
 
   validation {
@@ -199,7 +262,7 @@ variable "availability_zones" {
 # ---------------------------------------------------------------------
 
 variable "public_subnet_cidrs" {
-  description = "CIDR blocks for the two public subnets."
+  description = "CIDR blocks for the two Terraform public subnets."
 
   type = list(string)
 
@@ -210,7 +273,7 @@ variable "public_subnet_cidrs" {
 
   validation {
     condition     = length(var.public_subnet_cidrs) == 2
-    error_message = "The lab requires exactly two public subnet CIDRs."
+    error_message = "The Terraform lab requires exactly two public subnet CIDRs."
   }
 
   validation {
@@ -241,7 +304,7 @@ variable "public_subnet_cidrs" {
 # ---------------------------------------------------------------------
 
 variable "private_subnet_cidrs" {
-  description = "CIDR blocks for the two private subnets."
+  description = "CIDR blocks for the two Terraform private subnets."
 
   type = list(string)
 
@@ -252,7 +315,7 @@ variable "private_subnet_cidrs" {
 
   validation {
     condition     = length(var.private_subnet_cidrs) == 2
-    error_message = "The lab requires exactly two private subnet CIDRs."
+    error_message = "The Terraform lab requires exactly two private subnet CIDRs."
   }
 
   validation {
@@ -275,9 +338,10 @@ variable "private_subnet_cidrs" {
 # EC2 AMI ID
 # ---------------------------------------------------------------------
 #
-# AMI used by the EC2 web server.
+# AMI used by the Terraform-managed EC2 web server.
 #
 # IMPORTANT:
+#
 #   AMI IDs are REGION-SPECIFIC.
 #
 # Therefore, a universal hard-coded AMI ID is intentionally NOT used.
@@ -297,7 +361,7 @@ variable "private_subnet_cidrs" {
 # ---------------------------------------------------------------------
 
 variable "ami_id" {
-  description = "AMI ID used by the EC2 web server. Provide a valid AMI ID for the selected AWS region."
+  description = "AMI ID used by the Terraform-managed EC2 web server. Provide a valid AMI ID for the selected AWS region."
 
   type    = string
   default = ""
@@ -317,7 +381,7 @@ variable "ami_id" {
 # EC2 Instance Type
 # ---------------------------------------------------------------------
 #
-# Instance size for the EC2 web server.
+# Instance size for the Terraform-managed EC2 web server.
 #
 # Default:
 #   t3.micro
@@ -325,7 +389,7 @@ variable "ami_id" {
 # ---------------------------------------------------------------------
 
 variable "instance_type" {
-  description = "EC2 instance type used by the web server."
+  description = "EC2 instance type used by the Terraform-managed web server."
 
   type    = string
   default = "t3.micro"
@@ -352,7 +416,7 @@ variable "instance_type" {
 # ---------------------------------------------------------------------
 
 variable "key_pair_name" {
-  description = "Existing EC2 Key Pair name used for SSH access."
+  description = "Existing EC2 Key Pair name used for SSH access by the Terraform-managed server."
 
   type    = string
   default = ""
@@ -376,7 +440,7 @@ variable "key_pair_name" {
 # ---------------------------------------------------------------------
 
 variable "userdata_script_url" {
-  description = "Raw GitHub URL of the EC2 bootstrap/UserData script."
+  description = "Raw GitHub URL of the Terraform EC2 bootstrap/UserData script."
 
   type = string
 
@@ -402,25 +466,28 @@ variable "userdata_script_url" {
 # S3 Application Bucket Name
 # ---------------------------------------------------------------------
 #
-# Optional S3 bucket used by the application/infrastructure.
+# Optional S3 bucket used by the Terraform-managed application.
 #
 # Empty string means the Terraform configuration can generate or
 # determine a suitable bucket name, depending on the implementation
-# in main.tf.
+# in the Terraform configuration.
 #
 # IMPORTANT:
+#
 #   S3 bucket names are globally unique across AWS.
 #
-# Do NOT use a common name such as:
+# A Terraform-specific bucket name should preferably include:
 #
-#   charlie-cafe
+#   tf
 #
-# because it may already belong to another AWS account.
+# Example:
+#
+#   charlie-cafe-tf-xxxxxxxx
 #
 # ---------------------------------------------------------------------
 
 variable "s3_bucket_name" {
-  description = "Optional globally unique S3 bucket name. Leave empty when Terraform should generate the name."
+  description = "Optional globally unique S3 bucket name for the Terraform-managed application."
 
   type    = string
   default = ""
@@ -450,10 +517,10 @@ variable "s3_bucket_name" {
 # ---------------------------------------------------------------------
 
 variable "db_name" {
-  description = "Initial MySQL database name."
+  description = "Initial MySQL database name used by the Terraform-managed RDS instance."
 
   type    = string
-  default = "labdb"
+  default = "tflabdb"
 
   validation {
     condition = can(regex(
@@ -480,7 +547,7 @@ variable "db_name" {
 # ---------------------------------------------------------------------
 
 variable "db_username" {
-  description = "RDS MySQL master username."
+  description = "RDS MySQL master username for the Terraform-managed database."
 
   type    = string
   default = "admin"
@@ -508,7 +575,7 @@ variable "db_username" {
 # ---------------------------------------------------------------------
 
 variable "db_instance_class" {
-  description = "RDS MySQL DB instance class."
+  description = "RDS MySQL DB instance class for the Terraform-managed database."
 
   type    = string
   default = "db.t3.micro"
@@ -532,7 +599,7 @@ variable "db_instance_class" {
 # ---------------------------------------------------------------------
 
 variable "db_engine_version" {
-  description = "MySQL engine version."
+  description = "MySQL engine version for the Terraform-managed RDS database."
 
   type    = string
   default = "8.0"
@@ -553,7 +620,7 @@ variable "db_engine_version" {
 # ---------------------------------------------------------------------
 
 variable "db_allocated_storage" {
-  description = "Initial RDS allocated storage in GB."
+  description = "Initial RDS allocated storage in GB for the Terraform-managed database."
 
   type    = number
   default = 20
@@ -576,7 +643,7 @@ variable "db_allocated_storage" {
 # ---------------------------------------------------------------------
 
 variable "db_backup_retention_period" {
-  description = "Number of days to retain automated RDS backups. Use 0 for the lab to disable retention."
+  description = "Number of days to retain automated RDS backups for the Terraform-managed database. Use 0 for the lab to disable retention."
 
   type    = number
   default = 0
@@ -605,7 +672,7 @@ variable "db_backup_retention_period" {
 # ---------------------------------------------------------------------
 
 variable "db_storage_encrypted" {
-  description = "Whether RDS storage encryption should be enabled."
+  description = "Whether storage encryption should be enabled for the Terraform-managed RDS database."
 
   type    = bool
   default = false
@@ -626,7 +693,7 @@ variable "db_storage_encrypted" {
 # ---------------------------------------------------------------------
 
 variable "db_deletion_protection" {
-  description = "Whether RDS deletion protection should be enabled."
+  description = "Whether RDS deletion protection should be enabled for the Terraform-managed database."
 
   type    = bool
   default = false
@@ -641,25 +708,25 @@ variable "db_deletion_protection" {
 # the Charlie Cafe infrastructure.
 #
 # IMPORTANT:
-#   S3 bucket names are globally unique.
 #
-# We intentionally do NOT hard-code a specific bucket name here.
+# This does NOT mean Terraform resources are being replaced by
+# CloudFormation.
 #
-# Recommended production/lab approach:
+# Terraform is simply managing the S3 bucket that stores templates.
 #
-#   Provide the bucket name from GitHub Actions:
+# The bucket itself should still receive a Terraform-specific name
+# so it cannot be confused with a bucket created by the separate
+# CloudFormation implementation.
 #
-#   TF_VAR_template_bucket_name
+# Example:
 #
-# or from a terraform.tfvars file:
-#
-#   template_bucket_name = "your-unique-bucket-name"
+#   charlie-cafe-tf-cfn-templates-xxxxxxxx
 #
 # ---------------------------------------------------------------------
 
 
 variable "template_bucket_name" {
-  description = "Globally unique S3 bucket name used to store CloudFormation nested-stack templates."
+  description = "Globally unique S3 bucket name used by the Terraform-managed CloudFormation template storage."
 
   type    = string
   default = ""
@@ -691,16 +758,20 @@ variable "template_bucket_name" {
 # Application Name
 # ---------------------------------------------------------------------
 #
-# Logical application name used by ECS, ALB, CloudFormation and
-# related resources.
+# Logical application name used by Terraform-managed ECS, ECR, ALB
+# and related resources.
+#
+# IMPORTANT:
+#
+# The default application name now includes the Terraform identifier.
 #
 # ---------------------------------------------------------------------
 
 variable "application_name" {
-  description = "Application name used for ECS, ECR, ALB and related AWS resources."
+  description = "Application name used for Terraform-managed ECS, ECR, ALB and related AWS resources."
 
   type    = string
-  default = "CharlieCafe"
+  default = "CharlieCafe-TF"
 
   validation {
     condition = can(regex(
@@ -717,15 +788,22 @@ variable "application_name" {
 # ECR Repository Name
 # ---------------------------------------------------------------------
 #
-# ECR repository containing the Charlie Cafe Docker image.
+# ECR repository containing the Terraform-managed Charlie Cafe
+# Docker image.
+#
+# ECR repository names must use lowercase characters.
+#
+# Terraform-specific naming:
+#
+#   charlie-cafe-tf
 #
 # ---------------------------------------------------------------------
 
 variable "ecr_repository_name" {
-  description = "Amazon ECR repository name for the Charlie Cafe Docker image."
+  description = "Amazon ECR repository name for the Terraform-managed Charlie Cafe Docker image."
 
   type    = string
-  default = "charlie-cafe"
+  default = "charlie-cafe-tf"
 
   validation {
     condition = can(regex(
@@ -741,12 +819,16 @@ variable "ecr_repository_name" {
 # ---------------------------------------------------------------------
 # ECS Cluster Name
 # ---------------------------------------------------------------------
+#
+# Terraform-managed ECS cluster.
+#
+# ---------------------------------------------------------------------
 
 variable "ecs_cluster_name" {
-  description = "Amazon ECS cluster name."
+  description = "Amazon ECS cluster name for the Terraform-managed Charlie Cafe infrastructure."
 
   type    = string
-  default = "CharlieCafe-Cluster"
+  default = "CharlieCafe-TF-Cluster"
 
   validation {
     condition     = length(trimspace(var.ecs_cluster_name)) > 0
@@ -758,12 +840,16 @@ variable "ecs_cluster_name" {
 # ---------------------------------------------------------------------
 # ECS Service Name
 # ---------------------------------------------------------------------
+#
+# Terraform-managed ECS service.
+#
+# ---------------------------------------------------------------------
 
 variable "ecs_service_name" {
-  description = "Amazon ECS service name."
+  description = "Amazon ECS service name for the Terraform-managed Charlie Cafe infrastructure."
 
   type    = string
-  default = "CharlieCafe-Service"
+  default = "CharlieCafe-TF-Service"
 
   validation {
     condition     = length(trimspace(var.ecs_service_name)) > 0
@@ -775,12 +861,16 @@ variable "ecs_service_name" {
 # ---------------------------------------------------------------------
 # ECS Task Definition Family
 # ---------------------------------------------------------------------
+#
+# Terraform-managed ECS task definition family.
+#
+# ---------------------------------------------------------------------
 
 variable "ecs_task_family" {
-  description = "Amazon ECS task definition family name."
+  description = "Amazon ECS task definition family name for the Terraform-managed Charlie Cafe application."
 
   type    = string
-  default = "CharlieCafe"
+  default = "CharlieCafe-TF"
 
   validation {
     condition     = length(trimspace(var.ecs_task_family)) > 0
@@ -801,7 +891,7 @@ variable "ecs_task_family" {
 # ---------------------------------------------------------------------
 
 variable "container_port" {
-  description = "Port exposed by the Charlie Cafe Docker container."
+  description = "Port exposed by the Terraform-managed Charlie Cafe Docker container."
 
   type    = number
   default = 80
@@ -831,7 +921,7 @@ variable "container_port" {
 # ---------------------------------------------------------------------
 
 variable "task_cpu" {
-  description = "ECS Fargate task CPU units."
+  description = "ECS Fargate task CPU units for the Terraform-managed service."
 
   type    = string
   default = "256"
@@ -862,7 +952,7 @@ variable "task_cpu" {
 # ---------------------------------------------------------------------
 
 variable "task_memory" {
-  description = "ECS Fargate task memory in MB."
+  description = "ECS Fargate task memory in MB for the Terraform-managed service."
 
   type    = string
   default = "512"
@@ -931,7 +1021,7 @@ variable "task_memory" {
 # ---------------------------------------------------------------------
 
 variable "ecs_desired_count" {
-  description = "Number of ECS Fargate tasks to keep running."
+  description = "Number of Terraform-managed ECS Fargate tasks to keep running."
 
   type    = number
   default = 0
@@ -964,7 +1054,7 @@ variable "ecs_desired_count" {
 # ---------------------------------------------------------------------
 
 variable "private_subnet_1_cidr" {
-  description = "CIDR block of private subnet 1."
+  description = "CIDR block of Terraform private subnet 1."
 
   type    = string
   default = "10.0.2.0/24"
@@ -981,7 +1071,7 @@ variable "private_subnet_1_cidr" {
 # ---------------------------------------------------------------------
 
 variable "private_subnet_2_cidr" {
-  description = "CIDR block of private subnet 2."
+  description = "CIDR block of Terraform private subnet 2."
 
   type    = string
   default = "10.0.3.0/24"
@@ -991,6 +1081,74 @@ variable "private_subnet_2_cidr" {
     error_message = "private_subnet_2_cidr must be a valid IPv4 CIDR block."
   }
 }
+
+
+# =====================================================================
+# TERRAFORM NAMING STANDARD
+# =====================================================================
+#
+# All Terraform-managed AWS resources should follow this convention
+# wherever the AWS service supports a configurable resource name:
+#
+#   CharlieCafe-TF-<Resource>
+#
+# Examples:
+#
+#   VPC:
+#     CharlieCafe-TF-VPC
+#
+#   Internet Gateway:
+#     CharlieCafe-TF-InternetGateway
+#
+#   Public Subnet:
+#     CharlieCafe-TF-PublicSubnet-1
+#
+#   Private Subnet:
+#     CharlieCafe-TF-PrivateSubnet-1
+#
+#   Route Table:
+#     CharlieCafe-TF-PublicRouteTable
+#
+#   Security Group:
+#     CharlieCafe-TF-WebSecurityGroup
+#
+#   Load Balancer:
+#     CharlieCafe-TF-ALB
+#
+#   Target Group:
+#     CharlieCafe-TF-TargetGroup
+#
+#   ECS Cluster:
+#     CharlieCafe-TF-Cluster
+#
+#   ECS Service:
+#     CharlieCafe-TF-Service
+#
+#   IAM Role:
+#     CharlieCafe-TF-<RoleName>
+#
+#   IAM Policy:
+#     CharlieCafe-TF-<PolicyName>
+#
+#   S3:
+#     charlie-cafe-tf-<unique-suffix>
+#
+#   ECR:
+#     charlie-cafe-tf
+#
+# NOTE:
+#
+# AWS services have different naming restrictions. For example:
+#
+#   - S3 bucket names must be lowercase.
+#   - ECR repository names must be lowercase.
+#   - Some IAM names have length restrictions.
+#   - Some AWS-generated identifiers cannot be directly controlled.
+#
+# Therefore, the exact "TF" pattern will be adapted to each AWS
+# service in the remaining Terraform files.
+#
+# =====================================================================
 
 
 # =====================================================================

@@ -36,7 +36,7 @@ Put:
         "iam:DeleteRolePolicy",
         "iam:ListRolePolicies"
       ],
-      "Resource": "arn:aws:iam::537236558357:role/CharlieCafe-CloudFormation-ServiceRole"
+      "Resource": "arn:aws:iam::type-your-aws-id-here:role/CharlieCafe-CloudFormation-ServiceRole"
     }
   ]
 }
