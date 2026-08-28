@@ -158,118 +158,118 @@
 
 provider "aws" {
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-# AWS REGION
+  # AWS REGION
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-#
+  #
 
-# The deployment region is controlled through the
+  # The deployment region is controlled through the
 
-# Terraform variable:
+  # Terraform variable:
 
-#
+  #
 
-# aws_region
+  # aws_region
 
-#
+  #
 
-# Default:
+  # Default:
 
-#
+  #
 
-# us-east-1
+  # us-east-1
 
-#
+  #
 
-# This keeps the provider configuration flexible and
+  # This keeps the provider configuration flexible and
 
-# allows GitHub Actions or another deployment system
+  # allows GitHub Actions or another deployment system
 
-# to override the region when required.
+  # to override the region when required.
 
-#
+  #
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-region = var.aws_region
+  region = var.aws_region
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-# DEFAULT RESOURCE TAGS
+  # DEFAULT RESOURCE TAGS
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-#
+  #
 
-# Terraform automatically applies these tags to
+  # Terraform automatically applies these tags to
 
-# supported AWS resources.
+  # supported AWS resources.
 
-#
+  #
 
-# This provides consistent identification of resources
+  # This provides consistent identification of resources
 
-# belonging to the CharlieCafe Terraform lab.
+  # belonging to the CharlieCafe Terraform lab.
 
-#
+  #
 
-# Example:
+  # Example:
 
-#
+  #
 
-# Project     = CharlieCafe-TF-Lab
+  # Project     = CharlieCafe-TF-Lab
 
-# Environment = tf-lab
+  # Environment = tf-lab
 
-# ManagedBy   = Terraform
+  # ManagedBy   = Terraform
 
-#
+  #
 
-# These tags are especially useful when the same AWS
+  # These tags are especially useful when the same AWS
 
-# account contains both:
+  # account contains both:
 
-#
+  #
 
-# - CloudFormation resources
+  # - CloudFormation resources
 
-# - Terraform resources
+  # - Terraform resources
 
-#
+  #
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-default_tags {
-
-
-tags = {
-
-  # ---------------------------------------------------
-  # Terraform project identifier
-  # ---------------------------------------------------
-
-  Project = var.project_name
+  default_tags {
 
 
-  # ---------------------------------------------------
-  # Terraform environment identifier
-  # ---------------------------------------------------
+    tags = {
 
-  Environment = var.environment
+      # ---------------------------------------------------
+      # Terraform project identifier
+      # ---------------------------------------------------
 
-
-  # ---------------------------------------------------
-  # Infrastructure management tool
-  # ---------------------------------------------------
-
-  ManagedBy = "Terraform"
-}
+      Project = var.project_name
 
 
-}
+      # ---------------------------------------------------
+      # Terraform environment identifier
+      # ---------------------------------------------------
+
+      Environment = var.environment
+
+
+      # ---------------------------------------------------
+      # Infrastructure management tool
+      # ---------------------------------------------------
+
+      ManagedBy = "Terraform"
+    }
+
+
+  }
 }
 
 # =======================================================

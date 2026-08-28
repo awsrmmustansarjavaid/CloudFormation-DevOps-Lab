@@ -152,108 +152,108 @@
 
 resource "aws_db_subnet_group" "mysql" {
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-# RDS subnet group name
+  # RDS subnet group name
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-#
+  #
 
-# Terraform-specific name.
+  # Terraform-specific name.
 
-#
+  #
 
-# This is intentionally different from any CloudFormation
+  # This is intentionally different from any CloudFormation
 
-# RDS subnet group name to avoid conflicts.
+  # RDS subnet group name to avoid conflicts.
 
-#
+  #
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-name = "charliecafe-tf-rds-subnet-group"
+  name = "charliecafe-tf-rds-subnet-group"
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-# Description
+  # Description
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-#
+  #
 
-# Clearly identifies this subnet group as belonging to
+  # Clearly identifies this subnet group as belonging to
 
-# the CharlieCafe Terraform implementation.
+  # the CharlieCafe Terraform implementation.
 
-#
+  #
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-description = "Subnet group for CharlieCafe Terraform RDS MySQL"
+  description = "Subnet group for CharlieCafe Terraform RDS MySQL"
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-# Private subnets
+  # Private subnets
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-#
+  #
 
-# RDS is deployed into both private subnets.
+  # RDS is deployed into both private subnets.
 
-#
+  #
 
-# Private subnet 1:
+  # Private subnet 1:
 
-#
+  #
 
-# aws_subnet.private[0]
+  # aws_subnet.private[0]
 
-#
+  #
 
-# Private subnet 2:
+  # Private subnet 2:
 
-#
+  #
 
-# aws_subnet.private[1]
+  # aws_subnet.private[1]
 
-#
+  #
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-subnet_ids = [
-aws_subnet.private[0].id,
-aws_subnet.private[1].id
-]
+  subnet_ids = [
+    aws_subnet.private[0].id,
+    aws_subnet.private[1].id
+  ]
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-# Tags
+  # Tags
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-tags = {
-
-
-# Terraform-specific RDS subnet group name.
-
-Name = "CharlieCafe-TF-RDS-SubnetGroup"
-
-# Project identification.
-
-Project = "CharlieCafe-TF-Lab"
-
-# Environment identification.
-
-Environment = var.environment
-
-# Infrastructure management tool.
-
-ManagedBy = "Terraform"
+  tags = {
 
 
-}
+    # Terraform-specific RDS subnet group name.
+
+    Name = "CharlieCafe-TF-RDS-SubnetGroup"
+
+    # Project identification.
+
+    Project = "CharlieCafe-TF-Lab"
+
+    # Environment identification.
+
+    Environment = var.environment
+
+    # Infrastructure management tool.
+
+    ManagedBy = "Terraform"
+
+
+  }
 }
 
 # =======================================================
@@ -280,319 +280,319 @@ ManagedBy = "Terraform"
 
 resource "aws_db_instance" "mysql" {
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-# Database engine
+  # Database engine
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-engine = "mysql"
+  engine = "mysql"
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-# MySQL version
+  # MySQL version
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-#
+  #
 
-# Controlled through variables.tf.
+  # Controlled through variables.tf.
 
-#
+  #
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-engine_version = var.db_engine_version
+  engine_version = var.db_engine_version
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-# RDS instance class
+  # RDS instance class
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-#
+  #
 
-# Example:
+  # Example:
 
-#
+  #
 
-# db.t3.micro
+  # db.t3.micro
 
-#
+  #
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-instance_class = var.db_instance_class
+  instance_class = var.db_instance_class
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-# Database name
+  # Database name
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-#
+  #
 
-# Terraform naming convention:
+  # Terraform naming convention:
 
-#
+  #
 
-# tflabdb
+  # tflabdb
 
-#
+  #
 
-# This value is controlled through:
+  # This value is controlled through:
 
-#
+  #
 
-# var.db_name
+  # var.db_name
 
-#
+  #
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-db_name = var.db_name
+  db_name = var.db_name
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-# Master username
+  # Master username
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-username = var.db_username
+  username = var.db_username
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-# AWS-managed master password
+  # AWS-managed master password
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-#
+  #
 
-# This corresponds to:
+  # This corresponds to:
 
-#
+  #
 
-# ManageMasterUserPassword: true
+  # ManageMasterUserPassword: true
 
-#
+  #
 
-# AWS automatically creates and manages the master
+  # AWS automatically creates and manages the master
 
-# password through AWS Secrets Manager.
+  # password through AWS Secrets Manager.
 
-#
+  #
 
-# The password is therefore NOT stored in Terraform
+  # The password is therefore NOT stored in Terraform
 
-# variables or source code.
+  # variables or source code.
 
-#
+  #
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-manage_master_user_password = true
+  manage_master_user_password = true
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-# Storage
+  # Storage
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-allocated_storage = var.db_allocated_storage
+  allocated_storage = var.db_allocated_storage
 
-storage_type = "gp2"
+  storage_type = "gp2"
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-# Public access
+  # Public access
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-#
+  #
 
-# The database is private.
+  # The database is private.
 
-#
+  #
 
-# Internet users cannot directly connect to the RDS
+  # Internet users cannot directly connect to the RDS
 
-# instance.
+  # instance.
 
-#
+  #
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-publicly_accessible = false
+  publicly_accessible = false
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-# RDS Security Group
+  # RDS Security Group
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-#
+  #
 
-# Only resources permitted by the RDS security group
+  # Only resources permitted by the RDS security group
 
-# can connect to the database.
+  # can connect to the database.
 
-#
+  #
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-vpc_security_group_ids = [
-aws_security_group.rds.id
-]
+  vpc_security_group_ids = [
+    aws_security_group.rds.id
+  ]
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-# RDS DB Subnet Group
+  # RDS DB Subnet Group
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-#
+  #
 
-# Uses the Terraform-created private subnet group above.
+  # Uses the Terraform-created private subnet group above.
 
-#
+  #
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-db_subnet_group_name = aws_db_subnet_group.mysql.name
+  db_subnet_group_name = aws_db_subnet_group.mysql.name
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-# Backup retention
+  # Backup retention
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-#
+  #
 
-# Controlled through variables.tf.
+  # Controlled through variables.tf.
 
-#
+  #
 
-# Default for this learning lab:
+  # Default for this learning lab:
 
-#
+  #
 
-# 0 days
+  # 0 days
 
-#
+  #
 
-# Production databases should normally use automated
+  # Production databases should normally use automated
 
-# backups.
+  # backups.
 
-#
+  #
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-backup_retention_period = var.db_backup_retention_period
+  backup_retention_period = var.db_backup_retention_period
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-# Storage encryption
+  # Storage encryption
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-#
+  #
 
-# Controlled through:
+  # Controlled through:
 
-#
+  #
 
-# var.db_storage_encrypted
+  # var.db_storage_encrypted
 
-#
+  #
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-storage_encrypted = var.db_storage_encrypted
+  storage_encrypted = var.db_storage_encrypted
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-# Deletion protection
+  # Deletion protection
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-#
+  #
 
-# Controlled through:
+  # Controlled through:
 
-#
+  #
 
-# var.db_deletion_protection
+  # var.db_deletion_protection
 
-#
+  #
 
-# For a disposable Terraform lab this is normally false.
+  # For a disposable Terraform lab this is normally false.
 
-#
+  #
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-deletion_protection = var.db_deletion_protection
+  deletion_protection = var.db_deletion_protection
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-# Skip final snapshot
+  # Skip final snapshot
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-#
+  #
 
-# This is appropriate for the disposable learning lab.
+  # This is appropriate for the disposable learning lab.
 
-#
+  #
 
-# When Terraform destroys the database, AWS will not
+  # When Terraform destroys the database, AWS will not
 
-# create a final snapshot.
+  # create a final snapshot.
 
-#
+  #
 
-# IMPORTANT:
+  # IMPORTANT:
 
-#
+  #
 
-# Do NOT use this approach for production databases
+  # Do NOT use this approach for production databases
 
-# where the final snapshot may be required for recovery.
+  # where the final snapshot may be required for recovery.
 
-#
+  #
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-skip_final_snapshot = true
+  skip_final_snapshot = true
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-# Tags
+  # Tags
 
-# -----------------------------------------------------
+  # -----------------------------------------------------
 
-tags = {
+  tags = {
 
 
-# Terraform-specific database name.
+    # Terraform-specific database name.
 
-Name = "CharlieCafe-TF-RDS-MySQL"
+    Name = "CharlieCafe-TF-RDS-MySQL"
 
-# Project identification.
+    # Project identification.
 
-Project = "CharlieCafe-TF-Lab"
+    Project = "CharlieCafe-TF-Lab"
 
-# Environment identification.
+    # Environment identification.
 
-Environment = var.environment
+    Environment = var.environment
 
-# Infrastructure management tool.
+    # Infrastructure management tool.
 
-ManagedBy = "Terraform"
+    ManagedBy = "Terraform"
 
 
-}
+  }
 }
 
 # =======================================================
