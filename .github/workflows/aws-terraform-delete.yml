@@ -2580,9 +2580,7 @@ jobs:
           echo "================================================================"
 
           CLEANUP_ORPHANS="${{ github.event.inputs.cleanup_orphans }}"
-
           STATE_EMPTY="${{ steps.state_check.outputs.state_empty }}"
-
           FINAL_PLAN_RESULT="${{ steps.final_plan.outcome }}"
 
           PROJECT_REMAINING="0"
@@ -2617,77 +2615,117 @@ jobs:
 
           echo ""
 
+          # ============================================================
+          # CRITICAL TERRAFORM CHECK
+          # ============================================================
+
           if [[ "$STATE_EMPTY" != "true" ]]; then
 
             echo "ERROR:"
             echo "Terraform state is NOT empty."
+            echo "Step 39 cannot be considered successful."
 
             exit 1
 
           fi
+
+          # ============================================================
+          # CRITICAL TERRAFORM PLAN CHECK
+          # ============================================================
 
           if [[ "$FINAL_PLAN_RESULT" != "success" ]]; then
 
             echo "ERROR:"
             echo "Final Terraform destroy plan failed."
+            echo "Step 39 cannot be considered successful."
 
             exit 1
 
           fi
 
+          # ============================================================
+          # AWS RESOURCE WARNING CHECK
+          #
+          # Remaining AWS resources are NOT treated as a failure here.
+          # The next cleanup job will handle them.
+          # ============================================================
+
           if [[ "$CLEANUP_ORPHANS" == "true" ]]; then
 
             if [[ "$PROJECT_REMAINING" != "0" ]]; then
 
-              echo "ERROR:"
+              echo "WARNING:"
               echo "Project-tagged AWS resources still exist."
+              echo "The next cleanup job will attempt to remove them."
 
-              exit 1
+            else
+
+              echo "[OK] No Project-tagged AWS resources remain."
 
             fi
 
             if [[ "$KNOWN_REMAINING" != "0" ]]; then
 
+              echo ""
               echo "WARNING:"
-              echo "Known Charlie Cafe resources still exist."
+              echo "Known Charlie Cafe AWS resources still exist."
+              echo "The next cleanup job will attempt to remove them."
 
-              exit 1
+              echo ""
+              echo "Remaining resource count:"
+              echo "  $KNOWN_REMAINING"
+
+            else
+
+              echo ""
+              echo "[OK] No known Charlie Cafe resources remain."
 
             fi
 
           fi
 
+          # ============================================================
+          # STEP 39 ALWAYS COMPLETES SUCCESSFULLY WHEN TERRAFORM
+          # VALIDATION CHECKS PASSED.
+          # ============================================================
+
           echo ""
           echo "================================================================"
-          echo ""
-          echo "       CHARLIE CAFE TERRAFORM CLEANUP SUCCESSFUL"
-          echo ""
+          echo "STEP 39 VERIFICATION COMPLETE"
           echo "================================================================"
           echo ""
 
-          echo "[OK] Terraform state is empty"
-          echo "[OK] Final Terraform destroy plan passed"
+          echo "[OK] Terraform state verification completed"
+          echo "[OK] Final Terraform destroy plan completed"
 
           if [[ "$CLEANUP_ORPHANS" == "true" ]]; then
 
-            echo "[OK] No Project-tagged AWS resources remain"
-            echo "[OK] No known ECS resources remain"
-            echo "[OK] No known ECR repository remains"
-            echo "[OK] No known ALB remains"
-            echo "[OK] No known RDS instance remains"
-            echo "[OK] No Terraform VPC remains"
+            if [[ "$PROJECT_REMAINING" != "0" ||
+                  "$KNOWN_REMAINING" != "0" ]]; then
+
+              echo ""
+              echo "[WARNING] AWS resources remain."
+              echo "[INFO] Continuing to the next cleanup job."
+              echo "[INFO] The next cleanup job will perform the final sweep."
+
+            else
+
+              echo ""
+              echo "[OK] No AWS resources remain."
+              echo "[OK] No additional cleanup is required."
+
+            fi
 
           else
 
-            echo "[INFO] AWS orphan cleanup was disabled"
+            echo ""
+            echo "[INFO] AWS orphan cleanup was disabled."
 
           fi
 
           echo ""
           echo "================================================================"
-          echo ""
-          echo "       CHARLIE CAFE AWS TERRAFORM LAB CLEANUP COMPLETE"
-          echo ""
+          echo "       STEP 39 COMPLETED SUCCESSFULLY"
           echo "================================================================"
 
       # ===============================================================
