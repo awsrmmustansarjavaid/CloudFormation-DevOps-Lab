@@ -52,6 +52,20 @@
 #
 # =======================================================
 
+# =======================================================
+# AMAZON LINUX 2023 AMI
+# =======================================================
+#
+# Dynamically retrieves the latest Amazon Linux 2023 AMI
+# for the AWS region selected by the Terraform provider.
+#
+# This avoids hard-coding a region-specific AMI ID.
+#
+# =======================================================
+
+data "aws_ssm_parameter" "amazon_linux_2023_ami" {
+  name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+}
 
 # =======================================================
 # EC2 INSTANCE
@@ -70,7 +84,7 @@ resource "aws_instance" "web" {
   # The AMI ID is provided through variables.tf.
   # -----------------------------------------------------
 
-  ami = var.ami_id
+  ami = data.aws_ssm_parameter.amazon_linux_2023_ami.value
 
 
   # -----------------------------------------------------

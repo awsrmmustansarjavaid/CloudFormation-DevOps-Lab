@@ -335,49 +335,6 @@ variable "private_subnet_cidrs" {
 
 
 # ---------------------------------------------------------------------
-# EC2 AMI ID
-# ---------------------------------------------------------------------
-#
-# AMI used by the Terraform-managed EC2 web server.
-#
-# IMPORTANT:
-#
-#   AMI IDs are REGION-SPECIFIC.
-#
-# Therefore, a universal hard-coded AMI ID is intentionally NOT used.
-#
-# The recommended approach is to provide this value from the
-# Terraform deployment workflow or use a data source in main.tf to
-# dynamically locate the appropriate Amazon Linux AMI.
-#
-# Example:
-#
-#   terraform apply -var="ami_id=ami-xxxxxxxxxxxxxxxxx"
-#
-# GitHub Actions can also provide:
-#
-#   TF_VAR_ami_id
-#
-# ---------------------------------------------------------------------
-
-variable "ami_id" {
-  description = "AMI ID used by the Terraform-managed EC2 web server. Provide a valid AMI ID for the selected AWS region."
-
-  type    = string
-  default = ""
-
-  validation {
-    condition = (
-      var.ami_id == "" ||
-      can(regex("^ami-[a-zA-Z0-9]+$", var.ami_id))
-    )
-
-    error_message = "ami_id must be empty or a valid AWS AMI ID such as ami-0123456789abcdef0."
-  }
-}
-
-
-# ---------------------------------------------------------------------
 # EC2 Instance Type
 # ---------------------------------------------------------------------
 #
