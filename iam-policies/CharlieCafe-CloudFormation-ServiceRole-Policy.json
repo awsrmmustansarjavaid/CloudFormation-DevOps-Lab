@@ -2,7 +2,7 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "CloudFormationStackManagement",
+      "Sid": "CloudFormationDeploymentAccess",
       "Effect": "Allow",
       "Action": [
         "cloudformation:CreateStack",
@@ -18,12 +18,27 @@
         "cloudformation:ListChangeSets",
         "cloudformation:ListStackResources",
         "cloudformation:GetTemplate",
-        "cloudformation:ValidateTemplate"
+        "cloudformation:ValidateTemplate",
+        "cloudformation:ContinueUpdateRollback",
+        "cloudformation:CancelUpdateStack"
       ],
       "Resource": "*"
     },
     {
-      "Sid": "EC2AndVPCProvisioning",
+      "Sid": "CloudFormationPassServiceRole",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::537236558357:role/CharlieCafe-CloudFormation-ServiceRole",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "cloudformation.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "EC2NetworkDeploymentAccess",
       "Effect": "Allow",
       "Action": [
         "ec2:CreateVpc",
@@ -31,69 +46,85 @@
         "ec2:ModifyVpcAttribute",
         "ec2:CreateTags",
         "ec2:DescribeVpcs",
-        "ec2:DescribeAvailabilityZones",
+        "ec2:DescribeVpcAttribute",
+
         "ec2:CreateSubnet",
         "ec2:DeleteSubnet",
         "ec2:ModifySubnetAttribute",
         "ec2:DescribeSubnets",
+
         "ec2:CreateRouteTable",
         "ec2:DeleteRouteTable",
-        "ec2:DescribeRouteTables",
+        "ec2:AssociateRouteTable",
+        "ec2:DisassociateRouteTable",
+        "ec2:ReplaceRouteTableAssociation",
         "ec2:CreateRoute",
         "ec2:ReplaceRoute",
         "ec2:DeleteRoute",
         "ec2:DescribeRouteTables",
-        "ec2:AssociateRouteTable",
-        "ec2:DisassociateRouteTable",
+
         "ec2:CreateInternetGateway",
         "ec2:DeleteInternetGateway",
         "ec2:AttachInternetGateway",
         "ec2:DetachInternetGateway",
         "ec2:DescribeInternetGateways",
+
+        "ec2:CreateNatGateway",
+        "ec2:DeleteNatGateway",
+        "ec2:DescribeNatGateways",
+
+        "ec2:AllocateAddress",
+        "ec2:ReleaseAddress",
+        "ec2:AssociateAddress",
+        "ec2:DisassociateAddress",
+        "ec2:DescribeAddresses",
+
         "ec2:CreateSecurityGroup",
         "ec2:DeleteSecurityGroup",
         "ec2:AuthorizeSecurityGroupIngress",
-        "ec2:RevokeSecurityGroupIngress",
         "ec2:AuthorizeSecurityGroupEgress",
+        "ec2:RevokeSecurityGroupIngress",
         "ec2:RevokeSecurityGroupEgress",
+        "ec2:UpdateSecurityGroupRuleDescriptionsIngress",
+        "ec2:UpdateSecurityGroupRuleDescriptionsEgress",
         "ec2:DescribeSecurityGroups",
-        "ec2:RunInstances",
-        "ec2:TerminateInstances",
+
+        "ec2:CreateVpcEndpoint",
+        "ec2:DeleteVpcEndpoints",
+        "ec2:ModifyVpcEndpoint",
+        "ec2:DescribeVpcEndpoints",
+
+        "ec2:DescribeAvailabilityZones",
+        "ec2:DescribeNetworkInterfaces",
         "ec2:DescribeInstances",
         "ec2:DescribeInstanceStatus",
         "ec2:DescribeImages",
-        "ec2:DescribeTags",
-        "ec2:DescribeKeyPairs"
+        "ec2:DescribeKeyPairs",
+        "ec2:DescribeTags"
       ],
       "Resource": "*"
     },
     {
-      "Sid": "S3TemplateAndWebsiteProvisioning",
+      "Sid": "EC2InstanceDeploymentAccess",
       "Effect": "Allow",
       "Action": [
-        "s3:CreateBucket",
-        "s3:DeleteBucket",
-        "s3:GetBucketLocation",
-        "s3:GetBucketVersioning",
-        "s3:PutBucketVersioning",
-        "s3:GetBucketAcl",
-        "s3:PutBucketAcl",
-        "s3:GetBucketPolicy",
-        "s3:PutBucketPolicy",
-        "s3:DeleteBucketPolicy",
-        "s3:ListBucket",
-        "s3:ListBucketVersions",
-        "s3:GetObject",
-        "s3:GetObjectVersion",
-        "s3:PutObject",
-        "s3:DeleteObject",
-        "s3:DeleteObjectVersion",
-        "s3:ListAllMyBuckets"
+        "ec2:RunInstances",
+        "ec2:TerminateInstances",
+        "ec2:StopInstances",
+        "ec2:StartInstances",
+        "ec2:RebootInstances",
+        "ec2:ModifyInstanceAttribute",
+        "ec2:ModifyInstanceMetadataOptions",
+        "ec2:CreateTags",
+        "ec2:DeleteTags",
+        "ec2:AssociateIamInstanceProfile",
+        "ec2:DisassociateIamInstanceProfile",
+        "ec2:ReplaceIamInstanceProfileAssociation"
       ],
       "Resource": "*"
     },
     {
-      "Sid": "RDSProvisioning",
+      "Sid": "RDSDeploymentAccess",
       "Effect": "Allow",
       "Action": [
         "rds:CreateDBInstance",
@@ -107,14 +138,17 @@
         "rds:CreateDBSnapshot",
         "rds:DeleteDBSnapshot",
         "rds:DescribeDBSnapshots",
-        "rds:ListTagsForResource",
+        "rds:CreateDBParameterGroup",
+        "rds:ModifyDBParameterGroup",
+        "rds:DeleteDBParameterGroup",
+        "rds:DescribeDBParameterGroups",
         "rds:AddTagsToResource",
-        "rds:RemoveTagsFromResource"
+        "rds:ListTagsForResource"
       ],
       "Resource": "*"
     },
     {
-      "Sid": "SecretsManagerForRDSManagedPassword",
+      "Sid": "RDSSecretsManagerAccess",
       "Effect": "Allow",
       "Action": [
         "secretsmanager:CreateSecret",
@@ -129,29 +163,67 @@
       "Resource": "*"
     },
     {
-      "Sid": "KMSForRDSManagedSecret",
+      "Sid": "S3DeploymentAccess",
       "Effect": "Allow",
       "Action": [
-        "kms:DescribeKey"
+        "s3:CreateBucket",
+        "s3:DeleteBucket",
+        "s3:PutBucketTagging",
+        "s3:GetBucketTagging",
+        "s3:PutBucketVersioning",
+        "s3:GetBucketVersioning",
+        "s3:PutBucketPolicy",
+        "s3:GetBucketPolicy",
+        "s3:DeleteBucketPolicy",
+        "s3:GetBucketLocation",
+        "s3:GetBucketAcl",
+        "s3:ListBucket",
+        "s3:ListBucketVersions",
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:GetObjectVersion",
+        "s3:DeleteObject",
+        "s3:DeleteObjectVersion",
+        "s3:TagResource",
+        "s3:UntagResource"
       ],
       "Resource": "*"
     },
     {
-      "Sid": "CloudFrontProvisioning",
+      "Sid": "CloudFrontDeploymentAccess",
       "Effect": "Allow",
       "Action": [
         "cloudfront:CreateDistribution",
-        "cloudfront:GetDistribution",
-        "cloudfront:GetDistributionConfig",
         "cloudfront:UpdateDistribution",
         "cloudfront:DeleteDistribution",
+        "cloudfront:GetDistribution",
+        "cloudfront:GetDistributionConfig",
+        "cloudfront:ListDistributions",
         "cloudfront:CreateOriginAccessControl",
         "cloudfront:GetOriginAccessControl",
         "cloudfront:UpdateOriginAccessControl",
         "cloudfront:DeleteOriginAccessControl",
-        "cloudfront:ListDistributions",
+        "cloudfront:ListOriginAccessControls",
         "cloudfront:TagResource",
-        "cloudfront:UntagResource"
+        "cloudfront:UntagResource",
+        "cloudfront:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IAMReadAccess",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetAccountSummary",
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:GetInstanceProfile",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:ListPolicies",
+        "iam:ListInstanceProfiles"
       ],
       "Resource": "*"
     },
@@ -159,55 +231,36 @@
       "Sid": "SSMReadPublicAMIParameter",
       "Effect": "Allow",
       "Action": [
-        "ssm:GetParameter",
-        "ssm:GetParameters"
+        "ssm:GetParameters",
+        "ssm:GetParameter"
       ],
       "Resource": "arn:aws:ssm:us-east-1::parameter/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
     },
     {
-      "Sid": "CloudFormationTemplateBucketRead",
+      "Sid": "CloudWatchReadAccess",
       "Effect": "Allow",
       "Action": [
-        "s3:GetObject",
-        "s3:GetObjectVersion",
-        "s3:GetBucketLocation",
-        "s3:ListBucket"
+        "cloudwatch:GetMetricData",
+        "cloudwatch:GetMetricStatistics",
+        "cloudwatch:ListMetrics"
       ],
       "Resource": "*"
     },
     {
-      "Sid": "EC2ReadValidation",
+      "Sid": "ServiceQuotaReadAccess",
       "Effect": "Allow",
       "Action": [
-        "ec2:DescribeSecurityGroups",
-        "ec2:DescribeVpcs",
-        "ec2:DescribeSubnets",
-        "ec2:DescribeRouteTables",
-        "ec2:DescribeInternetGateways",
-        "ec2:DescribeAvailabilityZones",
-        "ec2:DescribeNetworkInterfaces",
-        "ec2:DescribeInstances",
-        "ec2:DescribeInstanceStatus",
-        "ec2:DescribeImages",
-        "ec2:DescribeNatGateways",
-        "ec2:DescribeVpcEndpoints",
-        "ec2:DescribeTags",
-        "ec2:DescribeKeyPairs"
+        "servicequotas:GetServiceQuota",
+        "servicequotas:GetAWSDefaultServiceQuota"
       ],
       "Resource": "*"
     },
     {
-      "Sid": "ECSReadAccess",
+      "Sid": "ConfigReadAccess",
       "Effect": "Allow",
       "Action": [
-        "ecs:DescribeClusters",
-        "ecs:DescribeServices",
-        "ecs:DescribeTaskDefinition",
-        "ecs:DescribeTasks",
-        "ecs:ListClusters",
-        "ecs:ListServices",
-        "ecs:ListTaskDefinitions",
-        "ecs:ListTasks"
+        "config:ListConfigurationRecorders",
+        "config:DescribeConfigurationRecorders"
       ],
       "Resource": "*"
     },
@@ -226,23 +279,17 @@
       "Resource": "*"
     },
     {
-      "Sid": "CloudFormationValidationRead",
+      "Sid": "ECSReadAccess",
       "Effect": "Allow",
       "Action": [
-        "cloudwatch:GetMetricData",
-        "lambda:GetAccountSettings",
-        "servicequotas:GetServiceQuota",
-        "iam:GetAccountSummary",
-        "iam:GetRole",
-        "iam:GetRolePolicy",
-        "iam:ListRolePolicies",
-        "iam:ListAttachedRolePolicies",
-        "iam:GetInstanceProfile",
-        "iam:GetPolicy",
-        "iam:GetPolicyVersion",
-        "iam:ListPolicies",
-        "iam:ListInstanceProfiles",
-        "config:ListConfigurationRecorders"
+        "ecs:DescribeClusters",
+        "ecs:DescribeServices",
+        "ecs:DescribeTaskDefinition",
+        "ecs:DescribeTasks",
+        "ecs:ListClusters",
+        "ecs:ListServices",
+        "ecs:ListTaskDefinitions",
+        "ecs:ListTasks"
       ],
       "Resource": "*"
     }
