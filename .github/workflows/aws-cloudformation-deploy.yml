@@ -545,6 +545,12 @@ env:
 
   AWS_REGION: us-east-1
 
+  # ========================================================
+  # CloudFormation Service Role
+  # ========================================================
+
+  CLOUDFORMATION_ROLE_ARN: arn:aws:iam::537236558357:role/CharlieCafe-CloudFormation-ServiceRole
+
 
   # ========================================================
   # Main CloudFormation Stack
@@ -1001,6 +1007,7 @@ jobs:
             aws cloudformation update-stack \
               --stack-name "$TEMPLATE_BUCKET_STACK" \
               --template-body "file://$TEMPLATE_BUCKET_FILE" \
+              --role-arn "$CLOUDFORMATION_ROLE_ARN" \
               --region "$AWS_REGION" \
               --no-cli-pager \
               2>&1 | tee /tmp/template-bucket-update.txt
@@ -1079,6 +1086,7 @@ jobs:
             aws cloudformation create-stack \
               --stack-name "$TEMPLATE_BUCKET_STACK" \
               --template-body "file://$TEMPLATE_BUCKET_FILE" \
+              --role-arn "$CLOUDFORMATION_ROLE_ARN" \
               --region "$AWS_REGION" \
               --no-cli-pager
 
@@ -1604,6 +1612,7 @@ jobs:
               "ParameterKey=TemplateBucketName,ParameterValue=$TEMPLATE_BUCKET" \
               "ParameterKey=KeyPairName,ParameterValue=$KEY_PAIR_NAME" \
             --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
+            --role-arn "$CLOUDFORMATION_ROLE_ARN" \
             --region "$AWS_REGION" \
             --no-cli-pager
 
@@ -1742,6 +1751,7 @@ jobs:
               "ParameterKey=TemplateBucketName,ParameterValue=$TEMPLATE_BUCKET,UsePreviousValue=false" \
               "ParameterKey=KeyPairName,ParameterValue=$KEY_PAIR_NAME,UsePreviousValue=false" \
             --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
+            --role-arn "$CLOUDFORMATION_ROLE_ARN" \
             --region "$AWS_REGION" \
             --no-cli-pager \
             2>&1 | tee /tmp/main-stack-update.txt
