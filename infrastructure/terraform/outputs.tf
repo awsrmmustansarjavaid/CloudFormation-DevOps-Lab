@@ -816,6 +816,112 @@ output "deployment_summary" {
 }
 
 
+# =====================================================================
+# CLOUDFRONT OUTPUTS
+# =====================================================================
+#
+# These outputs expose important information about the Terraform-
+# managed CloudFront distribution.
+#
+# The values can be displayed after:
+#
+#   terraform apply
+#
+# or retrieved at any time with:
+#
+#   terraform output
+#
+# These outputs are also useful for:
+#
+#   - GitHub Actions
+#   - CI/CD pipelines
+#   - Testing the deployed website
+#   - Monitoring and troubleshooting
+#   - Passing CloudFront information to other Terraform configurations
+#
+# =====================================================================
+
+
+# ---------------------------------------------------------------------
+# CloudFront Distribution ID
+# ---------------------------------------------------------------------
+#
+# Returns the unique ID assigned to the CloudFront distribution.
+#
+# Example:
+#
+#   E1234567890ABC
+#
+# This ID is useful when working with:
+#
+#   - AWS CLI
+#   - CloudFront invalidations
+#   - CI/CD deployments
+#   - CloudFront administration
+#
+# ---------------------------------------------------------------------
+
+output "distribution_id" {
+
+  description = "CloudFront Distribution ID"
+
+  value = aws_cloudfront_distribution.website.id
+}
+
+
+# ---------------------------------------------------------------------
+# CloudFront Distribution Domain Name
+# ---------------------------------------------------------------------
+#
+# Returns the AWS-generated CloudFront domain name.
+#
+# Example:
+#
+#   d1234567890abc.cloudfront.net
+#
+# This is the default public hostname assigned to the CloudFront
+# distribution.
+#
+# ---------------------------------------------------------------------
+
+output "distribution_domain_name" {
+
+  description = "CloudFront Distribution Domain Name"
+
+  value = aws_cloudfront_distribution.website.domain_name
+}
+
+
+# ---------------------------------------------------------------------
+# CloudFront Website URL
+# ---------------------------------------------------------------------
+#
+# Builds the complete HTTPS URL for the Charlie Cafe website.
+#
+# Example:
+#
+#   https://d1234567890abc.cloudfront.net
+#
+# The CloudFront distribution is configured to redirect HTTP requests
+# to HTTPS, so the output intentionally uses the HTTPS protocol.
+#
+# ---------------------------------------------------------------------
+
+output "website_url" {
+
+  description = "Charlie Cafe CloudFront Website URL"
+
+  value = "https://${aws_cloudfront_distribution.website.domain_name}"
+}
+
+
+# =====================================================================
+# END OF CLOUDFRONT OUTPUTS
+# =====================================================================
+
+
+
+
 # ============================================================
 # END OF outputs.tf
 # ============================================================

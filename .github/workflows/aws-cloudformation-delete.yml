@@ -112,7 +112,16 @@ env:
   # MAX ROOT STACK DELETE WAIT
   # 20 minutes
   # --------------------------------------------------------
+  
   ROOT_DELETE_WAIT_SECONDS: 1200
+
+  # --------------------------------------------------------
+  # CLOUDFRONT WEBSITE DISTRIBUTION
+  #
+  # The workflow discovers the distribution from AWS.
+  # No hard-coded CloudFront distribution ID is required.
+  # --------------------------------------------------------
+  CLOUDFRONT_DELETE_WAIT_SECONDS: 1800
 
 
 # ==========================================================
@@ -1436,6 +1445,430 @@ jobs:
 
       # ======================================================
       # STEP 25
+      # DISCOVER WEBSITE S3 BUCKET
+      # ======================================================
+      #
+      # This discovers S3 buckets belonging to the ROOT
+      # CloudFormation stack.
+      #
+      # The separate CloudFormation template bucket was already
+      # handled in Steps 17-19.
+      #
+      # IMPORTANT:
+      # The website bucket must be emptied before CloudFormation
+      # can delete it.
+      # ======================================================
+
+      - name: "Step 25 - Discover Website S3 Bucket"
+
+        if: steps.root.outputs.exists == 'true'
+
+        id: website_s3
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "DISCOVER WEBSITE S3 BUCKET"
+          echo "=================================================="
+
+          WEBSITE_BUCKET=$(
+            aws cloudformation list-stack-resources \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query "StackResourceSummaries[?ResourceType=='AWS::S3::Bucket'].PhysicalResourceId | [0]" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )
+
+          echo "Website S3 bucket:"
+          echo "$WEBSITE_BUCKET"
+
+          if [[ -n "$WEBSITE_BUCKET" &&
+                "$WEBSITE_BUCKET" != "None" ]]
+          then
+
+            echo "bucket=$WEBSITE_BUCKET" >> "$GITHUB_OUTPUT"
+
+            echo ""
+            echo "Website S3 bucket discovered."
+
+          else
+
+            echo "bucket=" >> "$GITHUB_OUTPUT"
+
+            echo ""
+            echo "No website S3 bucket found in root stack."
+
+          fi
+
+      # ======================================================
+      # STEP 26
+      # EMPTY WEBSITE S3 BUCKET
+      # ======================================================
+      #
+      # CloudFormation cannot delete an S3 bucket containing
+      # objects.
+      #
+      # This also removes:
+      #
+      # - Current objects
+      # - Object versions
+      # - Delete markers
+      #
+      # ======================================================
+
+      - name: "Step 26 - Empty Website S3 Bucket"
+
+        if: steps.website_s3.outputs.bucket != ''
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          BUCKET="${{ steps.website_s3.outputs.bucket }}"
+
+          echo "=================================================="
+          echo "EMPTY WEBSITE S3 BUCKET"
+          echo "=================================================="
+
+          echo "Bucket:"
+          echo "$BUCKET"
+
+          while true
+          do
+
+            DATA=$(
+              aws s3api list-object-versions \
+                --bucket "$BUCKET" \
+                --region "$AWS_REGION" \
+                --output json \
+                --no-cli-pager
+            )
+
+            VERSION_COUNT=$(echo "$DATA" | jq '(.Versions // []) | length')
+
+            MARKER_COUNT=$(echo "$DATA" | jq '(.DeleteMarkers // []) | length')
+
+            TOTAL=$((VERSION_COUNT + MARKER_COUNT))
+
+            echo ""
+            echo "Object versions : $VERSION_COUNT"
+            echo "Delete markers  : $MARKER_COUNT"
+            echo "Total           : $TOTAL"
+
+            if [[ "$TOTAL" -eq 0 ]]
+            then
+
+              echo ""
+              echo "Website S3 bucket is empty."
+
+              break
+
+            fi
+
+            echo "$DATA" |
+              jq '{
+                Objects:
+                  (
+                    ((.Versions // []) + (.DeleteMarkers // []))
+                    | map({
+                        Key: .Key,
+                        VersionId: .VersionId
+                      })
+                    | .[0:1000]
+                  ),
+                Quiet: true
+              }' > /tmp/website-s3-delete.json
+
+            aws s3api delete-objects \
+              --bucket "$BUCKET" \
+              --delete file:///tmp/website-s3-delete.json \
+              --region "$AWS_REGION" \
+              --no-cli-pager
+
+          done
+
+
+      # ======================================================
+      # STEP 27
+      # DISCOVER CHARLIE CAFE CLOUDFRONT DISTRIBUTION
+      # ======================================================
+      #
+      # CloudFront distributions must be identified by the
+      # Charlie Cafe website S3 bucket.
+      #
+      # We do NOT simply select the first CloudFront
+      # distribution in the AWS account.
+      #
+      # ======================================================
+
+      - name: "Step 27 - Discover CloudFront Distribution"
+        id: cloudfront
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "DISCOVER CHARLIE CAFE CLOUDFRONT DISTRIBUTION"
+          echo "=================================================="
+
+          WEBSITE_BUCKET="${{ steps.website_s3.outputs.bucket }}"
+
+          echo "Website S3 Bucket:"
+          echo "$WEBSITE_BUCKET"
+
+          if [[ -z "$WEBSITE_BUCKET" || "$WEBSITE_BUCKET" == "None" ]]
+          then
+            echo "No website S3 bucket was discovered."
+            echo "distribution_id=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          DISTRIBUTION_ID=""
+
+          DISTRIBUTIONS=$(
+            aws cloudfront list-distributions \
+              --query "DistributionList.Items[*].[Id,DomainName,Origins.Items[0].DomainName]" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )
+
+          echo ""
+          echo "CloudFront distributions:"
+          echo "$DISTRIBUTIONS"
+
+          while IFS=$'\t' read -r ID DOMAIN ORIGIN
+          do
+            [[ -z "$ID" || "$ID" == "None" ]] && continue
+
+            echo ""
+            echo "Checking distribution:"
+            echo "  ID     : $ID"
+            echo "  Domain : $DOMAIN"
+            echo "  Origin : $ORIGIN"
+
+            if [[ "$ORIGIN" == "$WEBSITE_BUCKET" ]] ||
+              [[ "$ORIGIN" == "$WEBSITE_BUCKET.s3.amazonaws.com" ]] ||
+              [[ "$ORIGIN" == "$WEBSITE_BUCKET.s3.us-east-1.amazonaws.com" ]]
+            then
+              DISTRIBUTION_ID="$ID"
+
+              echo ""
+              echo "Charlie Cafe CloudFront distribution FOUND."
+              echo "Distribution ID: $DISTRIBUTION_ID"
+
+              break
+            fi
+
+          done <<< "$DISTRIBUTIONS"
+
+          if [[ -n "$DISTRIBUTION_ID" ]]
+          then
+            echo "distribution_id=$DISTRIBUTION_ID" >> "$GITHUB_OUTPUT"
+          else
+            echo "distribution_id=" >> "$GITHUB_OUTPUT"
+
+            echo ""
+            echo "No CloudFront distribution was found for:"
+            echo "  $WEBSITE_BUCKET"
+          fi          
+
+
+      # ======================================================
+      # STEP 28
+      # DISABLE CLOUDFRONT DISTRIBUTION
+      # ======================================================
+
+      - name: "Step 28 - Disable CloudFront Distribution"
+
+        if: steps.cloudfront.outputs.distribution_id != ''
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          DISTRIBUTION_ID="${{ steps.cloudfront.outputs.distribution_id }}"
+
+          echo "=================================================="
+          echo "DISABLE CLOUDFRONT DISTRIBUTION"
+          echo "=================================================="
+
+          echo "Distribution ID:"
+          echo "$DISTRIBUTION_ID"
+
+          CONFIG_FILE="/tmp/cloudfront-config.json"
+
+          aws cloudfront get-distribution-config \
+            --id "$DISTRIBUTION_ID" \
+            --output json \
+            --no-cli-pager \
+            > "$CONFIG_FILE"
+
+          ETAG=$(jq -r '.ETag' "$CONFIG_FILE")
+
+          jq '.DistributionConfig.Enabled = false |
+              .DistributionConfig' \
+            "$CONFIG_FILE" \
+            > /tmp/cloudfront-disabled-config.json
+
+          aws cloudfront update-distribution \
+            --id "$DISTRIBUTION_ID" \
+            --if-match "$ETAG" \
+            --distribution-config file:///tmp/cloudfront-disabled-config.json \
+            --no-cli-pager
+
+          echo ""
+          echo "CloudFront disable request submitted."    
+
+      # ======================================================
+      # STEP 29
+      # WAIT FOR CLOUDFRONT DISABLE
+      # ======================================================
+
+      - name: "Step 29 - Wait for CloudFront Disable"
+
+        if: steps.cloudfront.outputs.distribution_id != ''
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          DISTRIBUTION_ID="${{ steps.cloudfront.outputs.distribution_id }}"
+
+          echo "=================================================="
+          echo "WAITING FOR CLOUDFRONT"
+          echo "=================================================="
+
+          echo "Distribution:"
+          echo "$DISTRIBUTION_ID"
+
+          aws cloudfront wait distribution-deployed \
+            --id "$DISTRIBUTION_ID"
+
+          ENABLED=$(
+            aws cloudfront get-distribution \
+              --id "$DISTRIBUTION_ID" \
+              --query "Distribution.DistributionConfig.Enabled" \
+              --output text \
+              --no-cli-pager
+          )
+
+          echo ""
+          echo "CloudFront Enabled:"
+          echo "$ENABLED"
+
+          if [[ "$ENABLED" != "False" ]]
+          then
+
+            echo ""
+            echo "ERROR: CloudFront distribution is still enabled."
+
+            exit 1
+
+          fi
+
+          echo ""
+          echo "CloudFront distribution is now disabled."
+      
+      # ======================================================
+      # STEP 30
+      # DELETE CLOUDFRONT DISTRIBUTION
+      # ======================================================
+
+      - name: "Step 30 - Delete CloudFront Distribution"
+
+        if: steps.cloudfront.outputs.distribution_id != ''
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          DISTRIBUTION_ID="${{ steps.cloudfront.outputs.distribution_id }}"
+
+          echo "=================================================="
+          echo "DELETE CLOUDFRONT DISTRIBUTION"
+          echo "=================================================="
+
+          ETAG=$(
+            aws cloudfront get-distribution-config \
+              --id "$DISTRIBUTION_ID" \
+              --query "ETag" \
+              --output text \
+              --no-cli-pager
+          )
+
+          aws cloudfront delete-distribution \
+            --id "$DISTRIBUTION_ID" \
+            --if-match "$ETAG" \
+            --no-cli-pager
+
+          echo ""
+          echo "CloudFront deletion request submitted."      
+    
+
+    # ======================================================
+    # STEP 31
+    # WAIT FOR CLOUDFRONT DELETION
+    # ======================================================
+
+    - name: "Step 31 - Wait For CloudFront Deletion"
+
+      if: steps.cloudfront.outputs.distribution_id != ''
+
+      shell: bash
+
+      run: |
+
+        set -euo pipefail
+
+        DISTRIBUTION_ID="${{ steps.cloudfront.outputs.distribution_id }}"
+
+        echo "Waiting for CloudFront distribution deletion..."
+
+        for ATTEMPT in $(seq 1 60)
+        do
+
+          if aws cloudfront get-distribution \
+            --id "$DISTRIBUTION_ID" \
+            --no-cli-pager \
+            >/dev/null 2>&1
+          then
+
+            echo "Attempt $ATTEMPT / 60"
+            echo "CloudFront distribution still exists."
+
+            sleep 30
+
+          else
+
+            echo ""
+            echo "CloudFront distribution no longer exists."
+
+            exit 0
+
+          fi
+
+        done
+
+        echo ""
+        echo "WARNING: CloudFront distribution still exists after waiting."
+
+      # ======================================================
+      # STEP 32
       # DELETE ROOT STACK
       # ======================================================
       #
@@ -1450,7 +1883,7 @@ jobs:
       # NOW the root stack can delete its nested stacks.
       # ======================================================
 
-      - name: "Step 25 - Delete Root CloudFormation Stack"
+      - name: "Step 32 - Delete Root CloudFormation Stack"
 
         if: steps.root.outputs.exists == 'true'
 
@@ -1522,11 +1955,11 @@ jobs:
 
 
       # ======================================================
-      # STEP 26
+      # STEP 33
       # MONITOR ROOT DELETION
       # ======================================================
 
-      - name: "Step 26 - Monitor Root Stack Deletion"
+      - name: "Step 33 - Monitor Root Stack Deletion"
 
         if: steps.root.outputs.exists == 'true'
 
@@ -1622,11 +2055,11 @@ jobs:
 
 
       # ======================================================
-      # STEP 27
+      # STEP 34
       # INSPECT DELETE FAILED RESOURCES
       # ======================================================
 
-      - name: "Step 27 - Inspect DELETE_FAILED Resources"
+      - name: "Step 34 - Inspect DELETE_FAILED Resources"
 
         if: |
           steps.root.outputs.exists == 'true' &&
@@ -1662,11 +2095,11 @@ jobs:
 
 
       # ======================================================
-      # STEP 28
+      # STEP 35
       # RETRY ECS SERVICE CLEANUP
       # ======================================================
 
-      - name: "Step 28 - Retry Nested ECS Service Cleanup"
+      - name: "Step 35 - Retry Nested ECS Service Cleanup"
 
         if: |
           steps.root.outputs.exists == 'true' &&
@@ -1737,11 +2170,11 @@ jobs:
 
 
       # ======================================================
-      # STEP 29
+      # STEP 36
       # RETRY ALB CLEANUP
       # ======================================================
 
-      - name: "Step 29 - Retry ALB Cleanup"
+      - name: "Step 36 - Retry ALB Cleanup"
 
         if: |
           steps.root.outputs.exists == 'true' &&
@@ -1793,11 +2226,11 @@ jobs:
 
 
       # ======================================================
-      # STEP 30
+      # STEP 37
       # RETRY TARGET GROUP CLEANUP
       # ======================================================
 
-      - name: "Step 30 - Retry Target Group Cleanup"
+      - name: "Step 37 - Retry Target Group Cleanup"
 
         if: |
           steps.root.outputs.exists == 'true' &&
@@ -1850,11 +2283,11 @@ jobs:
 
 
       # ======================================================
-      # STEP 31
+      # STEP 38
       # RETRY ROOT STACK DELETION
       # ======================================================
 
-      - name: "Step 31 - Retry Root Stack Deletion"
+      - name: "Step 38 - Retry Root Stack Deletion"
 
         if: |
           steps.root.outputs.exists == 'true' &&
@@ -1920,11 +2353,11 @@ jobs:
 
 
       # ======================================================
-      # STEP 32
+      # STEP 39
       # FINAL ROOT DELETION WAIT
       # ======================================================
 
-      - name: "Step 32 - Final Root Deletion Wait"
+      - name: "Step 39 - Final Root Deletion Wait"
 
         if: |
           steps.root.outputs.exists == 'true' &&
@@ -1992,11 +2425,11 @@ jobs:
 
 
       # ======================================================
-      # STEP 33
+      # STEP 40
       # VERIFY STANDALONE ECS STACK
       # ======================================================
 
-      - name: "Step 33 - Verify Standalone ECS Stack"
+      - name: "Step 40 - Verify Standalone ECS Stack"
 
         shell: bash
 
@@ -2034,11 +2467,11 @@ jobs:
 
 
       # ======================================================
-      # STEP 34
+      # STEP 41
       # VERIFY ECS
       # ======================================================
 
-      - name: "Step 34 - Verify ECS"
+      - name: "Step 41 - Verify ECS"
 
         shell: bash
 
@@ -2062,11 +2495,11 @@ jobs:
 
 
       # ======================================================
-      # STEP 35
+      # STEP 42
       # VERIFY ECR
       # ======================================================
 
-      - name: "Step 35 - Verify ECR"
+      - name: "Step 42 - Verify ECR"
 
         shell: bash
 
@@ -2090,11 +2523,11 @@ jobs:
 
 
       # ======================================================
-      # STEP 36
+      # STEP 43
       # VERIFY TEMPLATE BUCKET STACK
       # ======================================================
 
-      - name: "Step 36 - Verify Template Bucket Stack"
+      - name: "Step 43 - Verify Template Bucket Stack"
 
         shell: bash
 
@@ -2130,11 +2563,11 @@ jobs:
 
 
       # ======================================================
-      # STEP 37
+      # STEP 44
       # VERIFY ROOT STACK
       # ======================================================
 
-      - name: "Step 37 - Verify Root Stack"
+      - name: "Step 44 - Verify Root Stack"
 
         shell: bash
 
@@ -2174,11 +2607,11 @@ jobs:
 
 
       # ======================================================
-      # STEP 38
+      # STEP 45
       # FINAL CLOUDFORMATION VERIFICATION
       # ======================================================
 
-      - name: "Step 38 - Final CloudFormation Verification"
+      - name: "Step 45 - Final CloudFormation Verification"
 
         shell: bash
 
@@ -2212,11 +2645,11 @@ jobs:
 
 
       # ======================================================
-      # STEP 39
+      # STEP 46
       # FINAL CLEANUP SUMMARY
       # ======================================================
 
-      - name: "Step 39 - Final Cleanup Summary"
+      - name: "Step 46 - Final Cleanup Summary"
 
         shell: bash
 

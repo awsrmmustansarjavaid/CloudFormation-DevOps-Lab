@@ -1,74 +1,509 @@
 # ==========================================================
+
 # AWS CloudFormation DevOps Lab
+
 # GitHub Actions Deployment Workflow
+
 # ==========================================================
+
 #
+
 # File:
+
 # .github/workflows/aws-cloudformation-deploy.yml
+
 #
+
 # Purpose:
+
 # ----------------------------------------------------------
-# This workflow automatically validates and deploys the
-# CloudFormation infrastructure defined in:
+
+# This GitHub Actions workflow validates and deploys the
+
+# AWS CloudFormation infrastructure defined in:
+
 #
+
 # infrastructure/aws-cloudformation/templates/main.yaml
+
 #
-# The workflow performs the following tasks:
+
+# The workflow then builds and tests the Docker application
+
+# and finally triggers the reusable ECS deployment workflow.
+
 #
+
+# ==========================================================
+
+#
+
+# WORKFLOW PIPELINE
+
+# ==========================================================
+
+#
+
+# The complete deployment pipeline is:
+
+#
+
+# GitHub Repository
+
+# |
+
+# v
+
+# CloudFormation Deployment
+
+# |
+
+# v
+
+# AWS Infrastructure
+
+# |
+
+# v
+
+# Docker Build and Test
+
+# |
+
+# v
+
+# Docker Image
+
+# |
+
+# v
+
+# ECS / ECR Deployment
+
+#
+
+# ==========================================================
+
+#
+
+# CLOUDFORMATION DEPLOYMENT JOB
+
+# ==========================================================
+
+#
+
+# The "deploy" job performs the following steps:
+
+#
+
 # 1. Checkout GitHub repository
+
 # 2. Configure AWS credentials
+
 # 3. Verify AWS CLI and AWS identity
+
 # 4. Check required deployment values
-# 5. Create/update the template bucket stack
-# 6. Get the template S3 bucket name
+
+# 5. Create or update template bucket CloudFormation stack
+
+# 6. Get template S3 bucket name
+
 # 7. Upload nested CloudFormation templates to S3
-# 8. Display repository/deployment information
+
+# 8. Display repository and deployment information
+
 # 9. Verify CloudFormation templates exist
+
 # 10. Validate the main CloudFormation template
-# 11. Check whether the main stack exists
-# 12. Display existing stack status
-# 13. Create the main stack if it does not exist
-# 14. Wait for stack creation
-# 15. Update the main stack if it already exists
-# 16. Wait for stack update
-# 17. Display final stack information
-# 18. Display stack resources
-# 19. Display stack outputs
-# 20. Display deployment completion message
+
+# 11. Check whether the main CloudFormation stack exists
+
+# 12. Display existing CloudFormation stack status
+
+# 13. Display deployment environment
+
+# 14. Create the main CloudFormation stack if required
+
+# 15. Wait for main CloudFormation stack creation
+
+# 16. Update the existing main CloudFormation stack
+
+# 17. Wait for the main CloudFormation stack update
+
+# 18. Get application S3 bucket name
+
+# 19. Verify application files
+
+# 20. Upload static website files to S3
+
+# 21. Verify website files in S3
+
+# 22. Get CloudFront website URL
+
+# 23. Test CloudFront website
+
+# 24. Display website deployment summary
+
+# 25. Display final CloudFormation stack information
+
+# 26. Display CloudFormation stack resources
+
+# 27. Display CloudFormation stack outputs
+
+# 28. Display CloudFormation deployment completion message
+
 #
+
 # ==========================================================
+
 #
+
+# DOCKER BUILD AND TEST JOB
+
+# ==========================================================
+
+#
+
+# The "docker" job runs only after the CloudFormation
+
+# deployment job succeeds.
+
+#
+
+# This job performs the following steps:
+
+#
+
+# 1. Checkout GitHub repository
+
+# 2. Verify Docker and Docker Compose
+
+# 3. Check Docker files
+
+# 4. Validate Docker Compose configuration
+
+# 5. Build Docker image
+
+# 6. Verify Docker image
+
+# 7. Start Docker container
+
+# 8. Check Docker container status
+
+# 9. Wait for application startup
+
+# 10. Test Docker application using HTTP
+
+# 11. Display Docker container logs
+
+# 12. Display final Docker status
+
+# 13. Stop and remove Docker container
+
+# 14. Display Docker job completion message
+
+#
+
+# IMPORTANT:
+
+#
+
+# This Docker job currently performs local CI testing only.
+
+#
+
+# It does NOT directly deploy the Docker image to:
+
+#
+
+# - Amazon ECR
+
+# - Amazon ECS
+
+# - Amazon ECS Fargate
+
+# - Application Load Balancer
+
+#
+
+# The ECS deployment is handled by the separate reusable
+
+# workflow called after this job completes successfully.
+
+#
+
+# ==========================================================
+
+#
+
+# ECS DEPLOYMENT JOB
+
+# ==========================================================
+
+#
+
+# The "ecs-deploy" job runs after the Docker job succeeds.
+
+#
+
+# It calls the reusable workflow:
+
+#
+
+# .github/workflows/aws-cloudformation-ecs-deploy.yml
+
+#
+
+# The reusable workflow is responsible for the ECS/ECR
+
+# deployment process.
+
+#
+
+# The workflow is called using:
+
+#
+
+# uses:
+
+# ./.github/workflows/aws-cloudformation-ecs-deploy.yml
+
+#
+
+# GitHub repository secrets are passed to the reusable
+
+# workflow using:
+
+#
+
+# secrets: inherit
+
+#
+
+# ==========================================================
+
+#
+
 # IMPORTANT RDS SECURITY DESIGN
+
 # ==========================================================
+
 #
+
 # This workflow DOES NOT contain:
+
 #
+
 # DB_MASTER_PASSWORD
+
 # DBMasterPassword
+
 #
+
 # The RDS nested CloudFormation template uses:
+
 #
+
 # ManageMasterUserPassword: true
+
 #
-# Therefore:
+
+# Therefore the RDS password is managed by AWS.
+
 #
+
 # GitHub Actions
-#       |
-#       v
+
+# |
+
+# v
+
 # CloudFormation
-#       |
-#       v
+
+# |
+
+# v
+
 # Amazon RDS
-#       |
-#       v
+
+# |
+
+# v
+
 # AWS Secrets Manager
+
 #
+
 # RDS automatically creates and manages the master database
+
 # password in AWS Secrets Manager.
+
 #
-# GitHub Actions never receives or stores the RDS password.
+
+# GitHub Actions does not receive, store, or display the
+
+# RDS master password.
+
 #
+
 # ==========================================================
+
+#
+
+# MAIN DEPLOYMENT DEPENDENCIES
+
+# ==========================================================
+
+#
+
+# The deployment order is:
+
+#
+
+# deploy
+
+# |
+
+# v
+
+# docker
+
+# |
+
+# v
+
+# ecs-deploy
+
+#
+
+# The Docker job uses:
+
+#
+
+# needs: deploy
+
+#
+
+# Therefore Docker testing starts only after successful
+
+# CloudFormation deployment.
+
+#
+
+# The ECS deployment job uses:
+
+#
+
+# needs:
+
+# - docker
+
+#
+
+# Therefore ECS deployment starts only after successful
+
+# Docker build and testing.
+
+#
+
+# ==========================================================
+
+#
+
+# REQUIRED GITHUB SECRETS
+
+# ==========================================================
+
+#
+
+# The CloudFormation deployment requires:
+
+#
+
+# AWS_ACCESS_KEY_ID
+
+# AWS_SECRET_ACCESS_KEY
+
+#
+
+# The reusable ECS workflow may also require additional
+
+# secrets depending on its configuration.
+
+#
+
+# The RDS database password is intentionally NOT stored as
+
+# a GitHub Actions secret.
+
+#
+
+# ==========================================================
+
+#
+
+# REQUIRED REPOSITORY STRUCTURE
+
+# ==========================================================
+
+#
+
+# The workflow expects the following files/directories:
+
+#
+
+# infrastructure/
+
+# └── aws-cloudformation/
+
+# └── templates/
+
+# ├── main.yaml
+
+# ├── TemplateBucket-MainStack.yaml
+
+# ├── ec2-webserver.yaml
+
+# ├── s3.yaml
+
+# ├── aws-rds.yaml
+
+# └── s3-website-cloudfront.yaml
+
+#
+
+# application/
+
+# └── index.html
+
+#
+
+# docker/
+
+# └── Dockerfile
+
+#
+
+# docker-compose.yml
+
+#
+
+# .github/
+
+# └── workflows/
+
+# ├── aws-cloudformation-deploy.yml
+
+# └── aws-cloudformation-ecs-deploy.yml
+
+#
+
+# ==========================================================
+
+# END WORKFLOW DOCUMENTATION
+
+# ==========================================================
+
 
 
 # ----------------------------------------------------------
@@ -182,6 +617,40 @@ env:
   # ========================================================
 
   TEMPLATE_FILE: infrastructure/aws-cloudformation/templates/main.yaml
+
+  # ========================================================
+  # Application Directory
+  # ========================================================
+  #
+  # Local directory containing the static website files.
+  #
+  # Current project:
+  #
+  # application/
+  # └── index.html
+  #
+  # ========================================================
+
+  APPLICATION_DIR: application
+
+
+  # ========================================================
+  # S3 Bucket Output Name
+  # ========================================================
+  #
+  # This is the OutputKey that the MAIN CloudFormation
+  # stack should expose for the existing LabBucket.
+  #
+  # The main stack should eventually contain:
+  #
+  # Outputs:
+  #
+  #   S3BucketName:
+  #     Value: !GetAtt S3NestedStack.Outputs.BucketName
+  #
+  # ========================================================
+
+  S3_BUCKET_OUTPUT_KEY: S3BucketName
 
 
 # ==========================================================
@@ -1404,9 +1873,436 @@ jobs:
 
           fi
 
+      # ======================================================
+      # Step 18 - Get Application S3 Bucket
+      # ======================================================
+      #
+      # The existing S3 bucket is created by:
+      #
+      #   s3.yaml
+      #
+      # The main CloudFormation stack exposes the nested
+      # stack's BucketName through:
+      #
+      #   S3BucketName
+      #
+      # The workflow retrieves that value so that the
+      # application can be uploaded to the correct bucket.
+      #
+      # ======================================================
+
+      - name: Get Application S3 Bucket
+
+        shell: bash
+
+        run: |
+
+          echo "======================================"
+          echo "Getting Application S3 Bucket"
+          echo "======================================"
+
+
+          # --------------------------------------------------
+          # Retrieve the existing LabBucket name from the
+          # main CloudFormation stack output.
+          # --------------------------------------------------
+
+          WEBSITE_BUCKET=$(aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query "Stacks[0].Outputs[?OutputKey=='$S3_BUCKET_OUTPUT_KEY'].OutputValue" \
+            --output text \
+            --no-cli-pager)
+
+
+          # --------------------------------------------------
+          # Verify that the bucket name was returned.
+          # --------------------------------------------------
+
+          if [ -z "$WEBSITE_BUCKET" ] || [ "$WEBSITE_BUCKET" = "None" ]; then
+
+            echo "ERROR: Could not retrieve the application S3 bucket."
+
+            echo ""
+            echo "Expected CloudFormation output:"
+            echo "$S3_BUCKET_OUTPUT_KEY"
+
+            echo ""
+            echo "Check the Outputs section of main.yaml."
+
+            exit 1
+
+          fi
+
+
+          # --------------------------------------------------
+          # Save bucket name for later workflow steps.
+          # --------------------------------------------------
+
+          echo "WEBSITE_BUCKET=$WEBSITE_BUCKET" >> "$GITHUB_ENV"
+
+
+          echo ""
+
+          echo "Application S3 Bucket:"
+          echo "$WEBSITE_BUCKET"
+
 
       # ======================================================
-      # Step 18 - Display Final Stack Information
+      # Step 19 - Verify Application Files
+      # ======================================================
+      #
+      # The static website is stored in:
+      #
+      #   application/
+      #
+      # Current application:
+      #
+      #   application/index.html
+      #
+      # This step makes sure the website files exist before
+      # attempting to upload them to S3.
+      #
+      # ======================================================
+
+      - name: Verify Application Files
+
+        shell: bash
+
+        run: |
+
+          echo "======================================"
+          echo "Checking Application Files"
+          echo "======================================"
+
+
+          # --------------------------------------------------
+          # Check application directory.
+          # --------------------------------------------------
+
+          if [ ! -d "$APPLICATION_DIR" ]; then
+
+            echo "ERROR: Application directory does not exist."
+
+            echo ""
+            echo "Expected directory:"
+            echo "$APPLICATION_DIR"
+
+            exit 1
+
+          fi
+
+
+          echo "Application directory found:"
+          echo "$APPLICATION_DIR"
+
+
+          echo ""
+
+
+          # --------------------------------------------------
+          # Check index.html.
+          # --------------------------------------------------
+
+          if [ ! -f "$APPLICATION_DIR/index.html" ]; then
+
+            echo "ERROR: index.html was not found."
+
+            echo ""
+            echo "Expected file:"
+            echo "$APPLICATION_DIR/index.html"
+
+            exit 1
+
+          fi
+
+
+          echo "index.html found:"
+          echo "$APPLICATION_DIR/index.html"
+
+
+          echo ""
+
+          echo "Application files are ready for deployment."
+
+
+      # ======================================================
+      # Step 20 - Upload Static Website to S3
+      # ======================================================
+      #
+      # Uploads the contents of:
+      #
+      #   application/
+      #
+      # to:
+      #
+      #   s3://<LabBucket>/
+      #
+      # Example:
+      #
+      #   application/index.html
+      #
+      # becomes:
+      #
+      #   s3://LabBucket/index.html
+      #
+      # CloudFront can then retrieve the object through
+      # Origin Access Control.
+      #
+      # IMPORTANT:
+      #
+      # We are NOT making the S3 bucket public.
+      #
+      # CloudFront OAC provides access.
+      #
+      # ======================================================
+
+      - name: Upload Website to S3
+
+        shell: bash
+
+        run: |
+
+          echo "======================================"
+          echo "Deploying Static Website to S3"
+          echo "======================================"
+
+
+          echo "Source Directory:"
+          echo "$APPLICATION_DIR"
+
+
+          echo ""
+
+          echo "Destination Bucket:"
+          echo "$WEBSITE_BUCKET"
+
+
+          echo ""
+
+
+          # --------------------------------------------------
+          # Upload website files.
+          #
+          # sync uploads all files from the application
+          # directory while preserving the directory
+          # structure.
+          # --------------------------------------------------
+
+          aws s3 sync \
+            "$APPLICATION_DIR/" \
+            "s3://$WEBSITE_BUCKET/" \
+            --region "$AWS_REGION"
+
+
+          echo ""
+
+          echo "Website files uploaded successfully."
+
+
+      # ======================================================
+      # Step 21 - Verify Website Files in S3
+      # ======================================================
+      #
+      # Lists the uploaded files to confirm that the website
+      # was successfully deployed.
+      #
+      # ======================================================
+
+      - name: Verify Website Files in S3
+
+        shell: bash
+
+        run: |
+
+          echo "======================================"
+          echo "Verifying Website Files"
+          echo "======================================"
+
+
+          echo "S3 Bucket:"
+          echo "$WEBSITE_BUCKET"
+
+
+          echo ""
+
+
+          aws s3 ls \
+            "s3://$WEBSITE_BUCKET/" \
+            --recursive \
+            --region "$AWS_REGION"
+
+
+          echo ""
+
+          echo "S3 website file verification completed."
+
+
+      # ======================================================
+      # Step 22 - Get CloudFront Distribution Information
+      # ======================================================
+      #
+      # The CloudFront distribution is created by:
+      #
+      #   s3-website-cloudfront.yaml
+      #
+      # This nested stack should expose:
+      #
+      #   CloudFrontDistributionId
+      #   CloudFrontDomainName
+      #   CloudFrontWebsiteURL
+      #
+      # The main stack should pass these nested stack outputs
+      # through its own Outputs section.
+      #
+      # ======================================================
+
+      - name: Get CloudFront Website URL
+
+        shell: bash
+
+        run: |
+
+          echo "======================================"
+          echo "Getting CloudFront Website URL"
+          echo "======================================"
+
+
+          CLOUDFRONT_URL=$(aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query "Stacks[0].Outputs[?OutputKey=='CloudFrontWebsiteURL'].OutputValue" \
+            --output text \
+            --no-cli-pager)
+
+
+          # --------------------------------------------------
+          # Verify CloudFront URL.
+          # --------------------------------------------------
+
+          if [ -z "$CLOUDFRONT_URL" ] || [ "$CLOUDFRONT_URL" = "None" ]; then
+
+            echo "ERROR: CloudFront website URL was not found."
+
+            echo ""
+            echo "Expected main stack output:"
+            echo "CloudFrontWebsiteURL"
+
+            echo ""
+            echo "Check that main.yaml exposes the nested stack"
+            echo "CloudFrontWebsiteURL output."
+
+            exit 1
+
+          fi
+
+
+          # --------------------------------------------------
+          # Save URL for later steps.
+          # --------------------------------------------------
+
+          echo "CLOUDFRONT_URL=$CLOUDFRONT_URL" >> "$GITHUB_ENV"
+
+
+          echo ""
+
+          echo "CloudFront Website URL:"
+          echo "$CLOUDFRONT_URL"
+
+
+      # ======================================================
+      # Step 23 - Test CloudFront Website
+      # ======================================================
+      #
+      # CloudFront distributions can take some time to deploy
+      # or propagate changes.
+      #
+      # Therefore this test uses curl with retries.
+      #
+      # ======================================================
+
+      - name: Test CloudFront Website
+
+        shell: bash
+
+        run: |
+
+          echo "======================================"
+          echo "Testing CloudFront Website"
+          echo "======================================"
+
+
+          echo "Website:"
+          echo "$CLOUDFRONT_URL"
+
+
+          echo ""
+
+
+          # --------------------------------------------------
+          # Test the HTTPS CloudFront endpoint.
+          # --------------------------------------------------
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 10 \
+            --retry-delay 10 \
+            --retry-connrefused \
+            "$CLOUDFRONT_URL/"
+
+
+          echo ""
+
+          echo "======================================"
+          echo "CloudFront Website Test PASSED"
+          echo "======================================"
+
+
+      # ======================================================
+      # Step 24 - Display Website Deployment Summary
+      # ======================================================
+
+      - name: Website Deployment Complete
+
+        shell: bash
+
+        run: |
+
+          echo ""
+
+          echo "======================================"
+          echo "S3 + CloudFront Website Deployment"
+          echo "======================================"
+
+          echo ""
+
+          echo "S3 Bucket:"
+          echo "$WEBSITE_BUCKET"
+
+          echo ""
+
+          echo "Application Directory:"
+          echo "$APPLICATION_DIR"
+
+          echo ""
+
+          echo "CloudFront Website:"
+          echo "$CLOUDFRONT_URL"
+
+          echo ""
+
+          echo "Website Deployment:"
+          echo "SUCCESS"
+
+          echo ""
+
+          echo "======================================"       
+
+
+      # ======================================================
+      # Step 25 - Display Final Stack Information
       # ======================================================
 
       - name: Display Stack Information
@@ -1427,7 +2323,7 @@ jobs:
 
 
       # ======================================================
-      # Step 19 - Display Stack Resources
+      # Step 26 - Display Stack Resources
       # ======================================================
 
       - name: List Stack Resources
@@ -1448,7 +2344,7 @@ jobs:
 
 
       # ======================================================
-      # Step 20 - Display Stack Outputs
+      # Step 27 - Display Stack Outputs
       # ======================================================
       #
       # Expected outputs include:
@@ -1494,7 +2390,7 @@ jobs:
 
 
       # ======================================================
-      # Step 21 - Deployment Complete
+      # Step 28 - Deployment Complete
       # ======================================================
 
       - name: Deployment Complete

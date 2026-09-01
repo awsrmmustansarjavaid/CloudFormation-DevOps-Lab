@@ -1,0 +1,552 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+Configures the existing S3 bucket created by the S3 nested stack
+for secure static website delivery through Amazon CloudFront
+using Origin Access Control (OAC).
+
+# ============================================================
+
+# PARAMETERS
+
+# ============================================================
+
+Parameters:
+
+# ----------------------------------------------------------
+
+# Existing S3 Bucket Name
+
+# ----------------------------------------------------------
+
+#
+
+# This value comes from the existing s3.yaml nested stack.
+
+#
+
+# Parent Stack:
+
+#
+
+# S3NestedStack.Outputs.BucketName
+
+#
+
+# ----------------------------------------------------------
+
+WebsiteBucketName:
+Type: String
+
+
+Description: >
+  Name of the existing S3 bucket created by the S3 nested stack.
+
+
+# ----------------------------------------------------------
+
+# Existing S3 Bucket ARN
+
+# ----------------------------------------------------------
+
+#
+
+# This value comes from the existing s3.yaml nested stack.
+
+#
+
+# Parent Stack:
+
+#
+
+# S3NestedStack.Outputs.BucketArn
+
+#
+
+# ----------------------------------------------------------
+
+WebsiteBucketArn:
+Type: String
+
+
+Description: >
+  ARN of the existing S3 bucket created by the S3 nested stack.
+
+
+# ============================================================
+
+# RESOURCES
+
+# ============================================================
+
+Resources:
+
+# ==========================================================
+
+# 1. CLOUDFRONT ORIGIN ACCESS CONTROL
+
+# ==========================================================
+
+#
+
+# OAC allows CloudFront to securely access the existing
+
+# private S3 bucket.
+
+#
+
+# The S3 bucket does not need public read access.
+
+#
+
+# CloudFront signs requests to S3 using SigV4.
+
+#
+
+# ==========================================================
+
+CloudFrontOAC:
+Type: AWS::CloudFront::OriginAccessControl
+
+
+Properties:
+
+  OriginAccessControlConfig:
+
+    # ----------------------------------------------------
+    # OAC Name
+    # ----------------------------------------------------
+
+    Name:
+      !Sub '${AWS::StackName}-OAC'
+
+
+    # ----------------------------------------------------
+    # OAC Description
+    # ----------------------------------------------------
+
+    Description:
+      !Sub >
+        CloudFront Origin Access Control for
+        ${WebsiteBucketName}
+
+
+    # ----------------------------------------------------
+    # Origin Type
+    # ----------------------------------------------------
+
+    OriginAccessControlOriginType: s3
+
+
+    # ----------------------------------------------------
+    # Signing Behavior
+    # ----------------------------------------------------
+
+    SigningBehavior: always
+
+
+    # ----------------------------------------------------
+    # Signing Protocol
+    # ----------------------------------------------------
+
+    SigningProtocol: sigv4
+
+
+# ==========================================================
+
+# 2. S3 BUCKET POLICY
+
+# ==========================================================
+
+#
+
+# The S3 bucket already exists.
+
+#
+
+# This policy allows the CloudFront distribution created
+
+# below to read objects from the existing bucket.
+
+#
+
+# Direct public access is NOT granted.
+
+#
+
+# ==========================================================
+
+WebsiteBucketPolicy:
+Type: AWS::S3::BucketPolicy
+
+
+Properties:
+
+  # ------------------------------------------------------
+  # Existing S3 Bucket
+  # ------------------------------------------------------
+
+  Bucket:
+    !Ref WebsiteBucketName
+
+
+  # ------------------------------------------------------
+  # Bucket Policy Document
+  # ------------------------------------------------------
+
+  PolicyDocument:
+
+    Version: '2012-10-17'
+
+    Statement:
+
+      # --------------------------------------------------
+      # Allow CloudFront to Read Objects
+      # --------------------------------------------------
+
+      - Sid: AllowCloudFrontServicePrincipalReadOnly
+
+        Effect: Allow
+
+        Principal:
+
+          Service:
+            cloudfront.amazonaws.com
+
+
+        # ------------------------------------------------
+        # Read Object Permission
+        # ------------------------------------------------
+
+        Action:
+
+          - s3:GetObject
+
+
+        # ------------------------------------------------
+        # All Objects in Existing Bucket
+        # ------------------------------------------------
+
+        Resource:
+
+          - !Sub '${WebsiteBucketArn}/*'
+
+
+        # ------------------------------------------------
+        # Restrict Access to This Distribution
+        # ------------------------------------------------
+
+        Condition:
+
+          StringEquals:
+
+            AWS:SourceArn:
+              !Sub >
+                arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}
+
+
+# ==========================================================
+
+# 3. CLOUDFRONT DISTRIBUTION
+
+# ==========================================================
+
+#
+
+# This distribution provides:
+
+#
+
+# - HTTPS
+
+# - CDN
+
+# - Edge caching
+
+# - S3 origin integration
+
+# - Origin Access Control
+
+#
+
+# ==========================================================
+
+CloudFrontDistribution:
+Type: AWS::CloudFront::Distribution
+
+
+Properties:
+
+  DistributionConfig:
+
+    # ----------------------------------------------------
+    # Enable CloudFront Distribution
+    # ----------------------------------------------------
+
+    Enabled: true
+
+
+    # ----------------------------------------------------
+    # Distribution Comment
+    # ----------------------------------------------------
+
+    Comment:
+      !Sub >
+        CloudFront distribution for S3 website
+        ${WebsiteBucketName}
+
+
+    # ----------------------------------------------------
+    # Default Root Object
+    # ----------------------------------------------------
+    #
+    # When a user opens:
+    #
+    #   https://xxxxx.cloudfront.net/
+    #
+    # CloudFront requests:
+    #
+    #   index.html
+    #
+    # ----------------------------------------------------
+
+    DefaultRootObject: index.html
+
+
+    # ----------------------------------------------------
+    # HTTP Version
+    # ----------------------------------------------------
+
+    HttpVersion: http2and3
+
+
+    # ----------------------------------------------------
+    # Enable IPv6
+    # ----------------------------------------------------
+
+    IPV6Enabled: true
+
+
+    # ====================================================
+    # CLOUDFRONT ORIGIN
+    # ====================================================
+
+    Origins:
+
+      - Id: S3WebsiteOrigin
+
+        # ------------------------------------------------
+        # Existing S3 Bucket Regional Endpoint
+        # ------------------------------------------------
+        #
+        # IMPORTANT:
+        #
+        # This is the S3 REST endpoint, not the S3
+        # static website endpoint.
+        #
+        # This allows CloudFront OAC to authenticate
+        # securely with S3.
+        #
+        # ------------------------------------------------
+
+        DomainName:
+          !Sub '${WebsiteBucketName}.s3.${AWS::Region}.amazonaws.com'
+
+
+        # ------------------------------------------------
+        # S3 Origin Configuration
+        # ------------------------------------------------
+
+        S3OriginConfig: {}
+
+
+        # ------------------------------------------------
+        # Attach Origin Access Control
+        # ------------------------------------------------
+
+        OriginAccessControlId:
+          !Ref CloudFrontOAC
+
+
+    # ====================================================
+    # DEFAULT CACHE BEHAVIOR
+    # ====================================================
+
+    DefaultCacheBehavior:
+
+      # --------------------------------------------------
+      # Origin Used by Default Requests
+      # --------------------------------------------------
+
+      TargetOriginId: S3WebsiteOrigin
+
+
+      # --------------------------------------------------
+      # Redirect HTTP to HTTPS
+      # --------------------------------------------------
+
+      ViewerProtocolPolicy: redirect-to-https
+
+
+      # --------------------------------------------------
+      # Allowed HTTP Methods
+      # --------------------------------------------------
+
+      AllowedMethods:
+
+        - GET
+        - HEAD
+        - OPTIONS
+
+
+      # --------------------------------------------------
+      # Cached HTTP Methods
+      # --------------------------------------------------
+
+      CachedMethods:
+
+        - GET
+        - HEAD
+
+
+      # --------------------------------------------------
+      # Enable Compression
+      # --------------------------------------------------
+
+      Compress: true
+
+
+      # --------------------------------------------------
+      # Forwarded Values
+      # --------------------------------------------------
+      #
+      # Basic static website does not require query strings
+      # or cookies to be forwarded.
+      #
+      # --------------------------------------------------
+
+      ForwardedValues:
+
+        QueryString: false
+
+        Cookies:
+
+          Forward: none
+
+
+    # ====================================================
+    # CLOUDFRONT PRICE CLASS
+    # ====================================================
+    #
+    # PriceClass_100 is suitable for a learning/lab
+    # environment and helps control CloudFront costs.
+    #
+    # ====================================================
+
+    PriceClass: PriceClass_100
+
+
+    # ====================================================
+    # GEO RESTRICTION
+    # ====================================================
+
+    Restrictions:
+
+      GeoRestriction:
+
+        RestrictionType: none
+
+
+    # ====================================================
+    # VIEWER CERTIFICATE
+    # ====================================================
+    #
+    # CloudFront provides the default HTTPS certificate
+    # for the CloudFront domain.
+    #
+    # Example:
+    #
+    #   https://dxxxxxxxxxxxxx.cloudfront.net
+    #
+    # A custom domain and ACM certificate can be added
+    # later.
+    #
+    # ====================================================
+
+    ViewerCertificate:
+
+      CloudFrontDefaultCertificate: true
+
+
+# ============================================================
+
+# OUTPUTS
+
+# ============================================================
+
+Outputs:
+
+# ==========================================================
+
+# CloudFront Distribution ID
+
+# ==========================================================
+
+CloudFrontDistributionId:
+
+
+Description: >
+  ID of the CloudFront distribution.
+
+Value:
+  !Ref CloudFrontDistribution
+
+
+# ==========================================================
+
+# CloudFront Domain Name
+
+# ==========================================================
+
+CloudFrontDomainName:
+
+
+Description: >
+  Domain name assigned to the CloudFront distribution.
+
+Value:
+  !GetAtt CloudFrontDistribution.DomainName
+
+
+# ==========================================================
+
+# CloudFront Website URL
+
+# ==========================================================
+
+CloudFrontWebsiteURL:
+
+
+Description: >
+  HTTPS URL for the S3 website served through CloudFront.
+
+Value:
+  !Sub >
+    https://${CloudFrontDistribution.DomainName}
+
+
+# ==========================================================
+
+# Existing S3 Bucket Name
+
+# ==========================================================
+
+WebsiteBucketName:
+
+
+Description: >
+  Existing S3 bucket used as the CloudFront origin.
+
+Value:
+  !Ref WebsiteBucketName
+

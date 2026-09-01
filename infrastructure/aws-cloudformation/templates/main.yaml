@@ -433,6 +433,48 @@ Resources:
       # Build the S3 child-template URL from the S3 bucket name
       TemplateURL: !Sub "https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/templates/s3.yaml"
 
+    # -------------------------------------------------------
+  # Nested Stack - S3 Website + CloudFront
+  #
+  # IMPORTANT:
+  # This stack does NOT create another S3 bucket.
+  #
+  # It uses the bucket created by S3NestedStack.
+  #
+  # Resources created by this child stack:
+  #   - CloudFront Origin Access Control
+  #   - S3 Bucket Policy
+  #   - CloudFront Distribution
+  # -------------------------------------------------------
+
+  S3WebsiteCloudFrontNestedStack:
+    Type: AWS::CloudFormation::Stack
+
+    DependsOn:
+      - S3NestedStack
+
+    Properties:
+
+      # ---------------------------------------------------
+      # Website + CloudFront child CloudFormation template
+      # ---------------------------------------------------
+
+      TemplateURL: !Sub "https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/templates/s3-website-cloudfront.yaml"
+
+      # ---------------------------------------------------
+      # Pass information from existing S3 nested stack
+      # ---------------------------------------------------
+
+      Parameters:
+
+        # Existing S3 bucket name
+        WebsiteBucketName:
+          !GetAtt S3NestedStack.Outputs.BucketName
+
+        # Existing S3 bucket ARN
+        WebsiteBucketArn:
+          !GetAtt S3NestedStack.Outputs.BucketArn
+  
   # -------------------------------------------------------
   # Nested Stack - RDS MySQL
   # -------------------------------------------------------
@@ -580,13 +622,71 @@ Outputs:
     Description: EC2 Instance Public IP
     Value: !GetAtt EC2WebServerStack.Outputs.PublicIP
 
-  # -------------------------------------------------------
+  # ============================================================
   # S3 Output
+  # ============================================================
+
+  # -------------------------------------------------------
+  #
+  # S3 WEBSITE BUCKET
+  #
   # -------------------------------------------------------
 
   S3BucketName:
     Description: S3 Bucket Name
     Value: !GetAtt S3NestedStack.Outputs.BucketName
+
+  # -------------------------------------------------------
+  #
+  # S3 WEBSITE BUCKET ARN
+  #
+  # -------------------------------------------------------
+
+  S3BucketArn:
+
+    Description: >
+      ARN of the existing S3 bucket created by the S3
+      nested stack.
+
+    Value:
+      !GetAtt S3NestedStack.Outputs.BucketArn  
+
+  # ============================================================
+  #
+  # AWS CloudFront Outputs
+  #
+  # ============================================================
+
+  # -------------------------------------------------------
+  #
+  # CLOUDFRONT DISTRIBUTION ID
+  #
+  # -------------------------------------------------------
+
+  CloudFrontDistributionId:
+    Description: CloudFront Distribution ID
+    Value: !GetAtt S3WebsiteCloudFrontNestedStack.Outputs.CloudFrontDistributionId
+
+  # -------------------------------------------------------
+  #
+  # CLOUDFRONT DOMAIN NAME
+  #
+  # -------------------------------------------------------
+
+  CloudFrontDomainName:
+    Description: CloudFront Distribution Domain Name
+    Value: !GetAtt S3WebsiteCloudFrontNestedStack.Outputs.CloudFrontDomainName
+
+  # -------------------------------------------------------
+  #
+  # CLOUDFRONT WEBSITE URL
+  #
+  # ------------------------------------------------------- 
+
+  CloudFrontWebsiteURL:
+    Description: >
+      HTTPS URL for the S3 hosted website through CloudFront.
+    Value: !GetAtt S3WebsiteCloudFrontNestedStack.Outputs.CloudFrontWebsiteURL
 
   # -------------------------------------------------------
   # RDS Outputs

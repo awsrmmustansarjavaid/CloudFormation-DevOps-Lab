@@ -463,6 +463,322 @@ variable "s3_bucket_name" {
   }
 }
 
+# =====================================================================
+# CLOUDFRONT VARIABLES
+# =====================================================================
+#
+# These variables control the Terraform-managed CloudFront
+# distribution used to deliver the Charlie Cafe website.
+#
+# IMPORTANT:
+#
+# The CloudFront distribution uses the S3 bucket already defined by
+# the Terraform S3 configuration.
+#
+# Therefore, we DO NOT define separate variables such as:
+#
+#   bucket_name
+#   bucket_arn
+#
+# The existing:
+#
+#   s3_bucket_name
+#
+# variable is used for the Terraform-managed S3 bucket.
+#
+# The S3 bucket ARN and bucket domain name should preferably be
+# obtained directly from the Terraform S3 resource instead of being
+# manually supplied as input variables.
+#
+# =====================================================================
+
+
+# ---------------------------------------------------------------------
+# CloudFront Price Class
+# ---------------------------------------------------------------------
+#
+# Controls which CloudFront edge locations are used by the
+# distribution.
+#
+# PriceClass_100:
+#
+#   Uses the least expensive CloudFront price class and is suitable
+#   for this learning/development lab.
+#
+# Other available options include:
+#
+#   PriceClass_200
+#   PriceClass_All
+#
+# For the Charlie Cafe Terraform lab, PriceClass_100 is recommended
+# to help control costs.
+#
+# ---------------------------------------------------------------------
+
+variable "cloudfront_price_class" {
+  description = "CloudFront price class for the Charlie Cafe website distribution."
+
+  type    = string
+  default = "PriceClass_100"
+
+  validation {
+    condition = contains(
+      [
+        "PriceClass_100",
+        "PriceClass_200",
+        "PriceClass_All"
+      ],
+      var.cloudfront_price_class
+    )
+
+    error_message = "cloudfront_price_class must be PriceClass_100, PriceClass_200, or PriceClass_All."
+  }
+}
+
+
+# ---------------------------------------------------------------------
+# CloudFront Default Root Object
+# ---------------------------------------------------------------------
+#
+# Specifies the default file CloudFront should return when a user
+# accesses the root of the website.
+#
+# Example:
+#
+#   https://example.cloudfront.net/
+#
+# will return:
+#
+#   index.html
+#
+# ---------------------------------------------------------------------
+
+variable "cloudfront_default_root_object" {
+  description = "Default root object served by the CloudFront distribution."
+
+  type    = string
+  default = "index.html"
+
+  validation {
+    condition     = length(trimspace(var.cloudfront_default_root_object)) > 0
+    error_message = "cloudfront_default_root_object must not be empty."
+  }
+}
+
+
+# ---------------------------------------------------------------------
+# CloudFront Comment
+# ---------------------------------------------------------------------
+#
+# Description displayed for the CloudFront distribution in the
+# AWS Management Console.
+#
+# This is useful for identifying the purpose of the distribution.
+#
+# ---------------------------------------------------------------------
+
+variable "cloudfront_comment" {
+  description = "Description/comment for the Charlie Cafe CloudFront distribution."
+
+  type    = string
+  default = "Charlie Cafe Terraform S3 Website"
+}
+
+
+# ---------------------------------------------------------------------
+# CloudFront IPv6
+# ---------------------------------------------------------------------
+#
+# Enables IPv6 support for the CloudFront distribution.
+#
+# true:
+#   IPv6 clients can access the website.
+#
+# false:
+#   IPv6 access is disabled.
+#
+# ---------------------------------------------------------------------
+
+variable "cloudfront_ipv6_enabled" {
+  description = "Whether IPv6 should be enabled for the CloudFront distribution."
+
+  type    = bool
+  default = true
+}
+
+
+# ---------------------------------------------------------------------
+# CloudFront HTTP Version
+# ---------------------------------------------------------------------
+#
+# Specifies the HTTP versions supported by CloudFront.
+#
+# http2and3:
+#   Supports HTTP/2 and HTTP/3.
+#
+# This is the recommended setting for the current Charlie Cafe lab.
+#
+# ---------------------------------------------------------------------
+
+variable "cloudfront_http_version" {
+  description = "HTTP version supported by the CloudFront distribution."
+
+  type    = string
+  default = "http2and3"
+
+  validation {
+    condition = contains(
+      [
+        "http1.1",
+        "http2",
+        "http3",
+        "http2and3"
+      ],
+      var.cloudfront_http_version
+    )
+
+    error_message = "cloudfront_http_version must be http1.1, http2, http3, or http2and3."
+  }
+}
+
+
+# ---------------------------------------------------------------------
+# CloudFront Viewer Protocol Policy
+# ---------------------------------------------------------------------
+#
+# Controls how CloudFront handles HTTP and HTTPS requests from
+# website visitors.
+#
+# redirect-to-https:
+#
+#   HTTP requests are automatically redirected to HTTPS.
+#
+# This is recommended because the Charlie Cafe website should be
+# accessed securely through HTTPS.
+#
+# ---------------------------------------------------------------------
+
+variable "cloudfront_viewer_protocol_policy" {
+  description = "Viewer protocol policy for the CloudFront distribution."
+
+  type    = string
+  default = "redirect-to-https"
+
+  validation {
+    condition = contains(
+      [
+        "allow-all",
+        "redirect-to-https",
+        "https-only"
+      ],
+      var.cloudfront_viewer_protocol_policy
+    )
+
+    error_message = "cloudfront_viewer_protocol_policy must be allow-all, redirect-to-https, or https-only."
+  }
+}
+
+
+# ---------------------------------------------------------------------
+# CloudFront Compression
+# ---------------------------------------------------------------------
+#
+# Enables automatic compression of supported objects before they are
+# delivered to website visitors.
+#
+# Compression can reduce transfer size and improve website loading
+# performance.
+#
+# ---------------------------------------------------------------------
+
+variable "cloudfront_compress" {
+  description = "Whether CloudFront should automatically compress supported objects."
+
+  type    = bool
+  default = true
+}
+
+
+# ---------------------------------------------------------------------
+# CloudFront Geographic Restriction
+# ---------------------------------------------------------------------
+#
+# Controls whether CloudFront restricts access based on the visitor's
+# geographic location.
+#
+# none:
+#
+#   No geographic restriction is applied.
+#
+# This is the appropriate setting for the Charlie Cafe lab.
+#
+# ---------------------------------------------------------------------
+
+variable "cloudfront_geo_restriction_type" {
+  description = "Geographic restriction type for the CloudFront distribution."
+
+  type    = string
+  default = "none"
+
+  validation {
+    condition = contains(
+      [
+        "none",
+        "whitelist",
+        "blacklist"
+      ],
+      var.cloudfront_geo_restriction_type
+    )
+
+    error_message = "cloudfront_geo_restriction_type must be none, whitelist, or blacklist."
+  }
+}
+
+
+# ---------------------------------------------------------------------
+# CloudFront Minimum TLS Version
+# ---------------------------------------------------------------------
+#
+# Defines the minimum TLS protocol version accepted by CloudFront
+# when visitors connect to the distribution.
+#
+# IMPORTANT:
+#
+# This setting becomes especially important when using a custom
+# domain name and an ACM certificate.
+#
+# The current lab uses the default CloudFront certificate, but keeping
+# the setting configurable allows the infrastructure to be expanded
+# later.
+#
+# ---------------------------------------------------------------------
+
+variable "cloudfront_minimum_protocol_version" {
+  description = "Minimum TLS protocol version used by the CloudFront viewer certificate."
+
+  type    = string
+  default = "TLSv1.2_2021"
+
+  validation {
+    condition = contains(
+      [
+        "TLSv1",
+        "TLSv1.1_2016",
+        "TLSv1.2_2018",
+        "TLSv1.2_2019",
+        "TLSv1.2_2021"
+      ],
+      var.cloudfront_minimum_protocol_version
+    )
+
+    error_message = "cloudfront_minimum_protocol_version must be a supported CloudFront TLS protocol version."
+  }
+}
+
+
+# =====================================================================
+# END OF CLOUDFRONT VARIABLES
+# =====================================================================
 
 # =====================================================================
 # RDS / MYSQL VARIABLES
@@ -656,6 +972,9 @@ variable "db_deletion_protection" {
   default = false
 }
 
+# =====================================================================
+# END OF RDS VARIABLES
+# =====================================================================
 
 # =====================================================================
 # CLOUDFORMATION TEMPLATE S3 BUCKET
@@ -705,6 +1024,9 @@ variable "template_bucket_name" {
   }
 }
 
+# =====================================================================
+# END OF TEMPLATE S3 BUCKET VARIABLES
+# =====================================================================
 
 # =====================================================================
 # ECS / ECR VARIABLES

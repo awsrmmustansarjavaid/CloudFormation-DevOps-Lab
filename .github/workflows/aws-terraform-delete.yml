@@ -216,6 +216,12 @@ env:
 
   WAIT_SECONDS: "10"
 
+  # -------------------------------------------------------------------
+  # CLOUDFRONT
+  # -------------------------------------------------------------------
+
+  CLOUDFRONT_NAME_PREFIX: CharlieCafe-TF-
+
 # =====================================================================
 # JOBS
 # =====================================================================
@@ -1568,6 +1574,246 @@ jobs:
 
           echo ""
           echo "Terraform destroy retry completed successfully."
+      
+          
+            # ===============================================================
+      # STEP 23.5
+      # CLEANUP CLOUDFRONT DISTRIBUTIONS
+      #
+      # CloudFront distributions must be disabled and fully deployed
+      # before they can be deleted.
+      #
+      # Only distributions carrying the Charlie Cafe Project tag
+      # are selected.
+      # ===============================================================
+
+      - name: "Step 23.5 - Cleanup Terraform CloudFront Distributions"
+        if: ${{ github.event.inputs.cleanup_orphans == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================================="
+          echo "CLOUDFRONT CLEANUP"
+          echo "=============================================================="
+
+          DISTRIBUTIONS_FILE="/tmp/charlie-cloudfront.txt"
+
+          : > "$DISTRIBUTIONS_FILE"
+
+          echo ""
+          echo "Discovering CloudFront distributions..."
+
+          ALL_DISTRIBUTIONS="$(
+            aws cloudfront list-distributions \
+              --query "DistributionList.Items[].Id" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )"
+
+          for DISTRIBUTION_ID in $ALL_DISTRIBUTIONS; do
+
+            [[ -z "$DISTRIBUTION_ID" ]] && continue
+            [[ "$DISTRIBUTION_ID" == "None" ]] && continue
+
+            DISTRIBUTION_ARN="$(
+              aws cloudfront get-distribution \
+                --id "$DISTRIBUTION_ID" \
+                --query "Distribution.ARN" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            [[ -z "$DISTRIBUTION_ARN" ]] && continue
+            [[ "$DISTRIBUTION_ARN" == "None" ]] && continue
+
+            TAG_MATCH="$(
+              aws cloudfront list-tags-for-resource \
+                --resource "$DISTRIBUTION_ARN" \
+                --query "Tags.Items[?Key=='$PROJECT_TAG_KEY' && Value=='$PROJECT_TAG_VALUE'].Value" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            if [[ "$TAG_MATCH" == "$PROJECT_TAG_VALUE" ]]; then
+
+              echo "$DISTRIBUTION_ID" >> "$DISTRIBUTIONS_FILE"
+
+            fi
+
+          done
+
+          sort -u "$DISTRIBUTIONS_FILE" \
+            -o "$DISTRIBUTIONS_FILE"
+
+          echo ""
+          echo "Charlie Cafe CloudFront distributions discovered:"
+
+          if [[ -s "$DISTRIBUTIONS_FILE" ]]; then
+            cat "$DISTRIBUTIONS_FILE"
+          else
+            echo "  None"
+          fi
+
+          # -----------------------------------------------------------
+          # Disable every matching distribution.
+          # -----------------------------------------------------------
+
+          while IFS= read -r DISTRIBUTION_ID; do
+
+            [[ -z "$DISTRIBUTION_ID" ]] && continue
+
+            echo ""
+            echo "=============================================================="
+            echo "CLOUDFRONT DISTRIBUTION"
+            echo "  $DISTRIBUTION_ID"
+            echo "=============================================================="
+
+            DISTRIBUTION_DATA="$(
+              aws cloudfront get-distribution \
+                --id "$DISTRIBUTION_ID" \
+                --output json \
+                --no-cli-pager
+            )"
+
+            ETAG="$(
+              echo "$DISTRIBUTION_DATA" |
+                jq -r '.ETag'
+            )"
+
+            ENABLED="$(
+              echo "$DISTRIBUTION_DATA" |
+                jq -r '.DistributionConfig.Enabled'
+            )"
+
+            echo ""
+            echo "CloudFront Enabled:"
+            echo "  $ENABLED"
+
+            if [[ "$ENABLED" == "true" ]]; then
+
+              echo ""
+              echo "Disabling CloudFront distribution..."
+
+              echo "$DISTRIBUTION_DATA" |
+                jq '.DistributionConfig | .Enabled = false' \
+                > "/tmp/cloudfront-config-$DISTRIBUTION_ID.json"
+
+              aws cloudfront update-distribution \
+                --id "$DISTRIBUTION_ID" \
+                --if-match "$ETAG" \
+                --distribution-config "file:///tmp/cloudfront-config-$DISTRIBUTION_ID.json" \
+                --no-cli-pager
+
+              echo ""
+              echo "CloudFront disable request submitted."
+
+            else
+
+              echo ""
+              echo "CloudFront distribution is already disabled."
+
+            fi
+
+            # ---------------------------------------------------------
+            # Wait until CloudFront deployment reaches Deployed state.
+            # ---------------------------------------------------------
+
+            echo ""
+            echo "Waiting for CloudFront distribution to become Deployed..."
+
+            for ATTEMPT in $(seq 1 "$WAIT_ATTEMPTS"); do
+
+              STATUS="$(
+                aws cloudfront get-distribution \
+                  --id "$DISTRIBUTION_ID" \
+                  --query "Distribution.Status" \
+                  --output text \
+                  --no-cli-pager \
+                  2>/dev/null || true
+              )"
+
+              echo "Attempt $ATTEMPT/$WAIT_ATTEMPTS - Status: $STATUS"
+
+              if [[ "$STATUS" == "Deployed" ]]; then
+                break
+              fi
+
+              if [[ "$ATTEMPT" -lt "$WAIT_ATTEMPTS" ]]; then
+                sleep "$WAIT_SECONDS"
+              fi
+
+            done
+
+            FINAL_STATUS="$(
+              aws cloudfront get-distribution \
+                --id "$DISTRIBUTION_ID" \
+                --query "Distribution.Status" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            if [[ "$FINAL_STATUS" != "Deployed" ]]; then
+
+              echo ""
+              echo "ERROR: CloudFront distribution did not reach Deployed state."
+              echo "Distribution: $DISTRIBUTION_ID"
+              echo "Status: $FINAL_STATUS"
+
+              exit 1
+
+            fi
+
+            # ---------------------------------------------------------
+            # Verify distribution is disabled before deletion.
+            # ---------------------------------------------------------
+
+            FINAL_ENABLED="$(
+              aws cloudfront get-distribution \
+                --id "$DISTRIBUTION_ID" \
+                --query "Distribution.DistributionConfig.Enabled" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            if [[ "$FINAL_ENABLED" == "true" ]]; then
+
+              echo ""
+              echo "ERROR: CloudFront distribution is still enabled."
+              echo "Distribution: $DISTRIBUTION_ID"
+
+              exit 1
+
+            fi
+
+            echo ""
+            echo "Deleting CloudFront distribution..."
+
+            DELETE_ETAG="$(
+              aws cloudfront get-distribution \
+                --id "$DISTRIBUTION_ID" \
+                --query "ETag" \
+                --output text \
+                --no-cli-pager
+            )"
+
+            aws cloudfront delete-distribution \
+              --id "$DISTRIBUTION_ID" \
+              --if-match "$DELETE_ETAG" \
+              --no-cli-pager
+
+            echo ""
+            echo "CloudFront deletion request submitted."
+
+          done < "$DISTRIBUTIONS_FILE"
+
+          echo ""
+          echo "CloudFront cleanup completed."      
 
       # ===============================================================
       # STEP 24
@@ -3282,6 +3528,219 @@ jobs:
 
           echo ""
           echo "Final RDS cleanup completed."
+
+            # ===============================================================
+      # FINAL SWEEP STEP 5.5
+      # CLOUDFRONT
+      #
+      # CloudFront distributions are disabled first.
+      # The workflow waits for the distribution to become Deployed.
+      # The distribution is then deleted.
+      #
+      # Only distributions with:
+      #
+      #   Project=CharlieCafe-TF-Lab
+      #
+      # are selected.
+      # ===============================================================
+
+      - name: "Final Sweep Step 5.5 - Delete Charlie Cafe CloudFront"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================================="
+          echo "FINAL CLOUDFRONT CLEANUP"
+          echo "=============================================================="
+
+          CLOUDFRONT_FILE="/tmp/charlie-cloudfront-final.txt"
+
+          : > "$CLOUDFRONT_FILE"
+
+          ALL_DISTRIBUTIONS="$(
+            aws cloudfront list-distributions \
+              --query "DistributionList.Items[].Id" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )"
+
+          for DISTRIBUTION_ID in $ALL_DISTRIBUTIONS; do
+
+            [[ -z "$DISTRIBUTION_ID" ]] && continue
+            [[ "$DISTRIBUTION_ID" == "None" ]] && continue
+
+            DISTRIBUTION_ARN="$(
+              aws cloudfront get-distribution \
+                --id "$DISTRIBUTION_ID" \
+                --query "Distribution.ARN" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            [[ -z "$DISTRIBUTION_ARN" ]] && continue
+            [[ "$DISTRIBUTION_ARN" == "None" ]] && continue
+
+            TAG_MATCH="$(
+              aws cloudfront list-tags-for-resource \
+                --resource "$DISTRIBUTION_ARN" \
+                --query "Tags.Items[?Key=='$PROJECT_TAG_KEY' && Value=='$PROJECT_TAG_VALUE'].Value" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            if [[ "$TAG_MATCH" == "$PROJECT_TAG_VALUE" ]]; then
+              echo "$DISTRIBUTION_ID" >> "$CLOUDFRONT_FILE"
+            fi
+
+          done
+
+          sort -u "$CLOUDFRONT_FILE" \
+            -o "$CLOUDFRONT_FILE"
+
+          echo ""
+          echo "CloudFront distributions selected for cleanup:"
+
+          if [[ -s "$CLOUDFRONT_FILE" ]]; then
+            cat "$CLOUDFRONT_FILE"
+          else
+            echo "  None"
+          fi
+
+          while IFS= read -r DISTRIBUTION_ID; do
+
+            [[ -z "$DISTRIBUTION_ID" ]] && continue
+
+            echo ""
+            echo "=============================================================="
+            echo "CLOUDFRONT DISTRIBUTION"
+            echo "  $DISTRIBUTION_ID"
+            echo "=============================================================="
+
+            DISTRIBUTION_DATA="$(
+              aws cloudfront get-distribution \
+                --id "$DISTRIBUTION_ID" \
+                --output json \
+                --no-cli-pager
+            )"
+
+            ETAG="$(
+              echo "$DISTRIBUTION_DATA" |
+                jq -r '.ETag'
+            )"
+
+            ENABLED="$(
+              echo "$DISTRIBUTION_DATA" |
+                jq -r '.DistributionConfig.Enabled'
+            )"
+
+            if [[ "$ENABLED" == "true" ]]; then
+
+              echo ""
+              echo "Disabling CloudFront distribution..."
+
+              echo "$DISTRIBUTION_DATA" |
+                jq '.DistributionConfig | .Enabled = false' \
+                > "/tmp/cloudfront-final-$DISTRIBUTION_ID.json"
+
+              aws cloudfront update-distribution \
+                --id "$DISTRIBUTION_ID" \
+                --if-match "$ETAG" \
+                --distribution-config "file:///tmp/cloudfront-final-$DISTRIBUTION_ID.json" \
+                --no-cli-pager
+
+            fi
+
+            echo ""
+            echo "Waiting for CloudFront deployment..."
+
+            for ATTEMPT in $(seq 1 "$WAIT_ATTEMPTS"); do
+
+              STATUS="$(
+                aws cloudfront get-distribution \
+                  --id "$DISTRIBUTION_ID" \
+                  --query "Distribution.Status" \
+                  --output text \
+                  --no-cli-pager \
+                  2>/dev/null || true
+              )"
+
+              echo "Attempt $ATTEMPT/$WAIT_ATTEMPTS - Status: $STATUS"
+
+              if [[ "$STATUS" == "Deployed" ]]; then
+                break
+              fi
+
+              if [[ "$ATTEMPT" -lt "$WAIT_ATTEMPTS" ]]; then
+                sleep "$WAIT_SECONDS"
+              fi
+
+            done
+
+            FINAL_STATUS="$(
+              aws cloudfront get-distribution \
+                --id "$DISTRIBUTION_ID" \
+                --query "Distribution.Status" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            if [[ "$FINAL_STATUS" != "Deployed" ]]; then
+
+              echo ""
+              echo "ERROR: CloudFront distribution is not Deployed."
+              echo "Distribution: $DISTRIBUTION_ID"
+              echo "Status: $FINAL_STATUS"
+
+              continue
+
+            fi
+
+            FINAL_ENABLED="$(
+              aws cloudfront get-distribution \
+                --id "$DISTRIBUTION_ID" \
+                --query "Distribution.DistributionConfig.Enabled" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            if [[ "$FINAL_ENABLED" != "false" ]]; then
+
+              echo ""
+              echo "ERROR: CloudFront distribution is still enabled."
+              echo "Distribution: $DISTRIBUTION_ID"
+
+              continue
+
+            fi
+
+            DELETE_ETAG="$(
+              aws cloudfront get-distribution \
+                --id "$DISTRIBUTION_ID" \
+                --query "ETag" \
+                --output text \
+                --no-cli-pager
+            )"
+
+            echo ""
+            echo "Deleting CloudFront distribution..."
+
+            aws cloudfront delete-distribution \
+              --id "$DISTRIBUTION_ID" \
+              --if-match "$DELETE_ETAG" \
+              --no-cli-pager
+
+            echo ""
+            echo "CloudFront deletion submitted."
+
+          done < "$CLOUDFRONT_FILE"
+
+          echo ""
+          echo "Final CloudFront cleanup completed."      
 
       # ===============================================================
       # FINAL SWEEP STEP 6
