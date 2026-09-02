@@ -48,10 +48,11 @@ Resources:
 
         # ----------------------------------------------------
         # OAC Name
+        # Name: Charlie-Cafe-OAC
         # ----------------------------------------------------
 
         Name:
-          !Sub '${AWS::StackName}-OAC'
+          !Sub 'CharlieCafe-${AWS::Region}-OAC'
 
         # ----------------------------------------------------
         # OAC Description
