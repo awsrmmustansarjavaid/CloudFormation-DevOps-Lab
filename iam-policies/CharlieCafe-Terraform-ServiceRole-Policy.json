@@ -134,7 +134,7 @@
             "Resource": "*"
         },
         {
-            "Sid": "S3DeploymentAccess",
+            "Sid": "S3BucketDeploymentAccess",
             "Effect": "Allow",
             "Action": [
                 "s3:CreateBucket",
@@ -150,8 +150,19 @@
                 "s3:PutBucketOwnershipControls",
                 "s3:GetBucketLocation",
                 "s3:GetBucketAcl",
+                "s3:GetBucketCors",
+                "s3:PutBucketCors",
+                "s3:DeleteBucketCors",
+                "s3:GetBucketWebsite",
                 "s3:ListBucket",
-                "s3:ListBucketVersions",
+                "s3:ListBucketVersions"
+            ],
+            "Resource": "arn:aws:s3:::*"
+        },
+        {
+            "Sid": "S3ObjectDeploymentAccess",
+            "Effect": "Allow",
+            "Action": [
                 "s3:PutObject",
                 "s3:GetObject",
                 "s3:GetObjectVersion",
@@ -163,7 +174,7 @@
                 "s3:DeleteObjectTagging",
                 "s3:DeleteObjectVersionTagging"
             ],
-            "Resource": "*"
+            "Resource": "arn:aws:s3:::*/*"
         },
         {
             "Sid": "CloudFrontDeploymentAccess",
