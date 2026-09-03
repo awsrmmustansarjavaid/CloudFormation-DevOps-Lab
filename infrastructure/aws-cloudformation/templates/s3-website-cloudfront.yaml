@@ -144,9 +144,7 @@ Resources:
 
               StringEquals:
 
-                AWS:SourceArn:
-                  !Sub >
-                    arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}
+                AWS:SourceArn: !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"               
 
   # ==========================================================
   # 3. CLOUDFRONT DISTRIBUTION
@@ -178,7 +176,7 @@ Resources:
         # Default Root Object
         # ----------------------------------------------------
 
-        DefaultRootObject: index.php
+        DefaultRootObject: index.html
 
         # ----------------------------------------------------
         # HTTP Version
@@ -338,9 +336,7 @@ Outputs:
     Description: >
       HTTPS URL for the S3 website served through CloudFront.
 
-    Value:
-      !Sub >
-        https://${CloudFrontDistribution.DomainName}
+    Value: !Sub "https://${CloudFrontDistribution.DomainName}"
 
   # ==========================================================
   # Existing S3 Bucket Name

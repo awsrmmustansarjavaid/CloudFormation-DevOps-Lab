@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <!--
+    ============================================================
+     Charlie Cafe - Docker Learning Application
+    ============================================================
+
+     File:
+     application/index.html
+
+     Purpose:
+     ------------------------------------------------------------
+     This is the main static HTML page for the Docker learning
+     lab.
+
+     The purpose of this file is to verify:
+
+     1. HTML application files are available.
+     2. Nginx is running correctly.
+     3. Nginx can serve static HTML content.
+     4. The application files are copied into:
+            /var/www/html/
+     5. Docker can serve the application.
+     6. GitHub Actions can build and test the Docker image.
+
+     Docker flow:
+
+     GitHub
+        |
+        v
+     application/index.html
+        |
+        v
+     Dockerfile
+        |
+        v
+     /var/www/html/index.html
+        |
+        v
+     Docker Image
+        |
+        v
+     Docker Container
+        |
+        v
+     Nginx
+        |
+        v
+     Browser / curl
+
+    ============================================================
+    -->
+
+
+    <!-- ========================================================
+         HTML Document Information
+         ======================================================== -->
+
+    <meta charset="UTF-8">
+
+    <!--
+    This makes the page responsive on desktop, tablet,
+    and mobile devices.
+    -->
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+
+    <!--
+    Page title displayed in the browser tab.
+    -->
+    <title>Charlie Cafe - Docker Learning Lab</title>
+
+
+</head>
+
+
+<body>
+
+
+    <!-- ========================================================
+         Charlie Cafe Header
+         ======================================================== -->
+
+    <header>
+
+        <h1>☕ Charlie Cafe</h1>
+
+        <p>
+            Docker Learning Lab
+        </p>
+
+    </header>
+
+
+    <!-- ========================================================
+         Main Application Content
+         ======================================================== -->
+
+    <main>
+
+        <h2>
+            Docker Application is Running
+        </h2>
+
+        <p>
+            Welcome to the Charlie Cafe Docker application.
+        </p>
+
+        <p>
+            This page is being served as a static HTML file
+            from an Nginx web server running inside a Docker
+            container.
+        </p>
+
+
+        <!-- ====================================================
+             Application Status
+             ==================================================== -->
+
+        <section>
+
+            <h2>
+                Application Status
+            </h2>
+
+            <p>
+                ✅ Nginx is serving the application.
+            </p>
+
+            <p>
+                ✅ Docker container is running.
+            </p>
+
+            <p>
+                ✅ The index.html file is available.
+            </p>
+
+            <p>
+                ✅ Static HTML content is being served successfully.
+            </p>
+
+        </section>
+
+
+        <!-- ====================================================
+             Docker Verification
+             ==================================================== -->
+
+        <section>
+
+            <h2>
+                Docker Verification
+            </h2>
+
+            <p>
+                The application file should be copied into the
+                Docker image at:
+            </p>
+
+            <pre>/var/www/html/index.html</pre>
+
+            <p>
+                Nginx then serves this file to the browser.
+            </p>
+
+        </section>
+
+
+        <!-- ====================================================
+             Lab Architecture
+             ==================================================== -->
+
+        <section>
+
+            <h2>
+                Lab Architecture
+            </h2>
+
+            <pre>
+GitHub
+   |
+   v
+application/index.html
+   |
+   v
+Dockerfile
+   |
+   v
+Docker Image
+   |
+   v
+Docker Container
+   |
+   v
+Nginx
+   |
+   v
+Charlie Cafe
+   |
+   v
+Browser / curl
+            </pre>
+
+        </section>
+
+
+        <!-- ====================================================
+             GitHub Actions Test
+             ====================================================
+
+             GitHub Actions can test the running container
+             using an HTTP request such as:
+
+                 curl http://localhost:8080
+
+             If the HTTP request returns this HTML page,
+             the Docker application test is successful.
+
+             ==================================================== -->
+
+        <section>
+
+            <h2>
+                GitHub Actions
+            </h2>
+
+            <p>
+                The Docker container can be tested with:
+            </p>
+
+            <pre>curl http://localhost:8080</pre>
+
+            <p>
+                If the HTTP request succeeds, GitHub Actions
+                can continue with the deployment pipeline.
+            </p>
+
+        </section>
+
+
+        <!-- ====================================================
+             Learning Objective
+             ==================================================== -->
+
+        <section>
+
+            <h2>
+                Learning Objective
+            </h2>
+
+            <p>
+                This application is intentionally simple so that
+                the focus remains on learning Docker, Nginx,
+                GitHub Actions, and AWS deployment concepts.
+            </p>
+
+            <ul>
+
+                <li>
+                    Build a Docker image.
+                </li>
+
+                <li>
+                    Run the application inside a Docker container.
+                </li>
+
+                <li>
+                    Serve static content with Nginx.
+                </li>
+
+                <li>
+                    Test the container with curl.
+                </li>
+
+                <li>
+                    Automate deployment using GitHub Actions.
+                </li>
+
+            </ul>
+
+        </section>
+
+
+    </main>
+
+
+    <!-- ========================================================
+         Footer
+         ======================================================== -->
+
+    <footer>
+
+        <p>
+            Charlie Cafe - AWS CloudFormation & Docker Lab
+        </p>
+
+        <p>
+            Beginner DevOps Learning Project
+        </p>
+
+    </footer>
+
+
+</body>
+
+</html>

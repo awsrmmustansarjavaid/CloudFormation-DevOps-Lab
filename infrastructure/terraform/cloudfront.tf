@@ -141,9 +141,9 @@ resource "aws_cloudfront_distribution" "website" {
   # ----------------------------------------------------------
   #
   # When a user visits the CloudFront root URL, CloudFront
-  # serves index.php.
+  # serves index.html.
   #
-  default_root_object = "index.php"
+  default_root_object = "index.html"
 
 
   # ----------------------------------------------------------
