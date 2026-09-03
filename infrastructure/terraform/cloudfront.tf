@@ -59,7 +59,7 @@ resource "aws_cloudfront_origin_access_control" "website" {
   # Uses the S3 bucket name so the OAC can be easily identified
   # in the AWS Management Console.
   #
-  name = "${var.bucket_name}-oac"
+  name = "${aws_s3_bucket.lab.id}-oac"
 
 
   # ----------------------------------------------------------
@@ -194,7 +194,7 @@ resource "aws_cloudfront_distribution" "website" {
     #
     # Uses the AWS provider region.
     #
-    domain_name = "${var.bucket_name}.s3.${var.aws_region}.amazonaws.com"
+    domain_name = aws_s3_bucket.lab.bucket_regional_domain_name
 
 
     # --------------------------------------------------------
@@ -212,8 +212,8 @@ resource "aws_cloudfront_distribution" "website" {
     #
     # Attaches the OAC created above to the S3 origin.
     #
-    origin_access_control_id =
-      aws_cloudfront_origin_access_control.website.id
+    origin_access_control_id = aws_cloudfront_origin_access_control.website.id
+
   }
 
 

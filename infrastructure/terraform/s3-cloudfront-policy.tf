@@ -152,7 +152,7 @@ data "aws_iam_policy_document" "website_bucket_policy" {
     # are covered by this resource.
     #
     resources = [
-      "${aws_s3_bucket.website.arn}/*"
+      "${aws_s3_bucket.lab.arn}/*"
     ]
 
 
@@ -219,7 +219,7 @@ resource "aws_s3_bucket_policy" "website" {
   # If your actual resource name is different, this reference must
   # match that resource exactly.
   #
-  bucket = aws_s3_bucket.website.id
+  bucket = aws_s3_bucket.lab.id
 
 
   # -------------------------------------------------------------------

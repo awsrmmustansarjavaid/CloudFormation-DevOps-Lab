@@ -927,3 +927,42 @@ Replace YOUR_ROLE_NAME with the actual IAM role used by your GitHub Actions work
 Or, since you've been working on this workflow already, paste your current IAM role Trust Policy JSON here. I'll check it against your GitHub workflow and tell you exactly what, if anything, needs changing.
 
 ----
+Fix the IAM trust policy
+
+Change only the sub condition to match your actual claim:
+
+"StringLike": {
+  "token.actions.githubusercontent.com:sub": "repo:awsrmmustansarjavaid@242676971/CloudFormation-DevOps-Lab@1322851615:*"
+}
+
+Your complete trust policy should be:
+
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::537236558357:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+        },
+        "StringLike": {
+          "token.actions.githubusercontent.com:sub": "repo:awsrmmustansarjavaid@242676971/CloudFormation-DevOps-Lab@1322851615:*"
+        }
+      }
+    }
+  ]
+}
+
+Do not change your GitHub Actions OIDC step. Your workflow is correctly requesting:
+
+aud = sts.amazonaws.com
+
+and your actual claims confirm that.
+
+So the current issue is specifically the IAM role trust policy's sub condition.
+---
