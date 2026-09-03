@@ -451,7 +451,7 @@ variable "cloudfront_price_class" {
 #
 # Matches the CloudFormation configuration:
 #
-#   DefaultRootObject: index.html
+#   DefaultRootObject: index.php
 #
 # ---------------------------------------------------------------------
 
@@ -460,7 +460,7 @@ variable "cloudfront_default_root_object" {
   description = "Default root object served by the CloudFront distribution."
 
   type    = string
-  default = "index.html"
+  default = "index.php"
 
   validation {
 

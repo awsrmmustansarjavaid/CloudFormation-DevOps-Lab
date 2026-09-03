@@ -178,7 +178,7 @@ Resources:
         # Default Root Object
         # ----------------------------------------------------
 
-        DefaultRootObject: index.html
+        DefaultRootObject: index.php
 
         # ----------------------------------------------------
         # HTTP Version
