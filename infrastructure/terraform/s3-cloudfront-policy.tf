@@ -13,14 +13,16 @@
 #
 #   Internet User
 #        |
+#        | HTTPS
 #        v
 #   CloudFront Distribution
 #        |
-#        | s3:GetObject
+#        | Signed SigV4 Request
 #        v
-#   Terraform S3 Bucket
+#   S3 Bucket
 #
 # Security:
+#
 #   The bucket policy allows only the CloudFront AWS service principal
 #   to read objects.
 #
@@ -31,10 +33,10 @@
 #
 #   This is an S3 BUCKET POLICY.
 #
-#   It is NOT an IAM user policy and does NOT need to be created
-#   manually in the AWS IAM Console.
+#   It is NOT an IAM user policy.
 #
-#   Terraform will create and manage this policy in AWS.
+#   Terraform creates and manages this policy directly on the S3
+#   bucket.
 #
 # =====================================================================
 
@@ -43,24 +45,29 @@
 # IAM POLICY DOCUMENT
 # =====================================================================
 #
-# Creates the JSON policy document that will be attached to the
+# Generates the JSON policy document that will be attached to the
 # Terraform-managed S3 bucket.
 #
-# aws_iam_policy_document does NOT create an AWS IAM policy by itself.
+# IMPORTANT:
 #
-# It generates the policy JSON that is later used by:
+#   aws_iam_policy_document
 #
-#   aws_s3_bucket_policy
+# does NOT create an AWS IAM managed policy.
+#
+# It only generates policy JSON that is consumed by:
+#
+#   aws_s3_bucket_policy.website
 #
 # =====================================================================
 
 data "aws_iam_policy_document" "website_bucket_policy" {
 
-  # -------------------------------------------------------------------
-  # CloudFront Read-Only Access
-  # -------------------------------------------------------------------
+
+  # ===================================================================
+  # CLOUDFRONT READ-ONLY ACCESS
+  # ===================================================================
   #
-  # Allows CloudFront to read objects from the S3 website bucket.
+  # Allows CloudFront to retrieve website objects from the S3 bucket.
   #
   # CloudFront uses:
   #
@@ -69,30 +76,41 @@ data "aws_iam_policy_document" "website_bucket_policy" {
   # to retrieve files such as:
   #
   #   index.html
-  #   css files
+  #   CSS files
   #   JavaScript files
   #   images
+  #   fonts
+  #   other static website assets
   #
-  # -------------------------------------------------------------------
+  # ===================================================================
 
   statement {
 
-    # Unique identifier for this policy statement.
+    # -----------------------------------------------------------------
+    # Policy Statement ID
+    # -----------------------------------------------------------------
+    #
+    # Unique identifier for this statement.
+    #
     sid = "AllowCloudFrontServicePrincipalReadOnly"
 
-    # Allow the requested action.
+
+    # -----------------------------------------------------------------
+    # Effect
+    # -----------------------------------------------------------------
+    #
+    # Allows the specified action.
+    #
     effect = "Allow"
 
 
     # -----------------------------------------------------------------
-    # CloudFront AWS Service Principal
+    # CloudFront Service Principal
     # -----------------------------------------------------------------
     #
-    # Identifies CloudFront as the AWS service that is allowed to
-    # access the S3 objects.
+    # Identifies Amazon CloudFront as the AWS service that is allowed
+    # to access the S3 objects.
     #
-    # -----------------------------------------------------------------
-
     principals {
 
       type = "Service"
@@ -109,45 +127,57 @@ data "aws_iam_policy_document" "website_bucket_policy" {
     #
     # Allows CloudFront to retrieve objects from the bucket.
     #
-    # -----------------------------------------------------------------
-
+    # This matches the CloudFormation policy:
+    #
+    #   Action:
+    #     - s3:GetObject
+    #
     actions = [
       "s3:GetObject"
     ]
 
 
     # -----------------------------------------------------------------
-    # Protected S3 Objects
+    # S3 Object Resources
     # -----------------------------------------------------------------
     #
     # The "/*" means all objects inside the S3 bucket.
     #
-    # IMPORTANT:
+    # Example:
     #
-    # Replace the resource reference below with the exact S3 bucket
-    # resource from your existing s3.tf.
+    #   bucket/index.html
+    #   bucket/css/style.css
+    #   bucket/js/app.js
     #
-    # We will confirm the correct resource name from s3.tf before
-    # running Terraform.
+    # are covered by this resource.
     #
-    # -----------------------------------------------------------------
-
     resources = [
       "${aws_s3_bucket.website.arn}/*"
     ]
 
 
-    # -----------------------------------------------------------------
-    # Restrict Access to This CloudFront Distribution
-    # -----------------------------------------------------------------
+    # =================================================================
+    # RESTRICT ACCESS TO THIS CLOUDFRONT DISTRIBUTION
+    # =================================================================
     #
-    # AWS:SourceArn ensures that the S3 bucket accepts requests only
-    # from the specific CloudFront distribution created by Terraform.
+    # AWS:SourceArn ensures that the S3 bucket accepts requests from
+    # the specific CloudFront distribution created by this Terraform
+    # configuration.
     #
     # This prevents another CloudFront distribution from using this
-    # bucket policy.
+    # bucket policy to retrieve objects.
     #
-    # -----------------------------------------------------------------
+    # This matches the CloudFormation configuration:
+    #
+    #   AWS:SourceArn:
+    #     arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:
+    #     distribution/${CloudFrontDistribution}
+    #
+    # Terraform obtains the equivalent ARN directly from:
+    #
+    #   aws_cloudfront_distribution.website.arn
+    #
+    # =================================================================
 
     condition {
 
@@ -167,8 +197,8 @@ data "aws_iam_policy_document" "website_bucket_policy" {
 # S3 BUCKET POLICY
 # =====================================================================
 #
-# Attaches the policy document above to the Terraform-managed S3
-# bucket.
+# Attaches the policy document above directly to the Terraform-managed
+# S3 bucket.
 #
 # This makes the policy active on the S3 bucket.
 #
@@ -182,11 +212,13 @@ resource "aws_s3_bucket_policy" "website" {
   #
   # IMPORTANT:
   #
-  # Replace this reference with the exact S3 bucket resource from
-  # your existing s3.tf if the resource is not named "website".
+  # This assumes the S3 bucket in your existing s3.tf is declared as:
   #
-  # -------------------------------------------------------------------
-
+  #   resource "aws_s3_bucket" "website"
+  #
+  # If your actual resource name is different, this reference must
+  # match that resource exactly.
+  #
   bucket = aws_s3_bucket.website.id
 
 
@@ -194,15 +226,12 @@ resource "aws_s3_bucket_policy" "website" {
   # Policy JSON
   # -------------------------------------------------------------------
   #
-  # Uses the IAM policy document defined above.
+  # Uses the IAM policy document generated above.
   #
-  # -------------------------------------------------------------------
-
   policy = data.aws_iam_policy_document.website_bucket_policy.json
 }
 
 
 # =====================================================================
-# END OF CLOUDFRONT S3 BUCKET POLICY
+# END OF S3 CLOUDFRONT BUCKET POLICY
 # =====================================================================
-

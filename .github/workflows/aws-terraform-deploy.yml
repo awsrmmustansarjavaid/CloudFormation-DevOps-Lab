@@ -132,6 +132,9 @@ env:
   # Number of ECS tasks that should remain running.
   ECS_DESIRED_COUNT: "1"
 
+  # Terraform GitHub Actions OIDC IAM role
+  TERRAFORM_ROLE_ARN: arn:aws:iam::537236558357:role/CharlieCafe-Terraform-ServiceRole
+
 # ============================================================
 # CONCURRENCY
 # ============================================================
@@ -164,6 +167,7 @@ jobs:
     timeout-minutes: 45
 
     permissions:
+      id-token: write
       contents: read
 
     steps:
@@ -178,44 +182,54 @@ jobs:
 
       # ======================================================
       # STEP 2
-      # VERIFY AWS SECRETS
+      # VERIFY AWS OIDC CONFIGURATION
       # ======================================================
 
-      - name: Verify AWS Secrets
+      - name: Verify AWS OIDC Configuration
         shell: bash
-        env:
-          AWS_ACCESS_KEY_ID_VALUE: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY_VALUE: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: |
           set -euo pipefail
 
           echo "=============================================="
-          echo "VERIFYING AWS CREDENTIALS"
+          echo "VERIFYING AWS OIDC CONFIGURATION"
           echo "=============================================="
 
-          if [ -z "$AWS_ACCESS_KEY_ID_VALUE" ]; then
-            echo "ERROR: AWS_ACCESS_KEY_ID is missing."
+          if [ -z "${TERRAFORM_ROLE_ARN:-}" ]; then
+            echo "ERROR: TERRAFORM_ROLE_ARN is not configured."
             exit 1
           fi
 
-          if [ -z "$AWS_SECRET_ACCESS_KEY_VALUE" ]; then
-            echo "ERROR: AWS_SECRET_ACCESS_KEY is missing."
+          if [ -z "${AWS_REGION:-}" ]; then
+            echo "ERROR: AWS_REGION is not configured."
             exit 1
           fi
 
-          echo "AWS credentials are configured."
+          echo "GitHub Actions OIDC configuration is present."
+          echo ""
+          echo "AWS Region:"
+          echo "$AWS_REGION"
+          echo ""
+          echo "IAM Role:"
+          echo "$TERRAFORM_ROLE_ARN"
+
+          echo ""
+          echo "OIDC authentication will be performed by"
+          echo "aws-actions/configure-aws-credentials."
 
       # ======================================================
       # STEP 3
       # CONFIGURE AWS CREDENTIALS
+      # Old Configure AWS Credentials
+      # aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      # aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       # ======================================================
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ env.TERRAFORM_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-Terraform
 
       # ======================================================
       # STEP 4
@@ -525,6 +539,7 @@ jobs:
     timeout-minutes: 30
 
     permissions:
+      id-token: write
       contents: read
 
     steps:
@@ -540,14 +555,17 @@ jobs:
       # ======================================================
       # STEP 2
       # CONFIGURE AWS CREDENTIALS
+      # Old Configure AWS Credentials
+      # aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      # aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       # ======================================================
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ env.TERRAFORM_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-Terraform-Docker
 
       # ======================================================
       # STEP 3
@@ -888,6 +906,7 @@ jobs:
     timeout-minutes: 30
 
     permissions:
+      id-token: write
       contents: read
 
     steps:
@@ -895,14 +914,17 @@ jobs:
       # ======================================================
       # STEP 1
       # CONFIGURE AWS CREDENTIALS
+      # Old Configure AWS Credentials
+      # aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      # aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       # ======================================================
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ env.TERRAFORM_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-Terraform-ECS
 
       # ======================================================
       # STEP 2

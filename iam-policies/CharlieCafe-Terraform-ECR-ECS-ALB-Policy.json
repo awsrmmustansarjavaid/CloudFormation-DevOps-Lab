@@ -1,0 +1,32 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "TerraformECRPushAccess",
+            "Effect": "Allow",
+            "Action": [
+                "ecr:InitiateLayerUpload",
+                "ecr:UploadLayerPart",
+                "ecr:CompleteLayerUpload",
+                "ecr:PutImage"
+            ],
+            "Resource": "arn:aws:ecr:us-east-1:537236558357:repository/charlie-cafe-tf"
+        },
+        {
+            "Sid": "TerraformECSDeploymentAccess",
+            "Effect": "Allow",
+            "Action": [
+                "ecs:UpdateService"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "TerraformALBReadAccess",
+            "Effect": "Allow",
+            "Action": [
+                "elasticloadbalancing:DescribeLoadBalancers"
+            ],
+            "Resource": "*"
+        }
+    ]
+}

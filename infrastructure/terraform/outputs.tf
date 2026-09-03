@@ -9,7 +9,7 @@
 #   Exposes important information about the Charlie Cafe
 #   Terraform AWS infrastructure after deployment.
 #
-# These outputs are useful for:
+# Outputs are useful for:
 #
 #   - Terraform users
 #   - GitHub Actions
@@ -21,94 +21,20 @@
 #
 # ============================================================
 #
-# TERRAFORM NAMING CONVENTION
-# ============================================================
-#
-# This Terraform lab exists alongside the CloudFormation
-# implementation of the same Charlie Cafe infrastructure.
-#
-# Therefore Terraform-managed AWS resources use the following
-# naming convention:
-#
-#   Project:
-#     CharlieCafe-TF-Lab
-#
-#   Application:
-#     CharlieCafe-TF
-#
-#   ECR:
-#     charlie-cafe-tf
-#
-#   ECS Cluster:
-#     CharlieCafe-TF-Cluster
-#
-#   ECS Service:
-#     CharlieCafe-TF-Service
-#
-#   ECS Task Definition Family:
-#     CharlieCafe-TF
-#
-#   Database:
-#     tflabdb
-#
-# ============================================================
-#
 # IMPORTANT:
 #
-# Networking resources are created in:
+# Terraform output BLOCK NAMES are Terraform identifiers.
 #
-#   network.tf
+# They do not need to contain "-TF".
 #
-# ECS/ECR/ALB resources are created in:
-#
-#   ecs_ecr.tf
-#
-# This file ONLY contains Terraform output blocks.
+# AWS resource names are controlled separately inside the
+# corresponding Terraform resource definitions.
 #
 # ============================================================
-#
-# IMPORTANT DESIGN DECISION:
-#
-# Terraform output BLOCK NAMES such as:
-#
-#   vpc_id
-#   ecs_cluster_name
-#   ecs_service_name
-#   ecr_repository_name
-#
-# have NOT been renamed to include "-TF".
-#
-# These are Terraform configuration identifiers rather than
-# AWS resource names.
-#
-# Keeping them stable prevents unnecessary changes to:
-#
-#   - GitHub Actions
-#   - Terraform references
-#   - CI/CD scripts
-#   - Automation
-#   - Existing deployment commands
-#
-# The AWS-visible resource names are controlled by the
-# corresponding resource definitions in the other Terraform
-# files.
-#
-# ============================================================
-
 
 
 # ============================================================
 # 1. VPC OUTPUT
-# ============================================================
-#
-# Displays the ID of the Terraform-managed VPC.
-#
-# AWS Name:
-#
-#   CharlieCafe-TF-Lab-VPC
-#
-# The VPC itself is created in network.tf.
-#
 # ============================================================
 
 output "vpc_id" {
@@ -119,29 +45,8 @@ output "vpc_id" {
 }
 
 
-
 # ============================================================
 # 2. PUBLIC SUBNET OUTPUTS
-# ============================================================
-#
-# These are the public subnets used by the Terraform-managed
-# Application Load Balancer.
-#
-# AWS names:
-#
-#   CharlieCafe-TF-Public-Subnet-1
-#   CharlieCafe-TF-Public-Subnet-2
-#
-# Architecture:
-#
-#   Internet
-#       |
-#       v
-#      ALB
-#       |
-#       v
-#   Public Subnets
-#
 # ============================================================
 
 output "public_subnet_ids" {
@@ -155,21 +60,8 @@ output "public_subnet_ids" {
 }
 
 
-
 # ============================================================
 # 3. PRIVATE SUBNET OUTPUTS
-# ============================================================
-#
-# These are the private subnets used by the Terraform-managed
-# ECS Fargate tasks.
-#
-# AWS names:
-#
-#   CharlieCafe-TF-Private-Subnet-1
-#   CharlieCafe-TF-Private-Subnet-2
-#
-# ECS tasks do not receive public IP addresses.
-#
 # ============================================================
 
 output "private_subnet_ids" {
@@ -183,20 +75,8 @@ output "private_subnet_ids" {
 }
 
 
-
 # ============================================================
 # 4. PRIVATE ROUTE TABLE OUTPUT
-# ============================================================
-#
-# This route table is associated with the Terraform-managed
-# private subnets.
-#
-# It is also used by the S3 Gateway VPC endpoint.
-#
-# AWS Name:
-#
-#   CharlieCafe-TF-Private-RouteTable
-#
 # ============================================================
 
 output "private_route_table_id" {
@@ -207,21 +87,8 @@ output "private_route_table_id" {
 }
 
 
-
 # ============================================================
 # 5. ECR REPOSITORY NAME
-# ============================================================
-#
-# Name of the ECR repository where the Terraform version of
-# the Charlie Cafe Docker image is stored.
-#
-# New ECR name:
-#
-#   charlie-cafe-tf
-#
-# This separates the Terraform ECR repository from the
-# CloudFormation ECR repository.
-#
 # ============================================================
 
 output "ecr_repository_name" {
@@ -232,20 +99,8 @@ output "ecr_repository_name" {
 }
 
 
-
 # ============================================================
 # 6. ECR REPOSITORY URI
-# ============================================================
-#
-# Full URI of the Terraform-managed ECR repository.
-#
-# Example:
-#
-#   <account>.dkr.ecr.<region>.amazonaws.com/charlie-cafe-tf
-#
-# GitHub Actions can use this URI when tagging and pushing
-# Docker images.
-#
 # ============================================================
 
 output "ecr_repository_uri" {
@@ -256,20 +111,8 @@ output "ecr_repository_uri" {
 }
 
 
-
 # ============================================================
 # 7. ECR IMAGE URL
-# ============================================================
-#
-# Full URI for the latest Docker image.
-#
-# New image naming:
-#
-#   charlie-cafe-tf:latest
-#
-# ECS pulls the image from the Terraform-managed ECR
-# repository.
-#
 # ============================================================
 
 output "ecr_image_url" {
@@ -280,17 +123,8 @@ output "ecr_image_url" {
 }
 
 
-
 # ============================================================
 # 8. ECS CLUSTER NAME
-# ============================================================
-#
-# Name of the Terraform-managed ECS cluster.
-#
-# New AWS name:
-#
-#   CharlieCafe-TF-Cluster
-#
 # ============================================================
 
 output "ecs_cluster_name" {
@@ -301,20 +135,8 @@ output "ecs_cluster_name" {
 }
 
 
-
 # ============================================================
 # 9. ECS CLUSTER ARN
-# ============================================================
-#
-# ARN of the Terraform-managed ECS cluster.
-#
-# Useful for:
-#
-#   - AWS CLI commands
-#   - GitHub Actions
-#   - CI/CD automation
-#   - Troubleshooting
-#
 # ============================================================
 
 output "ecs_cluster_arn" {
@@ -325,17 +147,8 @@ output "ecs_cluster_arn" {
 }
 
 
-
 # ============================================================
 # 10. ECS SERVICE NAME
-# ============================================================
-#
-# Name of the Terraform-managed ECS Fargate service.
-#
-# New AWS name:
-#
-#   CharlieCafe-TF-Service
-#
 # ============================================================
 
 output "ecs_service_name" {
@@ -346,13 +159,8 @@ output "ecs_service_name" {
 }
 
 
-
 # ============================================================
 # 11. ECS SERVICE ARN
-# ============================================================
-#
-# ARN/ID of the Terraform-managed ECS service.
-#
 # ============================================================
 
 output "ecs_service_arn" {
@@ -363,14 +171,8 @@ output "ecs_service_arn" {
 }
 
 
-
 # ============================================================
 # 12. ECS TASK DEFINITION ARN
-# ============================================================
-#
-# ARN of the currently configured Terraform-managed ECS task
-# definition.
-#
 # ============================================================
 
 output "ecs_task_definition_arn" {
@@ -381,20 +183,8 @@ output "ecs_task_definition_arn" {
 }
 
 
-
 # ============================================================
 # 13. ECS TASK DEFINITION FAMILY
-# ============================================================
-#
-# Task definition family name.
-#
-# New family name:
-#
-#   CharlieCafe-TF
-#
-# This separates the Terraform ECS task definition family
-# from the CloudFormation task definition family.
-#
 # ============================================================
 
 output "ecs_task_definition_family" {
@@ -405,13 +195,8 @@ output "ecs_task_definition_family" {
 }
 
 
-
 # ============================================================
 # 14. ALB ARN
-# ============================================================
-#
-# ARN of the Terraform-managed Application Load Balancer.
-#
 # ============================================================
 
 output "alb_arn" {
@@ -422,14 +207,8 @@ output "alb_arn" {
 }
 
 
-
 # ============================================================
 # 15. ALB DNS NAME
-# ============================================================
-#
-# DNS hostname automatically assigned to the Terraform-managed
-# Application Load Balancer.
-#
 # ============================================================
 
 output "alb_dns_name" {
@@ -440,21 +219,8 @@ output "alb_dns_name" {
 }
 
 
-
 # ============================================================
 # 16. APPLICATION URL
-# ============================================================
-#
-# Public HTTP URL for the Terraform-managed Charlie Cafe
-# application.
-#
-# Current configuration:
-#
-#   HTTP
-#   Port 80
-#
-# HTTPS/ACM can be added later.
-#
 # ============================================================
 
 output "application_url" {
@@ -465,13 +231,8 @@ output "application_url" {
 }
 
 
-
 # ============================================================
 # 17. TARGET GROUP ARN
-# ============================================================
-#
-# ARN of the Terraform-managed ALB target group used by ECS.
-#
 # ============================================================
 
 output "target_group_arn" {
@@ -482,17 +243,8 @@ output "target_group_arn" {
 }
 
 
-
 # ============================================================
 # 18. TARGET GROUP NAME
-# ============================================================
-#
-# Name of the Terraform-managed ALB target group.
-#
-# Expected AWS naming pattern:
-#
-#   CharlieCafe-TF-TG
-#
 # ============================================================
 
 output "target_group_name" {
@@ -503,14 +255,8 @@ output "target_group_name" {
 }
 
 
-
 # ============================================================
 # 19. ALB SECURITY GROUP ID
-# ============================================================
-#
-# Security group attached to the Terraform-managed public
-# Application Load Balancer.
-#
 # ============================================================
 
 output "alb_security_group_id" {
@@ -521,17 +267,8 @@ output "alb_security_group_id" {
 }
 
 
-
 # ============================================================
 # 20. ECS TASK SECURITY GROUP ID
-# ============================================================
-#
-# Security group attached to Terraform-managed ECS Fargate
-# tasks.
-#
-# Only traffic originating from the ALB security group is
-# allowed on the application container port.
-#
 # ============================================================
 
 output "ecs_task_security_group_id" {
@@ -542,18 +279,8 @@ output "ecs_task_security_group_id" {
 }
 
 
-
 # ============================================================
 # 21. VPC ENDPOINT SECURITY GROUP ID
-# ============================================================
-#
-# Security group used by the Terraform-managed interface
-# VPC endpoints:
-#
-#   - ECR API
-#   - ECR DKR
-#   - CloudWatch Logs
-#
 # ============================================================
 
 output "vpc_endpoint_security_group_id" {
@@ -564,13 +291,8 @@ output "vpc_endpoint_security_group_id" {
 }
 
 
-
 # ============================================================
 # 22. ECR API VPC ENDPOINT ID
-# ============================================================
-#
-# Interface endpoint for the Amazon ECR API.
-#
 # ============================================================
 
 output "ecr_api_vpc_endpoint_id" {
@@ -581,13 +303,8 @@ output "ecr_api_vpc_endpoint_id" {
 }
 
 
-
 # ============================================================
 # 23. ECR DKR VPC ENDPOINT ID
-# ============================================================
-#
-# Interface endpoint for the Amazon ECR Docker Registry.
-#
 # ============================================================
 
 output "ecr_dkr_vpc_endpoint_id" {
@@ -598,14 +315,8 @@ output "ecr_dkr_vpc_endpoint_id" {
 }
 
 
-
 # ============================================================
 # 24. S3 VPC ENDPOINT ID
-# ============================================================
-#
-# Gateway endpoint allowing private Terraform-managed ECS
-# tasks to communicate with Amazon S3.
-#
 # ============================================================
 
 output "s3_vpc_endpoint_id" {
@@ -616,14 +327,8 @@ output "s3_vpc_endpoint_id" {
 }
 
 
-
 # ============================================================
 # 25. CLOUDWATCH LOGS VPC ENDPOINT ID
-# ============================================================
-#
-# Interface endpoint used for private CloudWatch Logs
-# connectivity.
-#
 # ============================================================
 
 output "cloudwatch_logs_vpc_endpoint_id" {
@@ -634,20 +339,8 @@ output "cloudwatch_logs_vpc_endpoint_id" {
 }
 
 
-
 # ============================================================
 # 26. CLOUDWATCH LOG GROUP
-# ============================================================
-#
-# ECS container logs are stored in this CloudWatch log group.
-#
-# This log group should use the Terraform-specific naming
-# convention.
-#
-# Expected name:
-#
-#   /ecs/charlie-cafe-tf
-#
 # ============================================================
 
 output "ecs_log_group_name" {
@@ -658,20 +351,8 @@ output "ecs_log_group_name" {
 }
 
 
-
 # ============================================================
 # 27. ECS EXECUTION ROLE ARN
-# ============================================================
-#
-# IAM role used by Terraform-managed ECS/Fargate to:
-#
-#   - Pull images from ECR
-#   - Send logs to CloudWatch Logs
-#
-# Expected Terraform naming pattern:
-#
-#   CharlieCafe-TF-ECSTaskExecutionRole
-#
 # ============================================================
 
 output "ecs_task_execution_role_arn" {
@@ -682,17 +363,8 @@ output "ecs_task_execution_role_arn" {
 }
 
 
-
 # ============================================================
 # 28. ECS TASK ROLE ARN
-# ============================================================
-#
-# IAM role assigned to the application container itself.
-#
-# Expected Terraform naming pattern:
-#
-#   CharlieCafe-TF-ECSTaskRole
-#
 # ============================================================
 
 output "ecs_task_role_arn" {
@@ -703,13 +375,8 @@ output "ecs_task_role_arn" {
 }
 
 
-
 # ============================================================
 # 29. CONTAINER PORT
-# ============================================================
-#
-# Displays the application container port.
-#
 # ============================================================
 
 output "container_port" {
@@ -720,18 +387,8 @@ output "container_port" {
 }
 
 
-
 # ============================================================
 # 30. DEPLOYMENT SUMMARY
-# ============================================================
-#
-# Provides a convenient structured output containing the most
-# important information about the Terraform deployment.
-#
-# Useful command:
-#
-#   terraform output deployment_summary
-#
 # ============================================================
 
 output "deployment_summary" {
@@ -740,53 +397,19 @@ output "deployment_summary" {
 
   value = {
 
-    # --------------------------------------------------------
-    # Application
-    # --------------------------------------------------------
-
     application_name = var.application_name
-
-
-    # --------------------------------------------------------
-    # Terraform project
-    # --------------------------------------------------------
 
     project_name = var.project_name
 
-
-    # --------------------------------------------------------
-    # Environment
-    # --------------------------------------------------------
-
     environment = var.environment
-
-
-    # --------------------------------------------------------
-    # AWS region
-    # --------------------------------------------------------
 
     aws_region = data.aws_region.current.region
 
-
-    # --------------------------------------------------------
-    # VPC
-    # --------------------------------------------------------
-
     vpc_id = aws_vpc.lab.id
-
-
-    # --------------------------------------------------------
-    # ECR
-    # --------------------------------------------------------
 
     ecr_repository = aws_ecr_repository.charlie_cafe.repository_url
 
     ecr_image = "${aws_ecr_repository.charlie_cafe.repository_url}:latest"
-
-
-    # --------------------------------------------------------
-    # ECS
-    # --------------------------------------------------------
 
     ecs_cluster = aws_ecs_cluster.charlie_cafe.name
 
@@ -796,197 +419,169 @@ output "deployment_summary" {
 
     task_family = aws_ecs_task_definition.charlie_cafe.family
 
-
-    # --------------------------------------------------------
-    # ALB
-    # --------------------------------------------------------
-
     alb_dns_name = aws_lb.charlie_cafe.dns_name
 
     application_url = "http://${aws_lb.charlie_cafe.dns_name}"
 
-
-    # --------------------------------------------------------
-    # Container
-    # --------------------------------------------------------
-
     container_port = var.container_port
-
   }
 }
 
 
-# =====================================================================
-# CLOUDFRONT OUTPUTS
-# =====================================================================
+# ============================================================
+# 31. CLOUDFRONT DISTRIBUTION ID
+# ============================================================
 #
-# These outputs expose important information about the Terraform-
-# managed CloudFront distribution.
+# Equivalent to the CloudFormation output:
 #
-# The values can be displayed after:
+#   CloudFrontDistributionId
 #
-#   terraform apply
-#
-# or retrieved at any time with:
-#
-#   terraform output
-#
-# These outputs are also useful for:
-#
-#   - GitHub Actions
-#   - CI/CD pipelines
-#   - Testing the deployed website
-#   - Monitoring and troubleshooting
-#   - Passing CloudFront information to other Terraform configurations
-#
-# =====================================================================
-
-
-# ---------------------------------------------------------------------
-# CloudFront Distribution ID
-# ---------------------------------------------------------------------
-#
-# Returns the unique ID assigned to the CloudFront distribution.
-#
-# Example:
-#
-#   E1234567890ABC
-#
-# This ID is useful when working with:
-#
-#   - AWS CLI
-#   - CloudFront invalidations
-#   - CI/CD deployments
-#   - CloudFront administration
-#
-# ---------------------------------------------------------------------
+# ============================================================
 
 output "distribution_id" {
 
-  description = "CloudFront Distribution ID"
+  description = "ID of the Charlie Cafe CloudFront distribution"
 
   value = aws_cloudfront_distribution.website.id
 }
 
 
-# ---------------------------------------------------------------------
-# CloudFront Distribution Domain Name
-# ---------------------------------------------------------------------
+# ============================================================
+# 32. CLOUDFRONT DISTRIBUTION DOMAIN NAME
+# ============================================================
 #
-# Returns the AWS-generated CloudFront domain name.
+# Equivalent to the CloudFormation output:
+#
+#   CloudFrontDomainName
 #
 # Example:
 #
 #   d1234567890abc.cloudfront.net
 #
-# This is the default public hostname assigned to the CloudFront
-# distribution.
-#
-# ---------------------------------------------------------------------
+# ============================================================
 
 output "distribution_domain_name" {
 
-  description = "CloudFront Distribution Domain Name"
+  description = "Domain name assigned to the Charlie Cafe CloudFront distribution"
 
   value = aws_cloudfront_distribution.website.domain_name
 }
 
 
-# ---------------------------------------------------------------------
-# CloudFront Website URL
-# ---------------------------------------------------------------------
+# ============================================================
+# 33. CLOUDFRONT WEBSITE URL
+# ============================================================
 #
-# Builds the complete HTTPS URL for the Charlie Cafe website.
+# Equivalent to the CloudFormation output:
 #
-# Example:
+#   CloudFrontWebsiteURL
 #
-#   https://d1234567890abc.cloudfront.net
+# The distribution redirects HTTP requests to HTTPS.
 #
-# The CloudFront distribution is configured to redirect HTTP requests
-# to HTTPS, so the output intentionally uses the HTTPS protocol.
-#
-# ---------------------------------------------------------------------
+# ============================================================
 
 output "website_url" {
 
-  description = "Charlie Cafe CloudFront Website URL"
+  description = "HTTPS URL for the Charlie Cafe website served through CloudFront"
 
   value = "https://${aws_cloudfront_distribution.website.domain_name}"
 }
 
 
-# =====================================================================
-# END OF CLOUDFRONT OUTPUTS
-# =====================================================================
+# ============================================================
+# 34. CLOUDFRONT OAC ID
+# ============================================================
+#
+# Exposes the Origin Access Control ID used by CloudFront
+# to securely access the S3 bucket.
+#
+# ============================================================
+
+output "cloudfront_oac_id" {
+
+  description = "ID of the CloudFront Origin Access Control protecting the S3 origin"
+
+  value = aws_cloudfront_origin_access_control.website.id
+}
 
 
+# ============================================================
+# 35. CLOUDFRONT OAC NAME
+# ============================================================
+#
+# Exposes the human-readable OAC name.
+#
+# ============================================================
+
+output "cloudfront_oac_name" {
+
+  description = "Name of the CloudFront Origin Access Control"
+
+  value = aws_cloudfront_origin_access_control.website.name
+}
+
+
+# ============================================================
+# 36. WEBSITE S3 BUCKET NAME
+# ============================================================
+#
+# Equivalent to the CloudFormation output:
+#
+#   WebsiteBucketName
+#
+# This is the Terraform-managed S3 bucket used as the
+# CloudFront origin.
+#
+# ============================================================
+
+output "website_bucket_name" {
+
+  description = "Name of the S3 bucket used as the CloudFront website origin"
+
+  value = aws_s3_bucket.website.id
+}
+
+
+# ============================================================
+# 37. WEBSITE S3 BUCKET ARN
+# ============================================================
+#
+# ARN of the S3 bucket protected by the CloudFront bucket
+# policy.
+#
+# ============================================================
+
+output "website_bucket_arn" {
+
+  description = "ARN of the S3 bucket used as the CloudFront website origin"
+
+  value = aws_s3_bucket.website.arn
+}
+
+
+# ============================================================
+# 38. WEBSITE S3 REGIONAL DOMAIN
+# ============================================================
+#
+# Regional S3 endpoint used by CloudFront.
+#
+# This is preferable to manually constructing:
+#
+#   bucket.s3.amazonaws.com
+#
+# because Terraform obtains the correct regional endpoint
+# directly from the S3 resource.
+#
+# ============================================================
+
+output "website_bucket_regional_domain_name" {
+
+  description = "Regional S3 domain name used by the CloudFront origin"
+
+  value = aws_s3_bucket.website.bucket_regional_domain_name
+}
 
 
 # ============================================================
 # END OF outputs.tf
-# ============================================================
-#
-# TERRAFORM NAMING SUMMARY
-# ============================================================
-#
-# Project:
-#   CharlieCafe-TF-Lab
-#
-# Application:
-#   CharlieCafe-TF
-#
-# ECR:
-#   charlie-cafe-tf
-#
-# ECS Cluster:
-#   CharlieCafe-TF-Cluster
-#
-# ECS Service:
-#   CharlieCafe-TF-Service
-#
-# ECS Task Family:
-#   CharlieCafe-TF
-#
-# Database:
-#   tflabdb
-#
-# ============================================================
-#
-# OUTPUT BLOCK NAMES REMAIN STABLE:
-#
-#   vpc_id
-#   public_subnet_ids
-#   private_subnet_ids
-#   private_route_table_id
-#   ecr_repository_name
-#   ecr_repository_uri
-#   ecr_image_url
-#   ecs_cluster_name
-#   ecs_cluster_arn
-#   ecs_service_name
-#   ecs_service_arn
-#   ecs_task_definition_arn
-#   ecs_task_definition_family
-#   alb_arn
-#   alb_dns_name
-#   application_url
-#   target_group_arn
-#   target_group_name
-#   alb_security_group_id
-#   ecs_task_security_group_id
-#   vpc_endpoint_security_group_id
-#   ecr_api_vpc_endpoint_id
-#   ecr_dkr_vpc_endpoint_id
-#   s3_vpc_endpoint_id
-#   cloudwatch_logs_vpc_endpoint_id
-#   ecs_log_group_name
-#   ecs_task_execution_role_arn
-#   ecs_task_role_arn
-#   container_port
-#   deployment_summary
-#
-# Keeping these output names unchanged helps preserve
-# compatibility with GitHub Actions and existing Terraform
-# automation.
-#
 # ============================================================
