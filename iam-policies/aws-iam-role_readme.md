@@ -721,3 +721,209 @@ then we can do that too, but we should first add the exact ECR/ECS/ELB permissio
 
 So yes: add the global variable. But I recommend initially using the new role only in the terraform job, because that's the cleanest and safest change to your existing workflow.
 ---
+## Your AWS account currently has 0 IAM Identity Providers
+
+You need to create one GitHub Actions OIDC provider. Do this first; you do not need to change your IAM role yet.
+
+Step 2 — Add the GitHub OIDC provider
+
+In AWS Console go to:
+
+IAM → Identity providers → Add provider
+
+Choose:
+
+Provider type
+
+OpenID Connect
+
+Provider URL
+
+https://token.actions.githubusercontent.com
+
+Audience
+
+sts.amazonaws.com
+
+Then click Add provider.
+
+After creation, your IAM page should show:
+
+Identity providers (1)
+
+and the provider should be:
+
+OpenID Connect
+https://token.actions.githubusercontent.com
+Step 3 — Verify it
+
+Click the newly created provider and make sure the details are:
+
+Provider type: OpenID Connect
+Provider URL: https://token.actions.githubusercontent.com
+Audience: sts.amazonaws.com
+
+The ARN should correspond to:
+
+arn:aws:iam::537236558357:oidc-provider/token.actions.githubusercontent.com
+Step 4 — Then your existing trust policy
+
+Your IAM role's trust relationship can then reference:
+
+arn:aws:iam::537236558357:oidc-provider/token.actions.githubusercontent.com
+
+So don't create another provider. You want exactly one GitHub Actions OIDC provider in this AWS account.
+
+After you add it, send me your IAM role Trust relationships JSON, and I'll check it against your GitHub workflow before you run the deployment.
+
+
+What you should do now
+
+Go back to:
+
+AWS Console → IAM → Identity providers → Add provider
+
+Then enter the values in the AWS Console form, not PowerShell:
+
+AWS field	Enter this
+Provider type	OpenID Connect
+Provider URL	https://token.actions.githubusercontent.com
+Audience	sts.amazonaws.com
+
+Then click Add provider.
+
+After that
+
+Your page should change from:
+
+Identity providers (0)
+
+to:
+
+Identity providers (1)
+
+with:
+
+OpenID Connect
+token.actions.githubusercontent.com
+
+Do not run those three lines in PowerShell.
+
+If you prefer to create the provider using AWS CLI instead of the Console, 
+I can also give you the exact PowerShell command for your account.
+
+Absolutely. Since your AWS account is 537236558357, run this exact command in PowerShell:
+
+aws iam create-open-id-connect-provider `
+  --url "https://token.actions.githubusercontent.com" `
+  --client-id-list "sts.amazonaws.com"
+
+This creates the GitHub Actions OIDC provider with the correct URL and audience. AWS documents create-open-id-connect-provider with these parameters, and the current GitHub AWS credentials action also uses this exact URL/audience combination.
+
+1. First, verify you're using the correct AWS account
+
+Run:
+
+aws sts get-caller-identity
+
+You should see:
+
+"Account": "537236558357"
+2. Then create the OIDC provider
+
+Run:
+
+aws iam create-open-id-connect-provider `
+  --url "https://token.actions.githubusercontent.com" `
+  --client-id-list "sts.amazonaws.com"
+
+Important: You don't need to specify the AWS account ID in the create command. AWS automatically creates the provider in the account associated with your current AWS CLI credentials.
+
+3. Verify it was created
+
+Run:
+
+aws iam list-open-id-connect-providers
+
+You should get something similar to:
+
+{
+    "OpenIDConnectProviderList": [
+        {
+            "Arn": "arn:aws:iam::537236558357:oidc-provider/token.actions.githubusercontent.com"
+        }
+    ]
+}
+
+That ARN exactly matches the provider ARN your IAM trust policy is expecting.
+
+4. Verify the audience too
+
+Run:
+
+aws iam get-open-id-connect-provider `
+  --open-id-connect-provider-arn "arn:aws:iam::537236558357:oidc-provider/token.actions.githubusercontent.com"
+
+Look for:
+
+ClientIDList:
+    sts.amazonaws.com
+
+Once these checks succeed, stop there. Don't change the IAM role or GitHub workflow yet. Send me the output of:
+
+aws iam get-open-id-connect-provider `
+  --open-id-connect-provider-arn "arn:aws:iam::537236558357:oidc-provider/token.actions.githubusercontent.com"
+
+and I'll verify the OIDC provider before we move to the trust policy.
+
+your OIDC provider is already correctly configured. The important part is that the first create-open-id-connect-provider command failed because your github-ci-cd-user does not have permission to create providers, but the later list and get commands prove the provider already exists and is correct.
+
+Your current status
+Check	Result
+AWS Account	537236558357 ✅
+OIDC provider exists	✅
+Provider URL	token.actions.githubusercontent.com ✅
+Audience	sts.amazonaws.com ✅
+Provider ARN	Matches your trust policy ✅
+
+Your provider ARN is:
+
+arn:aws:iam::537236558357:oidc-provider/token.actions.githubusercontent.com
+
+And your output confirms:
+
+"Url": "token.actions.githubusercontent.com"
+"ClientIDList": [
+    "sts.amazonaws.com"
+]
+
+So do not try to create the provider again.
+
+Why did create-open-id-connect-provider say AccessDenied?
+
+Because your current CLI identity is:
+
+arn:aws:iam::537236558357:user/github-ci-cd-user
+
+and that IAM user does not have:
+
+iam:CreateOpenIDConnectProvider
+
+But that's irrelevant now because the provider already exists.
+
+What we should check next
+
+The next important piece is your IAM role trust relationship. Your trust policy must reference this existing provider and correctly restrict which GitHub repository/workflow can assume the role.
+
+Please run:
+
+aws iam get-role `
+  --role-name YOUR_ROLE_NAME `
+  --query "Role.AssumeRolePolicyDocument" `
+  --output json
+
+Replace YOUR_ROLE_NAME with the actual IAM role used by your GitHub Actions workflow.
+
+Or, since you've been working on this workflow already, paste your current IAM role Trust Policy JSON here. I'll check it against your GitHub workflow and tell you exactly what, if anything, needs changing.
+
+----
