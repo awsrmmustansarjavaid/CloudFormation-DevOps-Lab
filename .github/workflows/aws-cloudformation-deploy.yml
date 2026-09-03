@@ -474,7 +474,7 @@
 
 # application/
 
-# └── index.html
+# └── index.php
 
 #
 
@@ -633,7 +633,7 @@ env:
   # Current project:
   #
   # application/
-  # └── index.html
+  # └── index.php
   #
   # ========================================================
 
@@ -1968,7 +1968,7 @@ jobs:
       #
       # Current application:
       #
-      #   application/index.html
+      #   application/index.php
       #
       # This step makes sure the website files exist before
       # attempting to upload them to S3.
@@ -2011,24 +2011,24 @@ jobs:
 
 
           # --------------------------------------------------
-          # Check index.html.
+          # Check index.php.
           # --------------------------------------------------
 
-          if [ ! -f "$APPLICATION_DIR/index.html" ]; then
+          if [ ! -f "$APPLICATION_DIR/index.php" ]; then
 
-            echo "ERROR: index.html was not found."
+            echo "ERROR: index.php was not found."
 
             echo ""
             echo "Expected file:"
-            echo "$APPLICATION_DIR/index.html"
+            echo "$APPLICATION_DIR/index.php"
 
             exit 1
 
           fi
 
 
-          echo "index.html found:"
-          echo "$APPLICATION_DIR/index.html"
+          echo "index.php found:"
+          echo "$APPLICATION_DIR/index.php"
 
 
           echo ""
@@ -2050,11 +2050,11 @@ jobs:
       #
       # Example:
       #
-      #   application/index.html
+      #   application/index.php
       #
       # becomes:
       #
-      #   s3://LabBucket/index.html
+      #   s3://LabBucket/index.php
       #
       # CloudFront can then retrieve the object through
       # Origin Access Control.
