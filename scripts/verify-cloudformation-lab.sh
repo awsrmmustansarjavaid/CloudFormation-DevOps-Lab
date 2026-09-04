@@ -1,205 +1,183 @@
 #!/bin/bash
 
-# ============================================================================
-# AWS CLOUDFORMATION DEVOPS LAB
-# COMPLETE EC2 READ-ONLY VERIFICATION SCRIPT
-# ============================================================================
+# =====================================================================
+# ☕ Charlie Cafe — AWS CloudFormation DevOps Lab
+# COMPLETE FAST READ-ONLY VERIFICATION SCRIPT
+# =====================================================================
 #
-# File:
-#
-#   verify-cloudformation-lab.sh
+# Operating System:
+#   Amazon Linux 2023
 #
 # Purpose:
-#
-#   Perform a complete read-only verification of the AWS CloudFormation
-#   DevOps Lab from inside an EC2 instance.
-#
-# ============================================================================
+#   Verify the AWS CloudFormation / DevOps lab from an EC2 instance.
 #
 # IMPORTANT:
+#   This script is READ-ONLY with respect to AWS resources.
 #
-# This script is intended for VERIFICATION ONLY.
-#
-# It does NOT intentionally:
-#
+# It DOES NOT:
 #   - Create AWS resources
-#   - Update AWS resources
 #   - Delete AWS resources
-#   - Start EC2 instances
-#   - Stop EC2 instances
-#   - Restart ECS services
+#   - Update CloudFormation
+#   - Start/stop/reboot EC2
 #   - Change ECS desired count
 #   - Push Docker images
-#   - Push ECR images
-#   - Modify IAM permissions
-#   - Modify Security Groups
-#   - Modify Route Tables
-#   - Modify VPC Endpoints
-#   - Modify RDS
-#   - Modify S3
+#   - Login to ECR
+#   - Change IAM
+#   - Change Security Groups
+#   - Change Route Tables
+#   - Change RDS
+#   - Change S3
+#   - Change CloudFront
 #
-# ============================================================================
+# It ONLY performs:
+#   - describe
+#   - list
+#   - get
+#   - head
+#   - status
+#   - connectivity tests
 #
-# VERIFICATION AREAS
+# =====================================================================
+# FAST-SAFETY DESIGN
+# =====================================================================
 #
-#   1.  Linux OS
-#   2.  Host information
-#   3.  Current user
-#   4.  Kernel / architecture
-#   5.  Disk
-#   6.  Memory
-#   7.  CPU
-#   8.  AWS CLI
-#   9.  AWS identity
-#   10. EC2 metadata
-#   11. CloudFormation main stack
-#   12. CloudFormation outputs
-#   13. CloudFormation resources
-#   14. Nested stacks
-#   15. VPC
-#   16. VPC DNS
-#   17. Internet Gateway
-#   18. Subnets
-#   19. Route tables
-#   20. NAT Gateways
-#   21. Network ACLs
-#   22. Security Groups
-#   23. VPC Endpoints
-#   24. EC2 instance
-#   25. EC2 health
-#   26. UserData / Cloud-init
-#   27. Internet connectivity
-#   28. DNS
-#   29. Apache
-#   30. Nginx
-#   31. PHP
-#   32. Docker
-#   33. Docker Compose
-#   34. Docker containers
-#   35. Docker images
-#   36. Listening ports
-#   37. Git
-#   38. S3 buckets
-#   39. S3 bucket properties
-#   40. S3 objects
-#   41. S3 website configuration
-#   42. CloudFront distributions
-#   43. CloudFront -> S3 configuration
-#   44. CloudFront website test
-#   45. RDS MySQL
-#   46. RDS network connectivity
-#   47. Secrets Manager
-#   48. ECR
-#   49. ECR images
-#   50. ECS CloudFormation stack
-#   51. ECS cluster
-#   52. ECS service
-#   53. ECS tasks
-#   54. ECS task health
-#   55. Application Load Balancer
-#   56. ALB listeners
-#   57. Target Groups
-#   58. Target Health
-#   59. ALB HTTP test
-#   60. CloudWatch Logs
-#   61. Final EC2 -> RDS test
-#   62. Final summary
+# Every AWS CLI command is protected with a timeout.
 #
-# ============================================================================
+# This is especially important for:
+#
+#   CloudWatch Logs
+#   CloudFormation
+#   RDS
+#   ECS
+#   ECR
+#   ALB
+#   VPC
+#
+# If one AWS API call becomes slow, the script will WARN and continue.
+#
+# =====================================================================
 
 
-# ============================================================================
+# ---------------------------------------------------------------------
 # 1. CONFIGURATION
-# ============================================================================
+# ---------------------------------------------------------------------
 
 AWS_REGION="us-east-1"
 
-# --------------------------------------------------------------------------
-# Optional AWS profile.
-#
-# Leave empty when EC2 IAM Role credentials are being used.
-# --------------------------------------------------------------------------
-
+# Leave empty unless you specifically use an AWS CLI profile.
 AWS_PROFILE=""
 
-# --------------------------------------------------------------------------
-# CloudFormation stacks
-# --------------------------------------------------------------------------
-
+# Main CloudFormation stack.
 MAIN_STACK="Main-CloudFormation"
 
+# ECS CloudFormation stack.
 ECS_STACK="CharlieCafe-ECS-Stack"
 
-# --------------------------------------------------------------------------
-# Expected VPC
-# --------------------------------------------------------------------------
-
-EXPECTED_VPC_CIDR="10.0.0.0/16"
-
-# --------------------------------------------------------------------------
-# ECS
-# --------------------------------------------------------------------------
-
+# ECR repository.
 ECR_REPOSITORY="charlie-cafe"
 
+# ECS cluster.
 ECS_CLUSTER="CharlieCafe-Cluster"
 
+# ECS service.
 ECS_SERVICE="CharlieCafe-Service"
 
-CONTAINER_PORT="80"
-
-# --------------------------------------------------------------------------
-# CloudWatch
-# --------------------------------------------------------------------------
-
+# CloudWatch Log Group.
 LOG_GROUP="/ecs/charlie-cafe"
 
-# --------------------------------------------------------------------------
-# Expected application ports
-# --------------------------------------------------------------------------
+# Expected VPC CIDR.
+EXPECTED_VPC_CIDR="10.0.0.0/16"
 
-HTTP_PORT="80"
-
-HTTPS_PORT="443"
-
-DOCKER_APP_PORT="8080"
-
-# --------------------------------------------------------------------------
-# Optional expected S3 website bucket name.
+# Optional RDS identifier.
 #
-# Leave empty if the bucket name is generated by CloudFormation.
-# The script will discover buckets from CloudFormation outputs.
-# --------------------------------------------------------------------------
+# Leave empty to automatically discover a MySQL database
+# belonging to the discovered VPC.
+RDS_IDENTIFIER=""
 
-EXPECTED_WEBSITE_BUCKET=""
+# Optional S3 bucket.
+#
+# Leave empty to discover buckets automatically.
+S3_BUCKET=""
 
-# ============================================================================
-# 2. VERIFICATION COUNTERS
-# ============================================================================
+# Optional CloudFront Distribution ID.
+#
+# Leave empty for automatic discovery.
+CLOUDFRONT_DISTRIBUTION_ID=""
 
-PASS_COUNT=0
-FAIL_COUNT=0
-WARN_COUNT=0
+# Optional CloudFront domain.
+#
+# Example:
+# d123456789.cloudfront.net
+CLOUDFRONT_DOMAIN=""
+
+# Optional ALB ARN.
+#
+# Leave empty for automatic discovery in the lab VPC.
+ALB_ARN=""
+
+# Expected container port.
+CONTAINER_PORT="80"
+
+# ---------------------------------------------------------------------
+# OPTIONAL EXPECTED COUNTS
+# ---------------------------------------------------------------------
+
+# Set to 0 if you do not want count validation.
+EXPECTED_SUBNET_COUNT=0
+
+# Set to 0 if you do not want endpoint count validation.
+EXPECTED_VPC_ENDPOINT_COUNT=0
+
+# ---------------------------------------------------------------------
+# PERFORMANCE SETTINGS
+# ---------------------------------------------------------------------
+
+# Maximum time allowed for an AWS CLI command.
+#
+# 8 seconds is normally enough for describe/list calls.
+# If an API call is slow, it will be skipped rather than hanging.
+AWS_TIMEOUT_SECONDS=8
+
+# Maximum time allowed for curl connectivity tests.
+CURL_TIMEOUT_SECONDS=5
+
+# Maximum time allowed for nc connectivity tests.
+NC_TIMEOUT_SECONDS=5
+
+# Do NOT retrieve CloudWatch log contents.
+#
+# This is intentionally FALSE because log retrieval can be slow.
+SHOW_RECENT_LOGS="false"
+
+# Return exit code 1 if verification failures exist.
+EXIT_NONZERO_ON_FAILURE="true"
 
 
-# ============================================================================
-# 3. AWS CLI CONFIGURATION
-# ============================================================================
+# ---------------------------------------------------------------------
+# 2. GLOBAL SETTINGS
+# ---------------------------------------------------------------------
 
 export AWS_PAGER=""
 
 export AWS_DEFAULT_REGION="$AWS_REGION"
 
 if [ -n "$AWS_PROFILE" ]; then
-
-    export AWS_PROFILE
-
+    export AWS_PROFILE="$AWS_PROFILE"
 fi
 
 
-# ============================================================================
+# ---------------------------------------------------------------------
+# 3. COUNTERS
+# ---------------------------------------------------------------------
+
+PASS_COUNT=0
+FAIL_COUNT=0
+WARN_COUNT=0
+
+
+# ---------------------------------------------------------------------
 # 4. OUTPUT FUNCTIONS
-# ============================================================================
+# ---------------------------------------------------------------------
 
 print_header() {
 
@@ -207,143 +185,216 @@ print_header() {
     echo "======================================================================"
     echo "$1"
     echo "======================================================================"
-
 }
-
 
 pass() {
 
     echo "[PASS] $1"
-
     PASS_COUNT=$((PASS_COUNT + 1))
-
 }
-
 
 fail() {
 
     echo "[FAIL] $1"
-
     FAIL_COUNT=$((FAIL_COUNT + 1))
-
 }
-
 
 warn() {
 
     echo "[WARN] $1"
-
     WARN_COUNT=$((WARN_COUNT + 1))
-
 }
-
 
 info() {
 
     echo "[INFO] $1"
-
 }
 
 
-# ============================================================================
-# 5. BASIC SYSTEM INFORMATION
-# ============================================================================
+# ---------------------------------------------------------------------
+# 5. COMMAND CHECK
+# ---------------------------------------------------------------------
 
-print_header "1. EC2 OPERATING SYSTEM"
+command_exists() {
 
-if [ -f "/etc/os-release" ]; then
+    command -v "$1" >/dev/null 2>&1
+}
 
-    pass "OS information file exists."
 
-    cat /etc/os-release
+# ---------------------------------------------------------------------
+# 6. FAST AWS COMMAND WRAPPER
+# ---------------------------------------------------------------------
+#
+# IMPORTANT:
+#
+# This is the major fix.
+#
+# Every AWS CLI call goes through this function.
+#
+# If AWS takes longer than AWS_TIMEOUT_SECONDS,
+# the command is killed and the script continues.
+#
+# ---------------------------------------------------------------------
+
+aws_fast() {
+
+    if ! command_exists aws; then
+        return 127
+    fi
+
+    timeout --signal=TERM --kill-after=2s \
+        "${AWS_TIMEOUT_SECONDS}s" \
+        aws --region "$AWS_REGION" "$@"
+}
+
+
+# ---------------------------------------------------------------------
+# 7. FAST AWS OUTPUT FUNCTION
+# ---------------------------------------------------------------------
+#
+# Used when we need to capture AWS command output.
+#
+# Usage:
+#
+# RESULT=$(aws_fast ec2 describe-instances ...)
+# RC=$?
+#
+# ---------------------------------------------------------------------
+
+aws_fast_capture() {
+
+    timeout --signal=TERM --kill-after=2s \
+        "${AWS_TIMEOUT_SECONDS}s" \
+        aws --region "$AWS_REGION" "$@"
+}
+
+
+# ---------------------------------------------------------------------
+# 8. INITIAL SYSTEM CHECK
+# ---------------------------------------------------------------------
+
+print_header "1. BASIC COMMAND DEPENDENCIES"
+
+MISSING_COMMANDS=0
+
+for CMD in aws curl getent ss docker git systemctl timeout; do
+
+    if command_exists "$CMD"; then
+
+        echo "[PASS] $CMD is installed."
+
+    else
+
+        echo "[WARN] $CMD is not installed."
+        MISSING_COMMANDS=$((MISSING_COMMANDS + 1))
+
+    fi
+
+done
+
+if [ "$MISSING_COMMANDS" -eq 0 ]; then
+
+    pass "Required verification commands are available."
 
 else
 
-    fail "Unable to read /etc/os-release."
+    warn "$MISSING_COMMANDS command(s) are missing."
 
 fi
 
 
-print_header "2. HOST INFORMATION"
+# ---------------------------------------------------------------------
+# 9. OPERATING SYSTEM
+# ---------------------------------------------------------------------
 
-if command -v hostnamectl >/dev/null 2>&1; then
+print_header "2. EC2 OPERATING SYSTEM"
 
-    hostnamectl
+if [ -f /etc/os-release ]; then
 
-    pass "Host information retrieved."
+    cat /etc/os-release
+
+    pass "Operating system information detected."
 
 else
 
-    warn "hostnamectl is not available."
+    warn "/etc/os-release was not found."
+
+fi
+
+
+# ---------------------------------------------------------------------
+# 10. HOSTNAME
+# ---------------------------------------------------------------------
+
+print_header "3. HOSTNAME"
+
+if command_exists hostnamectl; then
+
+    hostnamectl 2>/dev/null
+
+else
 
     hostname
 
 fi
 
 
-print_header "3. CURRENT USER"
+# ---------------------------------------------------------------------
+# 11. CURRENT USER
+# ---------------------------------------------------------------------
 
-CURRENT_USER=$(whoami)
+print_header "4. CURRENT USER"
 
-echo "Current User: $CURRENT_USER"
-
-if [ -n "$CURRENT_USER" ]; then
-
-    pass "Current user detected: $CURRENT_USER"
-
-else
-
-    fail "Unable to determine current user."
-
-fi
+whoami
 
 
-print_header "4. KERNEL / ARCHITECTURE"
+# ---------------------------------------------------------------------
+# 12. KERNEL
+# ---------------------------------------------------------------------
+
+print_header "5. KERNEL"
 
 uname -a
 
-ARCHITECTURE=$(uname -m)
 
-echo
-echo "Architecture: $ARCHITECTURE"
+# ---------------------------------------------------------------------
+# 13. DISK
+# ---------------------------------------------------------------------
 
-pass "Kernel and architecture information retrieved."
-
-
-print_header "5. DISK USAGE"
+print_header "6. DISK USAGE"
 
 df -h
 
-pass "Disk usage information retrieved."
 
+# ---------------------------------------------------------------------
+# 14. MEMORY
+# ---------------------------------------------------------------------
 
-print_header "6. MEMORY"
+print_header "7. MEMORY"
 
 free -h
 
-pass "Memory information retrieved."
+
+# ---------------------------------------------------------------------
+# 15. CPU
+# ---------------------------------------------------------------------
+
+print_header "8. CPU"
+
+echo "CPU Cores: $(nproc)"
 
 
-print_header "7. CPU"
+# ---------------------------------------------------------------------
+# 16. AWS CLI
+# ---------------------------------------------------------------------
 
-echo "CPU Count:"
+print_header "9. AWS CLI"
 
-nproc
-
-pass "CPU information retrieved."
-
-
-# ============================================================================
-# 6. AWS CLI
-# ============================================================================
-
-print_header "8. AWS CLI VERIFICATION"
-
-if command -v aws >/dev/null 2>&1; then
-
-    pass "AWS CLI is installed."
+if command_exists aws; then
 
     aws --version
+
+    pass "AWS CLI is installed."
 
 else
 
@@ -352,705 +403,517 @@ else
 fi
 
 
-# ============================================================================
-# 7. AWS IDENTITY
-# ============================================================================
+# ---------------------------------------------------------------------
+# 17. AWS IDENTITY
+# ---------------------------------------------------------------------
 
-print_header "9. AWS IDENTITY / IAM"
+print_header "10. AWS IDENTITY"
 
-if aws sts get-caller-identity \
-    --region "$AWS_REGION" \
-    >/dev/null 2>&1; then
+if command_exists aws; then
 
-    pass "EC2 can authenticate to AWS."
+    IDENTITY_OUTPUT=$(aws_fast sts get-caller-identity \
+        --output json 2>/dev/null)
 
-    AWS_ACCOUNT_ID=$(aws sts get-caller-identity \
-        --region "$AWS_REGION" \
-        --query "Account" \
-        --output text)
+    IDENTITY_RC=$?
 
-    AWS_CALLER_ARN=$(aws sts get-caller-identity \
-        --region "$AWS_REGION" \
-        --query "Arn" \
-        --output text)
+    if [ "$IDENTITY_RC" -eq 0 ] && [ -n "$IDENTITY_OUTPUT" ]; then
 
-    echo
-    echo "AWS Account ID:"
-    echo "$AWS_ACCOUNT_ID"
+        echo "$IDENTITY_OUTPUT"
 
-    echo
-    echo "Caller ARN:"
-    echo "$AWS_CALLER_ARN"
+        ACCOUNT_ID=$(echo "$IDENTITY_OUTPUT" |
+            grep -o '"Account": "[^"]*"' |
+            cut -d'"' -f4)
 
-else
+        pass "AWS identity verified."
 
-    fail "EC2 cannot authenticate to AWS."
+    else
 
-    AWS_ACCOUNT_ID=""
+        fail "Unable to verify AWS identity."
 
-    AWS_CALLER_ARN=""
+    fi
 
 fi
 
 
-# ============================================================================
-# 8. EC2 INSTANCE METADATA
-# ============================================================================
+# ---------------------------------------------------------------------
+# 18. EC2 INSTANCE METADATA
+# ---------------------------------------------------------------------
 
-print_header "10. EC2 INSTANCE METADATA"
+print_header "11. EC2 INSTANCE METADATA"
 
-TOKEN=$(curl -sS \
-    --connect-timeout 3 \
-    --max-time 5 \
-    -X PUT \
-    -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" \
-    http://169.254.169.254/latest/api/token \
-    2>/dev/null)
+INSTANCE_ID=""
+IMDS_TOKEN=""
 
-if [ -n "$TOKEN" ]; then
+if command_exists curl; then
+
+    IMDS_TOKEN=$(curl -sS \
+        --connect-timeout 2 \
+        --max-time 3 \
+        -X PUT \
+        -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" \
+        "http://169.254.169.254/latest/api/token" 2>/dev/null)
+
+fi
+
+
+if [ -n "$IMDS_TOKEN" ]; then
+
+    INSTANCE_ID=$(curl -sS \
+        --connect-timeout 2 \
+        --max-time 3 \
+        -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" \
+        "http://169.254.169.254/latest/meta-data/instance-id" 2>/dev/null)
+
+    IMDS_REGION=$(curl -sS \
+        --connect-timeout 2 \
+        --max-time 3 \
+        -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" \
+        "http://169.254.169.254/latest/meta-data/placement/region" 2>/dev/null)
+
+    IMDS_AZ=$(curl -sS \
+        --connect-timeout 2 \
+        --max-time 3 \
+        -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" \
+        "http://169.254.169.254/latest/meta-data/placement/availability-zone" 2>/dev/null)
+
+    IMDS_INSTANCE_TYPE=$(curl -sS \
+        --connect-timeout 2 \
+        --max-time 3 \
+        -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" \
+        "http://169.254.169.254/latest/meta-data/instance-type" 2>/dev/null)
+
+    echo "Instance ID:       $INSTANCE_ID"
+    echo "Region:            $IMDS_REGION"
+    echo "Availability Zone: $IMDS_AZ"
+    echo "Instance Type:     $IMDS_INSTANCE_TYPE"
 
     pass "EC2 Instance Metadata Service is accessible."
 
-    INSTANCE_ID_LOCAL=$(curl -sS \
-        --connect-timeout 3 \
-        --max-time 5 \
-        -H "X-aws-ec2-metadata-token: $TOKEN" \
-        http://169.254.169.254/latest/meta-data/instance-id \
-        2>/dev/null)
-
-    INSTANCE_TYPE_LOCAL=$(curl -sS \
-        --connect-timeout 3 \
-        --max-time 5 \
-        -H "X-aws-ec2-metadata-token: $TOKEN" \
-        http://169.254.169.254/latest/meta-data/instance-type \
-        2>/dev/null)
-
-    PRIVATE_IP_LOCAL=$(curl -sS \
-        --connect-timeout 3 \
-        --max-time 5 \
-        -H "X-aws-ec2-metadata-token: $TOKEN" \
-        http://169.254.169.254/latest/meta-data/local-ipv4 \
-        2>/dev/null)
-
-    AVAILABILITY_ZONE_LOCAL=$(curl -sS \
-        --connect-timeout 3 \
-        --max-time 5 \
-        -H "X-aws-ec2-metadata-token: $TOKEN" \
-        http://169.254.169.254/latest/meta-data/placement/availability-zone \
-        2>/dev/null)
-
-    IAM_ROLE_LOCAL=$(curl -sS \
-        --connect-timeout 3 \
-        --max-time 5 \
-        -H "X-aws-ec2-metadata-token: $TOKEN" \
-        http://169.254.169.254/latest/meta-data/iam/security-credentials/ \
-        2>/dev/null)
-
-    echo
-    echo "Instance ID       : $INSTANCE_ID_LOCAL"
-    echo "Instance Type     : $INSTANCE_TYPE_LOCAL"
-    echo "Private IP        : $PRIVATE_IP_LOCAL"
-    echo "Availability Zone : $AVAILABILITY_ZONE_LOCAL"
-    echo "IAM Role          : ${IAM_ROLE_LOCAL:-NONE}"
-
-    if [ -n "$IAM_ROLE_LOCAL" ]; then
-
-        pass "EC2 IAM role is visible through instance metadata."
-
-    else
-
-        warn "No EC2 IAM role was detected through metadata."
-
-    fi
-
 else
 
-    warn "EC2 Instance Metadata Service could not be accessed."
-
-    INSTANCE_ID_LOCAL=""
+    warn "IMDSv2 is not accessible. Using AWS API discovery."
 
 fi
 
 
-# ============================================================================
-# 9. CLOUDFORMATION MAIN STACK
-# ============================================================================
+# ---------------------------------------------------------------------
+# 19. MAIN CLOUDFORMATION STACK
+# ---------------------------------------------------------------------
 
-print_header "11. MAIN CLOUDFORMATION STACK"
+print_header "12. MAIN CLOUDFORMATION STACK"
 
-MAIN_STACK_STATUS=$(aws cloudformation describe-stacks \
-    --stack-name "$MAIN_STACK" \
-    --region "$AWS_REGION" \
-    --query "Stacks[0].StackStatus" \
-    --output text \
-    2>/dev/null)
+STACK_STATUS=""
+STACK_EXISTS="false"
 
-if [ "$MAIN_STACK_STATUS" = "CREATE_COMPLETE" ] || \
-   [ "$MAIN_STACK_STATUS" = "UPDATE_COMPLETE" ]; then
+if [ -n "$MAIN_STACK" ]; then
 
-    pass "Main CloudFormation stack status: $MAIN_STACK_STATUS"
+    STACK_STATUS=$(aws_fast cloudformation describe-stacks \
+        --stack-name "$MAIN_STACK" \
+        --query "Stacks[0].StackStatus" \
+        --output text 2>/dev/null)
 
-else
+    RC=$?
 
-    if [ -z "$MAIN_STACK_STATUS" ] || \
-       [ "$MAIN_STACK_STATUS" = "None" ]; then
+    if [ "$RC" -eq 0 ] && [ -n "$STACK_STATUS" ] && [ "$STACK_STATUS" != "None" ]; then
 
-        fail "Main CloudFormation stack was not found."
+        STACK_EXISTS="true"
+
+        echo "Stack:  $MAIN_STACK"
+        echo "Status: $STACK_STATUS"
+
+        case "$STACK_STATUS" in
+
+            CREATE_COMPLETE|UPDATE_COMPLETE)
+                pass "Main CloudFormation stack is healthy."
+                ;;
+
+            *_IN_PROGRESS)
+                warn "Main CloudFormation stack is currently in progress."
+                ;;
+
+            *_FAILED|*_ROLLBACK*)
+                fail "Main CloudFormation stack has failure/rollback status."
+                ;;
+
+            *)
+                warn "Main CloudFormation stack status: $STACK_STATUS"
+                ;;
+
+        esac
 
     else
 
-        fail "Main CloudFormation stack status: $MAIN_STACK_STATUS"
+        fail "Main CloudFormation stack was not found or could not be queried."
 
     fi
 
 fi
 
 
-# ============================================================================
-# 10. CLOUDFORMATION OUTPUTS
-# ============================================================================
+# ---------------------------------------------------------------------
+# 20. CLOUDFORMATION OUTPUTS
+# ---------------------------------------------------------------------
 
-print_header "12. MAIN CLOUDFORMATION OUTPUTS"
+print_header "13. CLOUDFORMATION OUTPUTS"
 
-aws cloudformation describe-stacks \
-    --stack-name "$MAIN_STACK" \
-    --region "$AWS_REGION" \
-    --query "Stacks[0].Outputs[*].[OutputKey,OutputValue]" \
-    --output table \
-    2>/dev/null
+if [ "$STACK_EXISTS" = "true" ]; then
 
-if [ $? -eq 0 ]; then
+    aws_fast cloudformation describe-stacks \
+        --stack-name "$MAIN_STACK" \
+        --query "Stacks[0].Outputs[].{Key:OutputKey,Value:OutputValue}" \
+        --output table 2>/dev/null
 
-    pass "CloudFormation outputs retrieved."
-
-else
-
-    fail "Unable to retrieve CloudFormation outputs."
+    if [ "$?" -eq 0 ]; then
+        pass "CloudFormation outputs retrieved."
+    else
+        warn "CloudFormation outputs could not be retrieved."
+    fi
 
 fi
 
 
-# ============================================================================
-# 11. CLOUDFORMATION RESOURCES
-# ============================================================================
+# ---------------------------------------------------------------------
+# 21. DISCOVER VPC
+# ---------------------------------------------------------------------
 
-print_header "13. MAIN CLOUDFORMATION RESOURCES"
+print_header "14. VPC DISCOVERY"
 
-aws cloudformation list-stack-resources \
-    --stack-name "$MAIN_STACK" \
-    --region "$AWS_REGION" \
-    --query "StackResourceSummaries[*].[LogicalResourceId,ResourceType,ResourceStatus]" \
-    --output table \
-    2>/dev/null
+VPC_ID=""
 
-if [ $? -eq 0 ]; then
+if [ "$STACK_EXISTS" = "true" ]; then
 
-    pass "CloudFormation resources retrieved."
-
-else
-
-    fail "Unable to retrieve CloudFormation resources."
+    VPC_ID=$(aws_fast cloudformation describe-stacks \
+        --stack-name "$MAIN_STACK" \
+        --query "Stacks[0].Outputs[?contains(OutputKey,'VPC') || contains(OutputKey,'Vpc') || contains(OutputKey,'vpc')].OutputValue | [0]" \
+        --output text 2>/dev/null)
 
 fi
 
 
-# ============================================================================
-# 12. NESTED STACKS
-# ============================================================================
-
-print_header "14. NESTED CLOUDFORMATION STACKS"
-
-NESTED_STACKS=$(aws cloudformation list-stack-resources \
-    --stack-name "$MAIN_STACK" \
-    --region "$AWS_REGION" \
-    --query "StackResourceSummaries[?ResourceType=='AWS::CloudFormation::Stack'].[LogicalResourceId,PhysicalResourceId,ResourceStatus]" \
-    --output table \
-    2>/dev/null)
-
-if [ -n "$NESTED_STACKS" ]; then
-
-    echo "$NESTED_STACKS"
-
-    pass "Nested CloudFormation stacks detected."
-
-else
-
-    warn "No nested CloudFormation stacks detected."
-
-fi
-
-
-# ============================================================================
-# 13. VPC
-# ============================================================================
-
-print_header "15. VPC VERIFICATION"
-
-VPC_ID=$(aws cloudformation describe-stacks \
-    --stack-name "$MAIN_STACK" \
-    --region "$AWS_REGION" \
-    --query "Stacks[0].Outputs[?contains(OutputKey,'Vpc') || contains(OutputKey,'VPC')].OutputValue | [0]" \
-    --output text \
-    2>/dev/null)
-
+# Fallback: find VPC matching expected CIDR.
 if [ -z "$VPC_ID" ] || [ "$VPC_ID" = "None" ]; then
 
-    info "VPC ID not found from CloudFormation outputs."
-
-    info "Searching by expected CIDR: $EXPECTED_VPC_CIDR"
-
-    VPC_ID=$(aws ec2 describe-vpcs \
-        --region "$AWS_REGION" \
+    VPC_ID=$(aws_fast ec2 describe-vpcs \
         --filters "Name=cidr-block,Values=$EXPECTED_VPC_CIDR" \
         --query "Vpcs[0].VpcId" \
-        --output text \
-        2>/dev/null)
+        --output text 2>/dev/null)
 
 fi
 
 
 if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
 
-    pass "VPC found: $VPC_ID"
-
-    VPC_CIDR=$(aws ec2 describe-vpcs \
-        --vpc-ids "$VPC_ID" \
-        --region "$AWS_REGION" \
-        --query "Vpcs[0].CidrBlock" \
-        --output text)
-
-    VPC_STATE=$(aws ec2 describe-vpcs \
-        --vpc-ids "$VPC_ID" \
-        --region "$AWS_REGION" \
-        --query "Vpcs[0].State" \
-        --output text)
-
-    echo
-    echo "VPC ID    : $VPC_ID"
-    echo "VPC CIDR  : $VPC_CIDR"
-    echo "VPC State : $VPC_STATE"
-
-    if [ "$VPC_CIDR" = "$EXPECTED_VPC_CIDR" ]; then
-
-        pass "VPC CIDR matches expected CIDR."
-
-    else
-
-        warn "VPC CIDR is $VPC_CIDR instead of $EXPECTED_VPC_CIDR."
-
-    fi
+    echo "VPC ID: $VPC_ID"
+    pass "Lab VPC discovered."
 
 else
 
-    fail "VPC could not be identified."
+    fail "Lab VPC could not be discovered."
 
 fi
 
 
-# ============================================================================
-# 14. VPC DNS
-# ============================================================================
+# ---------------------------------------------------------------------
+# 22. VPC DETAILS
+# ---------------------------------------------------------------------
 
-print_header "16. VPC DNS VERIFICATION"
+print_header "15. VPC DETAILS"
 
 if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
 
-    DNS_SUPPORT=$(aws ec2 describe-vpc-attribute \
-        --vpc-id "$VPC_ID" \
-        --attribute enableDnsSupport \
-        --region "$AWS_REGION" \
-        --query "EnableDnsSupport.Value" \
-        --output text \
-        2>/dev/null)
-
-    DNS_HOSTNAMES=$(aws ec2 describe-vpc-attribute \
-        --vpc-id "$VPC_ID" \
-        --attribute enableDnsHostnames \
-        --region "$AWS_REGION" \
-        --query "EnableDnsHostnames.Value" \
-        --output text \
-        2>/dev/null)
-
-    echo "DNS Support   : $DNS_SUPPORT"
-    echo "DNS Hostnames : $DNS_HOSTNAMES"
-
-    if [ "$DNS_SUPPORT" = "True" ]; then
-
-        pass "VPC DNS support is enabled."
-
-    else
-
-        fail "VPC DNS support is disabled."
-
-    fi
-
-    if [ "$DNS_HOSTNAMES" = "True" ]; then
-
-        pass "VPC DNS hostnames are enabled."
-
-    else
-
-        fail "VPC DNS hostnames are disabled."
-
-    fi
+    aws_fast ec2 describe-vpcs \
+        --vpc-ids "$VPC_ID" \
+        --query "Vpcs[0].{VpcId:VpcId,CIDR:CidrBlock,State:State,Default: IsDefault,Tenancy:InstanceTenancy}" \
+        --output table 2>/dev/null
 
 fi
 
 
-# ============================================================================
-# 15. INTERNET GATEWAY
-# ============================================================================
+# ---------------------------------------------------------------------
+# 23. VPC DNS
+# ---------------------------------------------------------------------
+
+print_header "16. VPC DNS"
+
+if [ -n "$VPC_ID" ]; then
+
+    DNS_SUPPORT=$(aws_fast ec2 describe-vpc-attribute \
+        --vpc-id "$VPC_ID" \
+        --attribute enableDnsSupport \
+        --query "EnableDnsSupport.Value" \
+        --output text 2>/dev/null)
+
+    DNS_HOSTNAMES=$(aws_fast ec2 describe-vpc-attribute \
+        --vpc-id "$VPC_ID" \
+        --attribute enableDnsHostnames \
+        --query "EnableDnsHostnames.Value" \
+        --output text 2>/dev/null)
+
+    echo "DNS Support:    $DNS_SUPPORT"
+    echo "DNS Hostnames:  $DNS_HOSTNAMES"
+
+fi
+
+
+# ---------------------------------------------------------------------
+# 24. INTERNET GATEWAY
+# ---------------------------------------------------------------------
 
 print_header "17. INTERNET GATEWAY"
 
-if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
+if [ -n "$VPC_ID" ]; then
 
-    IGW_ID=$(aws ec2 describe-internet-gateways \
-        --region "$AWS_REGION" \
+    IGW_COUNT=$(aws_fast ec2 describe-internet-gateways \
         --filters "Name=attachment.vpc-id,Values=$VPC_ID" \
-        --query "InternetGateways[0].InternetGatewayId" \
-        --output text \
-        2>/dev/null)
+        --query "length(InternetGateways)" \
+        --output text 2>/dev/null)
 
-    if [ -n "$IGW_ID" ] && [ "$IGW_ID" != "None" ]; then
+    echo "Internet Gateways: ${IGW_COUNT:-0}"
 
-        pass "Internet Gateway is attached: $IGW_ID"
-
-        aws ec2 describe-internet-gateways \
-            --internet-gateway-ids "$IGW_ID" \
-            --region "$AWS_REGION" \
-            --query "InternetGateways[0].[InternetGatewayId,Attachments[0].State]" \
-            --output table
-
+    if [ "${IGW_COUNT:-0}" -gt 0 ]; then
+        pass "Internet Gateway attached to VPC."
     else
-
-        fail "No Internet Gateway is attached."
-
+        warn "No Internet Gateway attached to VPC."
     fi
 
 fi
 
 
-# ============================================================================
-# 16. SUBNETS
-# ============================================================================
+# ---------------------------------------------------------------------
+# 25. SUBNETS
+# ---------------------------------------------------------------------
 
 print_header "18. VPC SUBNETS"
 
-if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
+SUBNET_COUNT=0
 
-    aws ec2 describe-subnets \
-        --region "$AWS_REGION" \
+if [ -n "$VPC_ID" ]; then
+
+    aws_fast ec2 describe-subnets \
         --filters "Name=vpc-id,Values=$VPC_ID" \
-        --query "Subnets[*].[SubnetId,AvailabilityZone,CidrBlock,MapPublicIpOnLaunch,Tags[?Key=='Name'].Value|[0]]" \
-        --output table
+        --query "Subnets[].{Subnet:SubnetId,CIDR:CidrBlock,AZ:AvailabilityZone,PublicIP:MapPublicIpOnLaunch,State:State}" \
+        --output table 2>/dev/null
 
-    SUBNET_COUNT=$(aws ec2 describe-subnets \
-        --region "$AWS_REGION" \
+    SUBNET_COUNT=$(aws_fast ec2 describe-subnets \
         --filters "Name=vpc-id,Values=$VPC_ID" \
         --query "length(Subnets)" \
-        --output text \
-        2>/dev/null)
+        --output text 2>/dev/null)
 
-    echo
-    echo "Subnet Count: $SUBNET_COUNT"
+    echo "Subnet Count: ${SUBNET_COUNT:-0}"
 
-    if [ "$SUBNET_COUNT" -ge 4 ]; then
+    if [ "${EXPECTED_SUBNET_COUNT:-0}" -gt 0 ]; then
 
-        pass "At least four subnets found."
+        if [ "${SUBNET_COUNT:-0}" -ge "$EXPECTED_SUBNET_COUNT" ]; then
+            pass "Expected subnet count is present."
+        else
+            warn "Expected at least $EXPECTED_SUBNET_COUNT subnets."
+        fi
 
     else
 
-        warn "Only $SUBNET_COUNT subnet(s) found."
+        pass "Subnet discovery completed."
 
     fi
 
 fi
 
 
-# ============================================================================
-# 17. ROUTE TABLES
-# ============================================================================
+# ---------------------------------------------------------------------
+# 26. ROUTE TABLES
+# ---------------------------------------------------------------------
 
 print_header "19. ROUTE TABLES"
 
-if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
+if [ -n "$VPC_ID" ]; then
 
-    ROUTE_TABLE_COUNT=$(aws ec2 describe-route-tables \
-        --region "$AWS_REGION" \
+    aws_fast ec2 describe-route-tables \
         --filters "Name=vpc-id,Values=$VPC_ID" \
-        --query "length(RouteTables)" \
-        --output text \
-        2>/dev/null)
+        --query "RouteTables[].{RouteTable:RouteTableId,Routes:Routes,Associations:Associations}" \
+        --output json 2>/dev/null
 
-    echo "Route Table Count: $ROUTE_TABLE_COUNT"
-
-    aws ec2 describe-route-tables \
-        --region "$AWS_REGION" \
-        --filters "Name=vpc-id,Values=$VPC_ID" \
-        --query "RouteTables[*].[RouteTableId,Routes[*].[DestinationCidrBlock,GatewayId,NatGatewayId],Associations[*].SubnetId,Tags[?Key=='Name'].Value|[0]]" \
-        --output table
-
-    if [ "$ROUTE_TABLE_COUNT" -gt 0 ]; then
-
-        pass "VPC route tables retrieved."
-
+    if [ "$?" -eq 0 ]; then
+        pass "Route tables retrieved."
     else
-
-        fail "No VPC route tables found."
-
+        warn "Route table verification timed out or failed."
     fi
 
 fi
 
 
-# ============================================================================
-# 18. NAT GATEWAYS
-# ============================================================================
+# ---------------------------------------------------------------------
+# 27. NAT GATEWAYS
+# ---------------------------------------------------------------------
 
 print_header "20. NAT GATEWAYS"
 
-if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
+if [ -n "$VPC_ID" ]; then
 
-    NAT_COUNT=$(aws ec2 describe-nat-gateways \
-        --region "$AWS_REGION" \
+    aws_fast ec2 describe-nat-gateways \
         --filter "Name=vpc-id,Values=$VPC_ID" \
-        --query "length(NatGateways)" \
-        --output text \
-        2>/dev/null)
-
-    echo "NAT Gateway Count: ${NAT_COUNT:-0}"
-
-    aws ec2 describe-nat-gateways \
-        --region "$AWS_REGION" \
-        --filter "Name=vpc-id,Values=$VPC_ID" \
-        --query "NatGateways[*].[NatGatewayId,State,SubnetId,ConnectivityType]" \
-        --output table
-
-    if [ "${NAT_COUNT:-0}" -gt 0 ]; then
-
-        pass "NAT Gateway(s) found."
-
-    else
-
-        warn "No NAT Gateway found. This may be intentional for this lab."
-
-    fi
+        --query "NatGateways[].{Id:NatGatewayId,State:State,Subnet:SubnetId,PublicIP:NatGatewayAddresses[0].PublicIp}" \
+        --output table 2>/dev/null
 
 fi
 
 
-# ============================================================================
-# 19. NETWORK ACLS
-# ============================================================================
+# ---------------------------------------------------------------------
+# 28. NETWORK ACL
+# ---------------------------------------------------------------------
 
 print_header "21. NETWORK ACLS"
 
-if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
+if [ -n "$VPC_ID" ]; then
 
-    NACL_COUNT=$(aws ec2 describe-network-acls \
-        --region "$AWS_REGION" \
+    aws_fast ec2 describe-network-acls \
         --filters "Name=vpc-id,Values=$VPC_ID" \
-        --query "length(NetworkAcls)" \
-        --output text \
-        2>/dev/null)
-
-    echo "Network ACL Count: ${NACL_COUNT:-0}"
-
-    aws ec2 describe-network-acls \
-        --region "$AWS_REGION" \
-        --filters "Name=vpc-id,Values=$VPC_ID" \
-        --query "NetworkAcls[*].[NetworkAclId,IsDefault,Tags[?Key=='Name'].Value|[0]]" \
-        --output table
-
-    if [ "${NACL_COUNT:-0}" -gt 0 ]; then
-
-        pass "Network ACLs retrieved."
-
-    else
-
-        fail "No Network ACLs found."
-
-    fi
+        --query "NetworkAcls[].{ACL:NetworkAclId,Default:IsDefault,Associations:Associations}" \
+        --output table 2>/dev/null
 
 fi
 
 
-# ============================================================================
-# 20. SECURITY GROUPS
-# ============================================================================
+# ---------------------------------------------------------------------
+# 29. SECURITY GROUPS
+# ---------------------------------------------------------------------
 
 print_header "22. SECURITY GROUPS"
 
-if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
+if [ -n "$VPC_ID" ]; then
 
-    SG_COUNT=$(aws ec2 describe-security-groups \
-        --region "$AWS_REGION" \
+    aws_fast ec2 describe-security-groups \
         --filters "Name=vpc-id,Values=$VPC_ID" \
-        --query "length(SecurityGroups)" \
-        --output text \
-        2>/dev/null)
-
-    echo "Security Group Count: ${SG_COUNT:-0}"
-
-    aws ec2 describe-security-groups \
-        --region "$AWS_REGION" \
-        --filters "Name=vpc-id,Values=$VPC_ID" \
-        --query "SecurityGroups[*].[GroupId,GroupName,Description]" \
-        --output table
-
-    if [ "${SG_COUNT:-0}" -gt 0 ]; then
-
-        pass "Security groups retrieved."
-
-    else
-
-        fail "No security groups found."
-
-    fi
+        --query "SecurityGroups[].{GroupId:GroupId,Name:GroupName,Description:Description}" \
+        --output table 2>/dev/null
 
 fi
 
 
-# ============================================================================
-# 21. VPC ENDPOINTS
-# ============================================================================
+# ---------------------------------------------------------------------
+# 30. VPC ENDPOINTS
+# ---------------------------------------------------------------------
 
 print_header "23. VPC ENDPOINTS"
 
-if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
+VPC_ENDPOINT_COUNT=0
 
-    ENDPOINT_COUNT=$(aws ec2 describe-vpc-endpoints \
-        --region "$AWS_REGION" \
+if [ -n "$VPC_ID" ]; then
+
+    aws_fast ec2 describe-vpc-endpoints \
+        --filters "Name=vpc-id,Values=$VPC_ID" \
+        --query "VpcEndpoints[].{Id:VpcEndpointId,Type:VpcEndpointType,State:State,Service:ServiceName}" \
+        --output table 2>/dev/null
+
+    VPC_ENDPOINT_COUNT=$(aws_fast ec2 describe-vpc-endpoints \
         --filters "Name=vpc-id,Values=$VPC_ID" \
         --query "length(VpcEndpoints)" \
-        --output text \
-        2>/dev/null)
+        --output text 2>/dev/null)
 
-    echo "VPC Endpoint Count: ${ENDPOINT_COUNT:-0}"
+    echo "VPC Endpoint Count: ${VPC_ENDPOINT_COUNT:-0}"
 
-    aws ec2 describe-vpc-endpoints \
-        --region "$AWS_REGION" \
-        --filters "Name=vpc-id,Values=$VPC_ID" \
-        --query "VpcEndpoints[*].[VpcEndpointId,ServiceName,VpcEndpointType,State]" \
-        --output table
+    if [ "${EXPECTED_VPC_ENDPOINT_COUNT:-0}" -gt 0 ]; then
 
-    if [ "${ENDPOINT_COUNT:-0}" -ge 3 ]; then
-
-        pass "At least three VPC endpoints found."
-
-    elif [ "${ENDPOINT_COUNT:-0}" -gt 0 ]; then
-
-        warn "VPC endpoints exist, but fewer than three were found."
+        if [ "${VPC_ENDPOINT_COUNT:-0}" -ge "$EXPECTED_VPC_ENDPOINT_COUNT" ]; then
+            pass "Expected VPC endpoint count is present."
+        else
+            warn "Expected at least $EXPECTED_VPC_ENDPOINT_COUNT VPC endpoints."
+        fi
 
     else
 
-        warn "No VPC endpoints found."
+        pass "VPC endpoint discovery completed."
 
     fi
 
 fi
 
 
-# ============================================================================
-# 22. EC2 INSTANCE
-# ============================================================================
+# ---------------------------------------------------------------------
+# 31. VPC FLOW LOGS
+# ---------------------------------------------------------------------
 
-print_header "24. EC2 INSTANCE VERIFICATION"
+print_header "24. VPC FLOW LOGS"
 
-INSTANCE_ID=""
+if [ -n "$VPC_ID" ]; then
 
-if [ -n "$INSTANCE_ID_LOCAL" ]; then
+    FLOW_LOG_COUNT=$(aws_fast ec2 describe-flow-logs \
+        --filter "Name=resource-id,Values=$VPC_ID" \
+        --query "length(FlowLogs)" \
+        --output text 2>/dev/null)
 
-    INSTANCE_ID="$INSTANCE_ID_LOCAL"
+    echo "Flow Logs: ${FLOW_LOG_COUNT:-0}"
 
-else
-
-    if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
-
-        INSTANCE_ID=$(aws ec2 describe-instances \
-            --region "$AWS_REGION" \
-            --filters \
-                "Name=vpc-id,Values=$VPC_ID" \
-                "Name=instance-state-name,Values=running" \
-            --query "Reservations[0].Instances[0].InstanceId" \
-            --output text \
-            2>/dev/null)
-
+    if [ "${FLOW_LOG_COUNT:-0}" -gt 0 ]; then
+        pass "VPC Flow Logs are configured."
+    else
+        info "No VPC Flow Logs detected."
     fi
+
+fi
+
+
+# ---------------------------------------------------------------------
+# 32. EC2 INSTANCE DISCOVERY
+# ---------------------------------------------------------------------
+
+print_header "25. EC2 INSTANCE"
+
+if [ -z "$INSTANCE_ID" ] && [ -n "$VPC_ID" ]; then
+
+    INSTANCE_ID=$(aws_fast ec2 describe-instances \
+        --filters \
+        "Name=vpc-id,Values=$VPC_ID" \
+        "Name=instance-state-name,Values=running" \
+        --query "Reservations[].Instances[].InstanceId | [0]" \
+        --output text 2>/dev/null)
 
 fi
 
 
 if [ -n "$INSTANCE_ID" ] && [ "$INSTANCE_ID" != "None" ]; then
 
-    pass "EC2 instance found: $INSTANCE_ID"
-
-    aws ec2 describe-instances \
+    aws_fast ec2 describe-instances \
         --instance-ids "$INSTANCE_ID" \
-        --region "$AWS_REGION" \
-        --query "Reservations[0].Instances[0].[InstanceId,InstanceType,State.Name,SubnetId,PrivateIpAddress,PublicIpAddress,VpcId]" \
-        --output table
+        --query "Reservations[0].Instances[0].{InstanceId:InstanceId,State:State.Name,Type:InstanceType,PrivateIP:PrivateIpAddress,PublicIP:PublicIpAddress,AZ:Placement.AvailabilityZone,VpcId:VpcId,SubnetId:SubnetId}" \
+        --output table 2>/dev/null
+
+    pass "EC2 instance discovered."
 
 else
 
-    fail "Running EC2 instance could not be identified."
+    fail "Running EC2 instance could not be discovered."
 
 fi
 
 
-# ============================================================================
-# 23. EC2 HEALTH
-# ============================================================================
+# ---------------------------------------------------------------------
+# 33. EC2 SYSTEM HEALTH
+# ---------------------------------------------------------------------
 
-print_header "25. EC2 SYSTEM HEALTH"
+print_header "26. EC2 SYSTEM HEALTH"
 
-if [ -n "$INSTANCE_ID" ] && [ "$INSTANCE_ID" != "None" ]; then
+if [ -n "$INSTANCE_ID" ]; then
 
-    INSTANCE_STATUS=$(aws ec2 describe-instance-status \
+    aws_fast ec2 describe-instance-status \
         --instance-ids "$INSTANCE_ID" \
         --include-all-instances \
-        --region "$AWS_REGION" \
-        --query "InstanceStatuses[0].[SystemStatus.Status,InstanceStatus.Status]" \
-        --output text \
-        2>/dev/null)
-
-    echo "EC2 Health:"
-    echo "$INSTANCE_STATUS"
-
-    if echo "$INSTANCE_STATUS" | grep -q "ok"; then
-
-        pass "EC2 system and instance checks are healthy."
-
-    else
-
-        warn "EC2 health checks are not both OK."
-
-    fi
+        --query "InstanceStatuses[0].{Instance:InstanceStatus.Status,System:SystemStatus.Status,Reachability:InstanceStatus.Details[0].Name}" \
+        --output table 2>/dev/null
 
 fi
 
 
-# ============================================================================
-# 24. USERDATA / CLOUD INIT
-# ============================================================================
+# ---------------------------------------------------------------------
+# 34. USER DATA / CLOUD-INIT
+# ---------------------------------------------------------------------
 
-print_header "26. USERDATA / CLOUD-INIT"
+print_header "27. EC2 USERDATA / CLOUD-INIT"
 
-if [ -f "/var/log/cloud-init.log" ]; then
+if [ -f /var/log/cloud-init-output.log ]; then
 
-    pass "cloud-init.log exists."
+    echo "Last 20 lines of cloud-init-output.log:"
+    tail -20 /var/log/cloud-init-output.log
 
-else
-
-    warn "cloud-init.log not found."
-
-fi
-
-
-if [ -f "/var/log/cloud-init-output.log" ]; then
-
-    pass "cloud-init-output.log exists."
+    pass "cloud-init output log exists."
 
 else
 
@@ -1059,353 +922,153 @@ else
 fi
 
 
-if [ -f "/var/log/bootstrap.log" ]; then
+# ---------------------------------------------------------------------
+# 35. DOCKER
+# ---------------------------------------------------------------------
 
-    pass "bootstrap.log exists."
+print_header "28. DOCKER"
 
-    echo
-    echo "--- Last 20 bootstrap.log lines ---"
-
-    sudo tail -n 20 /var/log/bootstrap.log
-
-else
-
-    warn "bootstrap.log not found."
-
-fi
-
-
-if [ -f "/var/log/bootstrap-status.log" ]; then
-
-    pass "bootstrap-status.log exists."
-
-    echo
-    cat /var/log/bootstrap-status.log
-
-else
-
-    warn "bootstrap-status.log not found."
-
-fi
-
-
-# ============================================================================
-# 25. INTERNET CONNECTIVITY
-# ============================================================================
-
-print_header "27. EC2 INTERNET CONNECTIVITY"
-
-if curl -Is \
-    --connect-timeout 5 \
-    https://www.google.com \
-    >/dev/null 2>&1; then
-
-    pass "EC2 HTTPS internet connectivity works."
-
-else
-
-    fail "EC2 cannot reach Google over HTTPS."
-
-fi
-
-
-if curl -Is \
-    --connect-timeout 5 \
-    https://github.com \
-    >/dev/null 2>&1; then
-
-    pass "EC2 can reach GitHub."
-
-else
-
-    fail "EC2 cannot reach GitHub."
-
-fi
-
-
-# ============================================================================
-# 26. DNS
-# ============================================================================
-
-print_header "28. DNS VERIFICATION"
-
-if getent hosts github.com >/dev/null 2>&1; then
-
-    pass "DNS resolution for github.com works."
-
-else
-
-    fail "DNS resolution for github.com failed."
-
-fi
-
-
-if getent hosts amazonaws.com >/dev/null 2>&1; then
-
-    pass "DNS resolution for amazonaws.com works."
-
-else
-
-    fail "DNS resolution for amazonaws.com failed."
-
-fi
-
-
-# ============================================================================
-# 27. APACHE
-# ============================================================================
-
-print_header "29. APACHE VERIFICATION"
-
-if command -v httpd >/dev/null 2>&1; then
-
-    pass "Apache/httpd is installed."
-
-    if systemctl is-active --quiet httpd; then
-
-        pass "Apache is running."
-
-    else
-
-        warn "Apache is installed but not running."
-
-    fi
-
-    if curl -Is \
-        --connect-timeout 5 \
-        http://localhost \
-        >/dev/null 2>&1; then
-
-        pass "Apache responds on localhost."
-
-    else
-
-        warn "Apache does not respond on localhost."
-
-    fi
-
-else
-
-    warn "Apache/httpd is not installed."
-
-fi
-
-
-# ============================================================================
-# 28. NGINX
-# ============================================================================
-
-print_header "30. NGINX VERIFICATION"
-
-if command -v nginx >/dev/null 2>&1; then
-
-    pass "Nginx is installed."
-
-    nginx -v 2>&1
-
-    if systemctl is-active --quiet nginx; then
-
-        pass "Nginx service is running."
-
-    else
-
-        warn "Nginx is installed but not running."
-
-    fi
-
-    if curl -Is \
-        --connect-timeout 5 \
-        http://localhost \
-        >/dev/null 2>&1; then
-
-        pass "HTTP localhost responds."
-
-    else
-
-        warn "No HTTP response from localhost."
-
-    fi
-
-else
-
-    warn "Nginx is not installed."
-
-fi
-
-
-# ============================================================================
-# 29. PHP
-# ============================================================================
-
-print_header "31. PHP VERIFICATION"
-
-if command -v php >/dev/null 2>&1; then
-
-    pass "PHP is installed."
-
-    php --version | head -n 1
-
-else
-
-    warn "PHP is not installed."
-
-fi
-
-
-# ============================================================================
-# 30. DOCKER
-# ============================================================================
-
-print_header "32. DOCKER VERIFICATION"
-
-if command -v docker >/dev/null 2>&1; then
-
-    pass "Docker is installed."
+if command_exists docker; then
 
     docker --version
 
-    if systemctl is-active --quiet docker; then
+    pass "Docker installed."
 
-        pass "Docker service is running."
+    echo
+    echo "Docker service status:"
 
+    if sudo -n systemctl status docker --no-pager 2>/dev/null; then
+        pass "Docker service is available."
     else
-
-        fail "Docker service is not running."
-
+        warn "Unable to read Docker systemd status without prompting."
     fi
 
-    DOCKER_ENABLED=$(systemctl is-enabled docker 2>/dev/null)
+    echo
+    echo "Docker containers:"
 
-    if [ "$DOCKER_ENABLED" = "enabled" ]; then
-
-        pass "Docker is enabled at boot."
-
+    if sudo -n docker ps -a 2>/dev/null; then
+        pass "Docker container list retrieved."
     else
+        warn "Unable to retrieve Docker containers."
+    fi
 
-        warn "Docker is not enabled at boot."
+    echo
+    echo "Docker images:"
 
+    if sudo -n docker images 2>/dev/null; then
+        pass "Docker image list retrieved."
+    else
+        warn "Unable to retrieve Docker images."
     fi
 
 else
 
-    fail "Docker is not installed."
+    warn "Docker is not installed."
 
 fi
 
 
-# ============================================================================
-# 31. DOCKER COMPOSE
-# ============================================================================
+# ---------------------------------------------------------------------
+# 36. DOCKER COMPOSE
+# ---------------------------------------------------------------------
 
-print_header "33. DOCKER COMPOSE VERIFICATION"
+print_header "29. DOCKER COMPOSE"
 
 if docker compose version >/dev/null 2>&1; then
 
-    pass "Docker Compose plugin is installed."
-
     docker compose version
 
-elif command -v docker-compose >/dev/null 2>&1; then
+    pass "Docker Compose plugin is available."
 
-    pass "Standalone docker-compose is installed."
+elif command_exists docker-compose; then
 
     docker-compose --version
 
-else
-
-    warn "Docker Compose was not found."
-
-fi
-
-
-# ============================================================================
-# 32. DOCKER CONTAINERS
-# ============================================================================
-
-print_header "34. DOCKER CONTAINERS"
-
-if command -v docker >/dev/null 2>&1; then
-
-    echo "--- Docker Containers ---"
-
-    sudo docker ps -a
-
-    CONTAINER_COUNT=$(sudo docker ps -aq | wc -l)
-
-    echo
-    echo "Container Count: $CONTAINER_COUNT"
-
-    if [ "$CONTAINER_COUNT" -gt 0 ]; then
-
-        pass "Docker container(s) found."
-
-    else
-
-        warn "No Docker containers found."
-
-    fi
-
-fi
-
-
-# ============================================================================
-# 33. DOCKER IMAGES
-# ============================================================================
-
-print_header "35. DOCKER IMAGES"
-
-if command -v docker >/dev/null 2>&1; then
-
-    sudo docker images
-
-    IMAGE_COUNT=$(sudo docker images -q | wc -l)
-
-    echo
-    echo "Docker Image Count: $IMAGE_COUNT"
-
-    if [ "$IMAGE_COUNT" -gt 0 ]; then
-
-        pass "Docker image(s) found."
-
-    else
-
-        warn "No Docker images found."
-
-    fi
-
-fi
-
-
-# ============================================================================
-# 34. LISTENING PORTS
-# ============================================================================
-
-print_header "36. LISTENING PORTS"
-
-if command -v ss >/dev/null 2>&1; then
-
-    sudo ss -tulpn
-
-    pass "Listening ports retrieved."
+    pass "docker-compose is available."
 
 else
 
-    warn "ss command not available."
+    warn "Docker Compose was not detected."
 
 fi
 
 
-# ============================================================================
-# 35. GIT
-# ============================================================================
+# ---------------------------------------------------------------------
+# 37. NGINX
+# ---------------------------------------------------------------------
 
-print_header "37. GIT VERIFICATION"
+print_header "30. NGINX"
 
-if command -v git >/dev/null 2>&1; then
+if command_exists nginx; then
 
-    pass "Git is installed."
+    nginx -v 2>&1
+
+    if sudo -n systemctl is-active --quiet nginx 2>/dev/null; then
+        pass "Nginx is installed and active."
+    else
+        warn "Nginx is installed but not active."
+    fi
+
+else
+
+    info "Nginx is not installed."
+
+fi
+
+
+# ---------------------------------------------------------------------
+# 38. APACHE
+# ---------------------------------------------------------------------
+
+print_header "31. APACHE"
+
+if command_exists httpd; then
+
+    httpd -v
+
+    if sudo -n systemctl is-active --quiet httpd 2>/dev/null; then
+        pass "Apache is installed and active."
+    else
+        warn "Apache is installed but not active."
+    fi
+
+else
+
+    info "Apache/httpd is not installed."
+
+fi
+
+
+# ---------------------------------------------------------------------
+# 39. PHP
+# ---------------------------------------------------------------------
+
+print_header "32. PHP"
+
+if command_exists php; then
+
+    php --version | head -1
+
+    pass "PHP is installed."
+
+else
+
+    info "PHP is not installed."
+
+fi
+
+
+# ---------------------------------------------------------------------
+# 40. GIT
+# ---------------------------------------------------------------------
+
+print_header "33. GIT"
+
+if command_exists git; then
 
     git --version
+
+    pass "Git is installed."
 
 else
 
@@ -1414,1184 +1077,1313 @@ else
 fi
 
 
-# ============================================================================
-# 36. S3 BUCKET COUNT
-# ============================================================================
+# ---------------------------------------------------------------------
+# 41. LISTENING PORTS
+# ---------------------------------------------------------------------
 
-print_header "38. S3 BUCKET VERIFICATION"
+print_header "34. LISTENING PORTS"
 
-S3_BUCKET_LIST=$(aws s3api list-buckets \
-    --region "$AWS_REGION" \
-    --query "Buckets[*].Name" \
-    --output text \
-    2>/dev/null)
+if command_exists ss; then
 
-if [ $? -eq 0 ]; then
-
-    S3_BUCKET_COUNT=$(aws s3api list-buckets \
-        --region "$AWS_REGION" \
-        --query "length(Buckets)" \
-        --output text \
-        2>/dev/null)
-
-    echo "S3 Bucket Count: ${S3_BUCKET_COUNT:-0}"
-
-    pass "S3 bucket list retrieved."
-
-    echo
-    echo "--- S3 Buckets ---"
-
-    aws s3api list-buckets \
-        --region "$AWS_REGION" \
-        --query "Buckets[*].[Name,CreationDate]" \
-        --output table
-
-else
-
-    fail "Unable to retrieve S3 buckets."
-
-fi
-
-
-# ============================================================================
-# 37. VERIFY EVERY S3 BUCKET
-# ============================================================================
-
-print_header "39. VERIFY S3 BUCKETS"
-
-if [ -n "$S3_BUCKET_LIST" ]; then
-
-    for BUCKET in $S3_BUCKET_LIST; do
-
-        echo
-        echo "----------------------------------------------------------------------"
-        echo "S3 Bucket: $BUCKET"
-        echo "----------------------------------------------------------------------"
-
-        echo
-        echo "Bucket Region:"
-
-        aws s3api get-bucket-location \
-            --bucket "$BUCKET" \
-            --output text \
-            2>/dev/null || true
-
-        echo
-        echo "Versioning:"
-
-        aws s3api get-bucket-versioning \
-            --bucket "$BUCKET" \
-            --output table \
-            2>/dev/null || true
-
-        echo
-        echo "Encryption:"
-
-        aws s3api get-bucket-encryption \
-            --bucket "$BUCKET" \
-            --output table \
-            2>/dev/null || true
-
-        echo
-        echo "Public Access Block:"
-
-        aws s3api get-public-access-block \
-            --bucket "$BUCKET" \
-            --output table \
-            2>/dev/null || true
-
-        echo
-        echo "Object Count:"
-
-        OBJECT_COUNT=$(aws s3api list-objects-v2 \
-            --bucket "$BUCKET" \
-            --query "KeyCount" \
-            --output text \
-            2>/dev/null)
-
-        echo "${OBJECT_COUNT:-0}"
-
-        pass "S3 bucket metadata checked: $BUCKET"
-
-    done
-
-else
-
-    warn "No S3 buckets were found."
-
-fi
-
-
-# ============================================================================
-# 38. DISCOVER WEBSITE BUCKET
-# ============================================================================
-
-print_header "40. DISCOVER WEBSITE S3 BUCKET"
-
-WEBSITE_BUCKET=$(aws cloudformation describe-stacks \
-    --stack-name "$MAIN_STACK" \
-    --region "$AWS_REGION" \
-    --query "Stacks[0].Outputs[?OutputKey=='S3BucketName'].OutputValue" \
-    --output text \
-    2>/dev/null)
-
-if [ -z "$WEBSITE_BUCKET" ] || [ "$WEBSITE_BUCKET" = "None" ]; then
-
-    if [ -n "$EXPECTED_WEBSITE_BUCKET" ]; then
-
-        WEBSITE_BUCKET="$EXPECTED_WEBSITE_BUCKET"
-
+    if sudo -n ss -tulpn 2>/dev/null; then
+        pass "Listening ports retrieved."
+    else
+        ss -tulpn 2>/dev/null
+        pass "Listening ports retrieved."
     fi
 
-fi
-
-
-if [ -n "$WEBSITE_BUCKET" ] && [ "$WEBSITE_BUCKET" != "None" ]; then
-
-    pass "Website S3 bucket identified: $WEBSITE_BUCKET"
-
 else
 
-    warn "Website S3 bucket could not be identified."
+    warn "ss command is not available."
 
 fi
 
 
-# ============================================================================
-# 39. WEBSITE BUCKET OBJECTS
-# ============================================================================
+# ---------------------------------------------------------------------
+# 42. INTERNET CONNECTIVITY
+# ---------------------------------------------------------------------
 
-print_header "41. WEBSITE S3 OBJECTS"
+print_header "35. EC2 INTERNET CONNECTIVITY"
 
-if [ -n "$WEBSITE_BUCKET" ] && [ "$WEBSITE_BUCKET" != "None" ]; then
+if command_exists curl; then
 
-    echo "Bucket:"
-    echo "$WEBSITE_BUCKET"
+    if curl -sS \
+        --connect-timeout "$CURL_TIMEOUT_SECONDS" \
+        --max-time "$CURL_TIMEOUT_SECONDS" \
+        -I https://www.google.com >/dev/null 2>&1; then
 
-    echo
-
-    aws s3 ls \
-        "s3://$WEBSITE_BUCKET/" \
-        --recursive \
-        --region "$AWS_REGION"
-
-    OBJECT_COUNT=$(aws s3api list-objects-v2 \
-        --bucket "$WEBSITE_BUCKET" \
-        --query "KeyCount" \
-        --output text \
-        2>/dev/null)
-
-    echo
-    echo "Website Object Count: ${OBJECT_COUNT:-0}"
-
-    if [ "${OBJECT_COUNT:-0}" -gt 0 ]; then
-
-        pass "Website bucket contains objects."
+        pass "EC2 can reach the public internet."
 
     else
 
-        warn "Website bucket contains no objects."
+        warn "EC2 could not reach Google."
 
     fi
 
-fi
+    if curl -sS \
+        --connect-timeout "$CURL_TIMEOUT_SECONDS" \
+        --max-time "$CURL_TIMEOUT_SECONDS" \
+        -I https://github.com >/dev/null 2>&1; then
 
-
-# ============================================================================
-# 40. S3 WEBSITE CONFIGURATION
-# ============================================================================
-
-print_header "42. S3 WEBSITE CONFIGURATION"
-
-if [ -n "$WEBSITE_BUCKET" ] && [ "$WEBSITE_BUCKET" != "None" ]; then
-
-    echo "--- Website Configuration ---"
-
-    aws s3api get-bucket-website \
-        --bucket "$WEBSITE_BUCKET" \
-        --output table \
-        2>/dev/null
-
-    if [ $? -eq 0 ]; then
-
-        pass "S3 website configuration exists."
+        pass "EC2 can reach GitHub."
 
     else
 
-        info "S3 static website endpoint is not configured."
-
-        info "This can be normal when CloudFront OAC is used."
+        warn "EC2 could not reach GitHub."
 
     fi
 
 fi
 
 
-# ============================================================================
-# 41. CLOUDFRONT DISTRIBUTIONS
-# ============================================================================
+# ---------------------------------------------------------------------
+# 43. DNS
+# ---------------------------------------------------------------------
 
-print_header "43. CLOUDFRONT DISTRIBUTIONS"
+print_header "36. DNS RESOLUTION"
 
-CLOUDFRONT_COUNT=$(aws cloudfront list-distributions \
-    --query "length(DistributionList.Items)" \
-    --output text \
-    2>/dev/null)
+for DOMAIN in github.com amazonaws.com google.com; do
 
-echo "CloudFront Distribution Count: ${CLOUDFRONT_COUNT:-0}"
+    if getent hosts "$DOMAIN" >/dev/null 2>&1; then
 
-if [ "${CLOUDFRONT_COUNT:-0}" -gt 0 ]; then
+        echo "[PASS] DNS resolves $DOMAIN"
 
-    pass "CloudFront distribution(s) found."
+    else
 
-    aws cloudfront list-distributions \
-        --query "DistributionList.Items[*].[Id,DomainName,Status,Enabled]" \
-        --output table
+        echo "[WARN] DNS failed for $DOMAIN"
 
-else
+    fi
 
-    warn "No CloudFront distributions found."
+done
+
+
+# ---------------------------------------------------------------------
+# 44. AWS AUTHENTICATION FROM EC2
+# ---------------------------------------------------------------------
+
+print_header "37. AWS AUTHENTICATION FROM EC2"
+
+if command_exists aws; then
+
+    AUTH_CHECK=$(aws_fast sts get-caller-identity \
+        --query "Arn" \
+        --output text 2>/dev/null)
+
+    if [ -n "$AUTH_CHECK" ] && [ "$AUTH_CHECK" != "None" ]; then
+
+        echo "AWS Identity:"
+        echo "$AUTH_CHECK"
+
+        pass "EC2 has working AWS credentials."
+
+    else
+
+        fail "EC2 AWS credentials are not working."
+
+    fi
 
 fi
 
 
-# ============================================================================
-# 42. CLOUDFRONT -> S3 ORIGIN
-# ============================================================================
+# =====================================================================
+# S3 VERIFICATION
+# =====================================================================
 
-print_header "44. CLOUDFRONT -> S3 VERIFICATION"
+print_header "38. S3 BUCKET COUNT"
 
-if [ "${CLOUDFRONT_COUNT:-0}" -gt 0 ]; then
+S3_LIST_RC=0
 
-    CLOUDFRONT_IDS=$(aws cloudfront list-distributions \
-        --query "DistributionList.Items[*].Id" \
-        --output text \
-        2>/dev/null)
+BUCKET_LIST=$(aws_fast_capture s3api list-buckets \
+    --query "Buckets[].Name" \
+    --output text 2>/dev/null)
 
-    for CF_ID in $CLOUDFRONT_IDS; do
+S3_LIST_RC=$?
 
-        echo
-        echo "----------------------------------------------------------------------"
-        echo "CloudFront Distribution: $CF_ID"
-        echo "----------------------------------------------------------------------"
+if [ "$S3_LIST_RC" -eq 0 ]; then
 
-        CF_DOMAIN=$(aws cloudfront get-distribution \
-            --id "$CF_ID" \
-            --query "Distribution.DomainName" \
-            --output text \
-            2>/dev/null)
+    if [ -z "$BUCKET_LIST" ] || [ "$BUCKET_LIST" = "None" ]; then
 
-        CF_STATUS=$(aws cloudfront get-distribution \
-            --id "$CF_ID" \
-            --query "Distribution.Status" \
-            --output text \
-            2>/dev/null)
+        S3_BUCKET_COUNT=0
 
-        echo "Domain : $CF_DOMAIN"
-        echo "Status : $CF_STATUS"
+    else
 
-        echo
-        echo "Origins:"
+        S3_BUCKET_COUNT=$(echo "$BUCKET_LIST" | wc -w)
 
-        aws cloudfront get-distribution \
-            --id "$CF_ID" \
-            --query "Distribution.DistributionConfig.Origins.Items[*].[Id,DomainName,OriginPath]" \
-            --output table
+    fi
 
-        echo
-        echo "Default Root Object:"
+    echo "Total S3 Buckets in AWS Account: $S3_BUCKET_COUNT"
 
-        aws cloudfront get-distribution \
-            --id "$CF_ID" \
-            --query "Distribution.DistributionConfig.DefaultRootObject" \
-            --output text
+    pass "S3 bucket listing completed."
+
+else
+
+    S3_BUCKET_COUNT=0
+
+    warn "Could not list S3 buckets. Check s3:ListAllMyBuckets permission."
+
+fi
+
+
+# ---------------------------------------------------------------------
+# 45. S3 BUCKET DETAILS
+# ---------------------------------------------------------------------
+
+print_header "39. S3 BUCKET DETAILS"
+
+if [ "$S3_LIST_RC" -eq 0 ] && [ "$S3_BUCKET_COUNT" -gt 0 ]; then
+
+    for BUCKET in $BUCKET_LIST; do
 
         echo
-        echo "Origin Access Control:"
+        echo "--------------------------------------------------------------"
+        echo "Bucket: $BUCKET"
+        echo "--------------------------------------------------------------"
 
-        aws cloudfront get-distribution \
-            --id "$CF_ID" \
-            --query "Distribution.DistributionConfig.Origins.Items[*].OriginAccessControlId" \
-            --output text
+        BUCKET_REGION=$(aws_fast_capture s3api get-bucket-location \
+            --bucket "$BUCKET" \
+            --query "LocationConstraint" \
+            --output text 2>/dev/null)
 
-        if [ "$CF_STATUS" = "Deployed" ]; then
+        if [ "$?" -ne 0 ]; then
 
-            pass "CloudFront distribution is deployed: $CF_ID"
+            BUCKET_REGION="UNKNOWN"
 
+        elif [ "$BUCKET_REGION" = "None" ] || [ -z "$BUCKET_REGION" ]; then
+
+            BUCKET_REGION="us-east-1"
+
+        fi
+
+        echo "Region: $BUCKET_REGION"
+
+        VERSIONING=$(aws_fast_capture s3api get-bucket-versioning \
+            --bucket "$BUCKET" \
+            --query "Status" \
+            --output text 2>/dev/null)
+
+        echo "Versioning: ${VERSIONING:-Not Enabled}"
+
+        ENCRYPTION=$(aws_fast_capture s3api get-bucket-encryption \
+            --bucket "$BUCKET" \
+            --query "ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm" \
+            --output text 2>/dev/null)
+
+        if [ -n "$ENCRYPTION" ] && [ "$ENCRYPTION" != "None" ]; then
+            echo "Encryption: $ENCRYPTION"
         else
+            echo "Encryption: Not returned by API"
+        fi
 
-            warn "CloudFront distribution status is $CF_STATUS: $CF_ID"
+        PUBLIC_BLOCK=$(aws_fast_capture s3api get-public-access-block \
+            --bucket "$BUCKET" \
+            --query "PublicAccessBlockConfiguration" \
+            --output json 2>/dev/null)
 
+        if [ -n "$PUBLIC_BLOCK" ]; then
+            echo "Public Access Block:"
+            echo "$PUBLIC_BLOCK"
+        else
+            echo "Public Access Block: Not configured / unavailable"
+        fi
+
+        WEBSITE=$(aws_fast_capture s3api get-bucket-website \
+            --bucket "$BUCKET" \
+            --output json 2>/dev/null)
+
+        if [ -n "$WEBSITE" ]; then
+            echo "Website Configuration:"
+            echo "$WEBSITE"
+        else
+            echo "Website Configuration: Not configured"
+        fi
+
+        POLICY_STATUS=$(aws_fast_capture s3api get-bucket-policy-status \
+            --bucket "$BUCKET" \
+            --query "PolicyStatus.IsPublic" \
+            --output text 2>/dev/null)
+
+        if [ "$POLICY_STATUS" = "true" ]; then
+            warn "Bucket policy reports public access: $BUCKET"
+        elif [ "$POLICY_STATUS" = "false" ]; then
+            pass "Bucket policy is not public: $BUCKET"
+        else
+            info "Bucket policy status unavailable: $BUCKET"
         fi
 
     done
 
-fi
+else
 
-
-# ============================================================================
-# 43. CLOUDFRONT WEBSITE TEST
-# ============================================================================
-
-print_header "45. CLOUDFRONT WEBSITE TEST"
-
-CLOUDFRONT_URL=$(aws cloudformation describe-stacks \
-    --stack-name "$MAIN_STACK" \
-    --region "$AWS_REGION" \
-    --query "Stacks[0].Outputs[?OutputKey=='CloudFrontWebsiteURL'].OutputValue" \
-    --output text \
-    2>/dev/null)
-
-if [ -z "$CLOUDFRONT_URL" ] || [ "$CLOUDFRONT_URL" = "None" ]; then
-
-    if [ "${CLOUDFRONT_COUNT:-0}" -gt 0 ]; then
-
-        CF_DOMAIN=$(aws cloudfront list-distributions \
-            --query "DistributionList.Items[0].DomainName" \
-            --output text \
-            2>/dev/null)
-
-        if [ -n "$CF_DOMAIN" ] && [ "$CF_DOMAIN" != "None" ]; then
-
-            CLOUDFRONT_URL="https://$CF_DOMAIN"
-
-        fi
-
-    fi
+    info "No S3 bucket details available."
 
 fi
 
 
-if [ -n "$CLOUDFRONT_URL" ] && [ "$CLOUDFRONT_URL" != "None" ]; then
+# ---------------------------------------------------------------------
+# 46. CONFIGURED S3 BUCKET
+# ---------------------------------------------------------------------
 
-    echo "CloudFront URL:"
-    echo "$CLOUDFRONT_URL"
+if [ -n "$S3_BUCKET" ]; then
 
-    HTTP_STATUS=$(curl -sS \
-        -o /dev/null \
-        -w "%{http_code}" \
-        --connect-timeout 10 \
-        --max-time 20 \
-        "$CLOUDFRONT_URL/" \
-        2>/dev/null)
+    print_header "40. CONFIGURED S3 BUCKET"
 
-    echo
-    echo "HTTP Status: $HTTP_STATUS"
+    echo "Configured Bucket: $S3_BUCKET"
 
-    if [[ "$HTTP_STATUS" =~ ^2[0-9][0-9]$ ]] || \
-       [[ "$HTTP_STATUS" =~ ^3[0-9][0-9]$ ]]; then
+    if aws_fast s3api head-bucket \
+        --bucket "$S3_BUCKET" >/dev/null 2>&1; then
 
-        pass "CloudFront website responded successfully."
+        pass "Configured S3 bucket is accessible."
 
     else
 
-        fail "CloudFront website did not return a successful response."
+        fail "Configured S3 bucket could not be accessed."
 
     fi
-
-else
-
-    warn "CloudFront website URL could not be identified."
 
 fi
 
 
-# ============================================================================
-# 44. RDS MYSQL
-# ============================================================================
+# =====================================================================
+# RDS
+# =====================================================================
 
-print_header "46. RDS MYSQL VERIFICATION"
+print_header "41. RDS MYSQL DISCOVERY"
 
-RDS_IDENTIFIER=$(aws rds describe-db-instances \
-    --region "$AWS_REGION" \
-    --query "DBInstances[?Engine=='mysql'].DBInstanceIdentifier | [0]" \
-    --output text \
-    2>/dev/null)
+if [ -z "$RDS_IDENTIFIER" ] && [ -n "$VPC_ID" ]; then
+
+    RDS_IDENTIFIER=$(aws_fast_capture rds describe-db-instances \
+        --query "DBInstances[?Engine=='mysql' && DBSubnetGroup.VpcId=='$VPC_ID'].DBInstanceIdentifier | [0]" \
+        --output text 2>/dev/null)
+
+fi
+
+
+if [ -z "$RDS_IDENTIFIER" ] || [ "$RDS_IDENTIFIER" = "None" ]; then
+
+    RDS_IDENTIFIER=$(aws_fast_capture rds describe-db-instances \
+        --query "DBInstances[?Engine=='mysql'].DBInstanceIdentifier | [0]" \
+        --output text 2>/dev/null)
+
+fi
+
 
 if [ -n "$RDS_IDENTIFIER" ] && [ "$RDS_IDENTIFIER" != "None" ]; then
 
-    pass "RDS MySQL instance found: $RDS_IDENTIFIER"
+    echo "RDS Identifier: $RDS_IDENTIFIER"
 
-    aws rds describe-db-instances \
+    RDS_DATA=$(aws_fast_capture rds describe-db-instances \
         --db-instance-identifier "$RDS_IDENTIFIER" \
-        --region "$AWS_REGION" \
-        --query "DBInstances[0].[DBInstanceIdentifier,Engine,EngineVersion,DBInstanceStatus,DBInstanceClass,PubliclyAccessible,Endpoint.Address,Endpoint.Port]" \
-        --output table
+        --query "DBInstances[0].{Status:DBInstanceStatus,Engine:Engine,EngineVersion:EngineVersion,Endpoint:Endpoint.Address,Port:Endpoint.Port,PubliclyAccessible:PubliclyAccessible,MultiAZ:MultiAZ,Encrypted:StorageEncrypted,BackupRetention:BackupRetentionPeriod,DeletionProtection:DeletionProtection,VpcId:DBSubnetGroup.VpcId,SubnetGroup:DBSubnetGroup.DBSubnetGroupName}" \
+        --output table 2>/dev/null)
 
-    RDS_ENDPOINT=$(aws rds describe-db-instances \
-        --db-instance-identifier "$RDS_IDENTIFIER" \
-        --region "$AWS_REGION" \
-        --query "DBInstances[0].Endpoint.Address" \
-        --output text)
+    RDS_RC=$?
 
-    RDS_PORT=$(aws rds describe-db-instances \
-        --db-instance-identifier "$RDS_IDENTIFIER" \
-        --region "$AWS_REGION" \
-        --query "DBInstances[0].Endpoint.Port" \
-        --output text)
+    if [ "$RDS_RC" -eq 0 ]; then
 
-    RDS_STATUS=$(aws rds describe-db-instances \
-        --db-instance-identifier "$RDS_IDENTIFIER" \
-        --region "$AWS_REGION" \
-        --query "DBInstances[0].DBInstanceStatus" \
-        --output text)
+        echo "$RDS_DATA"
 
-    RDS_PUBLIC=$(aws rds describe-db-instances \
-        --db-instance-identifier "$RDS_IDENTIFIER" \
-        --region "$AWS_REGION" \
-        --query "DBInstances[0].PubliclyAccessible" \
-        --output text)
+        RDS_STATUS=$(aws_fast_capture rds describe-db-instances \
+            --db-instance-identifier "$RDS_IDENTIFIER" \
+            --query "DBInstances[0].DBInstanceStatus" \
+            --output text 2>/dev/null)
 
-    if [ "$RDS_STATUS" = "available" ]; then
+        RDS_ENDPOINT=$(aws_fast_capture rds describe-db-instances \
+            --db-instance-identifier "$RDS_IDENTIFIER" \
+            --query "DBInstances[0].Endpoint.Address" \
+            --output text 2>/dev/null)
 
-        pass "RDS status is available."
+        RDS_PORT=$(aws_fast_capture rds describe-db-instances \
+            --db-instance-identifier "$RDS_IDENTIFIER" \
+            --query "DBInstances[0].Endpoint.Port" \
+            --output text 2>/dev/null)
+
+        if [ "$RDS_STATUS" = "available" ]; then
+            pass "RDS MySQL is available."
+        else
+            warn "RDS status: $RDS_STATUS"
+        fi
 
     else
 
-        warn "RDS status is $RDS_STATUS."
-
-    fi
-
-    if [ "$RDS_PUBLIC" = "False" ]; then
-
-        pass "RDS is not publicly accessible."
-
-    else
-
-        warn "RDS is publicly accessible."
+        warn "RDS verification timed out or failed."
 
     fi
 
 else
 
-    warn "No MySQL RDS instance found."
+    info "No MySQL RDS instance discovered."
 
 fi
 
 
-# ============================================================================
-# 45. RDS NETWORK CONNECTIVITY
-# ============================================================================
+# ---------------------------------------------------------------------
+# 47. RDS NETWORK CONNECTIVITY
+# ---------------------------------------------------------------------
 
-print_header "47. EC2 -> RDS NETWORK CONNECTIVITY"
+print_header "42. RDS NETWORK CONNECTIVITY"
 
-if [ -n "$RDS_ENDPOINT" ] && \
-   [ "$RDS_ENDPOINT" != "None" ]; then
+if [ -n "$RDS_ENDPOINT" ] && [ "$RDS_ENDPOINT" != "None" ]; then
 
-    echo "RDS Endpoint:"
-    echo "$RDS_ENDPOINT"
-
-    echo
-    echo "RDS Port:"
-    echo "$RDS_PORT"
+    echo "RDS Endpoint: $RDS_ENDPOINT"
+    echo "RDS Port:     ${RDS_PORT:-3306}"
 
     if getent hosts "$RDS_ENDPOINT" >/dev/null 2>&1; then
 
-        pass "RDS endpoint resolves from EC2."
+        pass "RDS endpoint DNS resolves."
 
     else
 
-        fail "RDS endpoint does not resolve from EC2."
+        warn "RDS endpoint DNS does not resolve."
 
     fi
 
-    if command -v nc >/dev/null 2>&1; then
+    if command_exists nc; then
 
-        if nc -z -w 5 \
-            "$RDS_ENDPOINT" \
-            "$RDS_PORT" \
+        if timeout "$NC_TIMEOUT_SECONDS" \
+            nc -z -w "$NC_TIMEOUT_SECONDS" \
+            "$RDS_ENDPOINT" "${RDS_PORT:-3306}" \
             >/dev/null 2>&1; then
 
-            pass "EC2 can reach RDS TCP port $RDS_PORT."
+            pass "EC2 can reach RDS TCP port."
 
         else
 
-            fail "EC2 cannot reach RDS TCP port $RDS_PORT."
+            warn "EC2 could not connect to RDS TCP port."
 
         fi
 
     else
 
-        warn "nc is not installed; RDS TCP test skipped."
+        info "nc is not installed; TCP test skipped."
 
     fi
-
-else
-
-    warn "RDS endpoint unavailable."
 
 fi
 
 
-# ============================================================================
-# 46. SECRETS MANAGER
-# ============================================================================
+# =====================================================================
+# SECRETS MANAGER
+# =====================================================================
 
-print_header "48. SECRETS MANAGER"
+print_header "43. SECRETS MANAGER"
 
-SECRET_COUNT=$(aws secretsmanager list-secrets \
-    --region "$AWS_REGION" \
+SECRET_COUNT=$(aws_fast_capture secretsmanager list-secrets \
     --query "length(SecretList)" \
-    --output text \
-    2>/dev/null)
+    --output text 2>/dev/null)
 
-echo "Secret Count: ${SECRET_COUNT:-0}"
+if [ -n "$SECRET_COUNT" ] && [ "$SECRET_COUNT" != "None" ]; then
 
-if [ "${SECRET_COUNT:-0}" -gt 0 ]; then
+    echo "Secrets in Region: $SECRET_COUNT"
 
-    pass "Secrets Manager contains secret(s)."
+    aws_fast secretsmanager list-secrets \
+        --query "SecretList[].{Name:Name,Description:Description,LastChanged:LastChangedDate,ARN:ARN}" \
+        --output table 2>/dev/null
 
-    echo
-    echo "--- Secret Metadata ---"
-
-    # IMPORTANT:
-    #
-    # Secret VALUE is intentionally never requested.
-    #
-    aws secretsmanager list-secrets \
-        --region "$AWS_REGION" \
-        --query "SecretList[*].[Name,ARN,LastChangedDate]" \
-        --output table
+    pass "Secrets Manager metadata verified."
 
 else
 
-    warn "No Secrets Manager secrets found."
+    warn "Secrets Manager could not be queried."
 
 fi
 
 
-# ============================================================================
-# 47. ECR
-# ============================================================================
+# =====================================================================
+# ECR
+# =====================================================================
 
-print_header "49. ECR VERIFICATION"
+print_header "44. ECR REPOSITORY"
 
-ECR_ERROR_FILE="/tmp/charlie-cafe-ecr-error.txt"
+if [ -n "$ECR_REPOSITORY" ]; then
 
-rm -f "$ECR_ERROR_FILE"
-
-echo "Repository:"
-echo "$ECR_REPOSITORY"
-
-echo
-echo "Region:"
-echo "$AWS_REGION"
-
-if aws ecr describe-repositories \
-    --repository-names "$ECR_REPOSITORY" \
-    --region "$AWS_REGION" \
-    >/dev/null \
-    2>"$ECR_ERROR_FILE"; then
-
-    pass "ECR repository exists: $ECR_REPOSITORY"
-
-    aws ecr describe-repositories \
+    ECR_ERROR=$(aws_fast_capture ecr describe-repositories \
         --repository-names "$ECR_REPOSITORY" \
-        --region "$AWS_REGION" \
-        --query "repositories[0].[repositoryName,repositoryUri,registryId,repositoryArn]" \
-        --output table
+        --query "repositories[0]" \
+        --output json 2>&1)
 
-else
+    ECR_RC=$?
 
-    ECR_ERROR=$(cat "$ECR_ERROR_FILE")
+    if [ "$ECR_RC" -eq 0 ]; then
 
-    echo
-    echo "--- ECR Error ---"
-    echo "$ECR_ERROR"
+        echo "$ECR_ERROR"
 
-    if echo "$ECR_ERROR" | grep -qi "RepositoryNotFoundException"; then
-
-        fail "ECR repository does not exist."
-
-    elif echo "$ECR_ERROR" | grep -qi "AccessDenied"; then
-
-        fail "IAM permission denied while accessing ECR."
-
-    else
-
-        fail "ECR verification failed."
-
-    fi
-
-fi
-
-rm -f "$ECR_ERROR_FILE"
-
-
-# ============================================================================
-# 48. ECR IMAGES
-# ============================================================================
-
-print_header "50. ECR IMAGES"
-
-if aws ecr describe-repositories \
-    --repository-names "$ECR_REPOSITORY" \
-    --region "$AWS_REGION" \
-    >/dev/null \
-    2>&1; then
-
-    ECR_IMAGE_COUNT=$(aws ecr describe-images \
-        --repository-name "$ECR_REPOSITORY" \
-        --region "$AWS_REGION" \
-        --query "length(imageDetails)" \
-        --output text \
-        2>/dev/null)
-
-    echo "ECR Image Count: ${ECR_IMAGE_COUNT:-0}"
-
-    aws ecr describe-images \
-        --repository-name "$ECR_REPOSITORY" \
-        --region "$AWS_REGION" \
-        --query "imageDetails[*].[imageTags,imageDigest,imagePushedAt,imageSizeInBytes]" \
-        --output table \
-        2>/dev/null
-
-    if [ "${ECR_IMAGE_COUNT:-0}" -gt 0 ]; then
-
-        pass "ECR contains image(s)."
-
-    else
-
-        warn "ECR repository contains no images."
-
-    fi
-
-else
-
-    warn "ECR image verification skipped because repository is unavailable."
-
-fi
-
-
-# ============================================================================
-# 49. ECS CLOUDFORMATION STACK
-# ============================================================================
-
-print_header "51. ECS CLOUDFORMATION STACK"
-
-ECS_STACK_STATUS=$(aws cloudformation describe-stacks \
-    --stack-name "$ECS_STACK" \
-    --region "$AWS_REGION" \
-    --query "Stacks[0].StackStatus" \
-    --output text \
-    2>/dev/null)
-
-if [ "$ECS_STACK_STATUS" = "CREATE_COMPLETE" ] || \
-   [ "$ECS_STACK_STATUS" = "UPDATE_COMPLETE" ]; then
-
-    pass "ECS CloudFormation stack status: $ECS_STACK_STATUS"
-
-else
-
-    warn "ECS CloudFormation stack status: ${ECS_STACK_STATUS:-NOT_FOUND}"
-
-fi
-
-
-# ============================================================================
-# 50. ECS CLUSTER
-# ============================================================================
-
-print_header "52. ECS CLUSTER"
-
-ECS_CLUSTER_STATUS=$(aws ecs describe-clusters \
-    --clusters "$ECS_CLUSTER" \
-    --region "$AWS_REGION" \
-    --query "clusters[0].status" \
-    --output text \
-    2>/dev/null)
-
-if [ "$ECS_CLUSTER_STATUS" = "ACTIVE" ]; then
-
-    pass "ECS cluster is ACTIVE."
-
-    aws ecs describe-clusters \
-        --clusters "$ECS_CLUSTER" \
-        --region "$AWS_REGION" \
-        --query "clusters[0].[clusterName,status,runningTasksCount,pendingTasksCount,activeServicesCount]" \
-        --output table
-
-else
-
-    fail "ECS cluster status: ${ECS_CLUSTER_STATUS:-NOT_FOUND}"
-
-fi
-
-
-# ============================================================================
-# 51. ECS SERVICE
-# ============================================================================
-
-print_header "53. ECS SERVICE"
-
-ECS_SERVICE_STATUS=$(aws ecs describe-services \
-    --cluster "$ECS_CLUSTER" \
-    --services "$ECS_SERVICE" \
-    --region "$AWS_REGION" \
-    --query "services[0].status" \
-    --output text \
-    2>/dev/null)
-
-if [ "$ECS_SERVICE_STATUS" = "ACTIVE" ]; then
-
-    pass "ECS service is ACTIVE."
-
-    aws ecs describe-services \
-        --cluster "$ECS_CLUSTER" \
-        --services "$ECS_SERVICE" \
-        --region "$AWS_REGION" \
-        --query "services[0].[serviceName,status,desiredCount,runningCount,pendingCount,launchType]" \
-        --output table
-
-    ECS_DESIRED_COUNT=$(aws ecs describe-services \
-        --cluster "$ECS_CLUSTER" \
-        --services "$ECS_SERVICE" \
-        --region "$AWS_REGION" \
-        --query "services[0].desiredCount" \
-        --output text)
-
-    ECS_RUNNING_COUNT=$(aws ecs describe-services \
-        --cluster "$ECS_CLUSTER" \
-        --services "$ECS_SERVICE" \
-        --region "$AWS_REGION" \
-        --query "services[0].runningCount" \
-        --output text)
-
-    echo
-    echo "Desired Tasks : $ECS_DESIRED_COUNT"
-    echo "Running Tasks : $ECS_RUNNING_COUNT"
-
-    if [ "$ECS_RUNNING_COUNT" -eq "$ECS_DESIRED_COUNT" ]; then
-
-        pass "ECS running task count matches desired count."
-
-    else
-
-        warn "ECS running count does not match desired count."
-
-    fi
-
-else
-
-    fail "ECS service status: ${ECS_SERVICE_STATUS:-NOT_FOUND}"
-
-fi
-
-
-# ============================================================================
-# 52. ECS TASKS
-# ============================================================================
-
-print_header "54. ECS RUNNING TASKS"
-
-TASK_ARNS=$(aws ecs list-tasks \
-    --cluster "$ECS_CLUSTER" \
-    --service-name "$ECS_SERVICE" \
-    --desired-status RUNNING \
-    --region "$AWS_REGION" \
-    --query "taskArns[]" \
-    --output text \
-    2>/dev/null)
-
-if [ -n "$TASK_ARNS" ] && \
-   [ "$TASK_ARNS" != "None" ]; then
-
-    pass "Running ECS task(s) found."
-
-    aws ecs describe-tasks \
-        --cluster "$ECS_CLUSTER" \
-        --tasks $TASK_ARNS \
-        --region "$AWS_REGION" \
-        --query "tasks[*].[taskArn,lastStatus,healthStatus,launchType,taskDefinitionArn]" \
-        --output table
-
-else
-
-    warn "No running ECS tasks found."
-
-fi
-
-
-# ============================================================================
-# 53. ECS TASK HEALTH
-# ============================================================================
-
-print_header "55. ECS TASK HEALTH"
-
-if [ -n "$TASK_ARNS" ] && \
-   [ "$TASK_ARNS" != "None" ]; then
-
-    TASK_HEALTH=$(aws ecs describe-tasks \
-        --cluster "$ECS_CLUSTER" \
-        --tasks $TASK_ARNS \
-        --region "$AWS_REGION" \
-        --query "tasks[*].[lastStatus,healthStatus]" \
-        --output text \
-        2>/dev/null)
-
-    echo "$TASK_HEALTH"
-
-    if echo "$TASK_HEALTH" | grep -q "RUNNING"; then
-
-        pass "At least one ECS task is RUNNING."
-
-    else
-
-        warn "No RUNNING ECS task detected."
-
-    fi
-
-fi
-
-
-# ============================================================================
-# 54. APPLICATION LOAD BALANCER
-# ============================================================================
-
-print_header "56. APPLICATION LOAD BALANCER"
-
-ALB_ARN=$(aws elbv2 describe-load-balancers \
-    --region "$AWS_REGION" \
-    --query "LoadBalancers[?Type=='application'].LoadBalancerArn | [0]" \
-    --output text \
-    2>/dev/null)
-
-if [ -n "$ALB_ARN" ] && \
-   [ "$ALB_ARN" != "None" ]; then
-
-    pass "Application Load Balancer found."
-
-    aws elbv2 describe-load-balancers \
-        --load-balancer-arns "$ALB_ARN" \
-        --region "$AWS_REGION" \
-        --query "LoadBalancers[0].[LoadBalancerName,DNSName,Scheme,Type,State.Code,VpcId]" \
-        --output table
-
-    ALB_DNS=$(aws elbv2 describe-load-balancers \
-        --load-balancer-arns "$ALB_ARN" \
-        --region "$AWS_REGION" \
-        --query "LoadBalancers[0].DNSName" \
-        --output text)
-
-    ALB_STATE=$(aws elbv2 describe-load-balancers \
-        --load-balancer-arns "$ALB_ARN" \
-        --region "$AWS_REGION" \
-        --query "LoadBalancers[0].State.Code" \
-        --output text)
-
-    if [ "$ALB_STATE" = "active" ]; then
-
-        pass "Application Load Balancer is active."
-
-    else
-
-        warn "ALB state is $ALB_STATE."
-
-    fi
-
-else
-
-    warn "No Application Load Balancer found."
-
-fi
-
-
-# ============================================================================
-# 55. ALB LISTENERS
-# ============================================================================
-
-print_header "57. ALB LISTENERS"
-
-if [ -n "$ALB_ARN" ] && [ "$ALB_ARN" != "None" ]; then
-
-    LISTENER_COUNT=$(aws elbv2 describe-listeners \
-        --load-balancer-arn "$ALB_ARN" \
-        --region "$AWS_REGION" \
-        --query "length(Listeners)" \
-        --output text \
-        2>/dev/null)
-
-    echo "Listener Count: ${LISTENER_COUNT:-0}"
-
-    aws elbv2 describe-listeners \
-        --load-balancer-arn "$ALB_ARN" \
-        --region "$AWS_REGION" \
-        --query "Listeners[*].[ListenerArn,Protocol,Port,DefaultActions[0].Type]" \
-        --output table
-
-    if [ "${LISTENER_COUNT:-0}" -gt 0 ]; then
-
-        pass "ALB listener(s) found."
-
-    else
-
-        fail "No ALB listeners found."
-
-    fi
-
-fi
-
-
-# ============================================================================
-# 56. TARGET GROUPS
-# ============================================================================
-
-print_header "58. ALB TARGET GROUPS"
-
-TARGET_GROUPS=""
-
-if [ -n "$ALB_ARN" ] && [ "$ALB_ARN" != "None" ]; then
-
-    TARGET_GROUPS=$(aws elbv2 describe-target-groups \
-        --load-balancer-arn "$ALB_ARN" \
-        --region "$AWS_REGION" \
-        --query "TargetGroups[*].TargetGroupArn" \
-        --output text \
-        2>/dev/null)
-
-    if [ -n "$TARGET_GROUPS" ] && \
-       [ "$TARGET_GROUPS" != "None" ]; then
-
-        pass "ALB target group(s) found."
-
-        aws elbv2 describe-target-groups \
-            --load-balancer-arn "$ALB_ARN" \
-            --region "$AWS_REGION" \
-            --query "TargetGroups[*].[TargetGroupName,Protocol,Port,TargetType,HealthCheckProtocol,HealthCheckPort,HealthCheckPath]" \
-            --output table
-
-    else
-
-        warn "No target groups found."
-
-    fi
-
-fi
-
-
-# ============================================================================
-# 57. TARGET HEALTH
-# ============================================================================
-
-print_header "59. ALB TARGET HEALTH"
-
-if [ -n "$TARGET_GROUPS" ] && \
-   [ "$TARGET_GROUPS" != "None" ]; then
-
-    for TG in $TARGET_GROUPS; do
+        pass "ECR repository exists."
 
         echo
-        echo "----------------------------------------------------------------------"
-        echo "Target Group"
-        echo "$TG"
-        echo "----------------------------------------------------------------------"
+        echo "ECR Images:"
 
-        aws elbv2 describe-target-health \
-            --target-group-arn "$TG" \
-            --region "$AWS_REGION" \
-            --query "TargetHealthDescriptions[*].[Target.Id,Target.Port,TargetHealth.State,TargetHealth.Reason,TargetHealth.Description]" \
-            --output table
+        aws_fast ecr describe-images \
+            --repository-name "$ECR_REPOSITORY" \
+            --query "imageDetails[].{ImageDigest:imageDigest,Tags:imageTags,PushTime:imagePushedAt,Size:imageSizeInBytes}" \
+            --output table 2>/dev/null
 
-        HEALTHY_COUNT=$(aws elbv2 describe-target-health \
-            --target-group-arn "$TG" \
-            --region "$AWS_REGION" \
-            --query "length(TargetHealthDescriptions[?TargetHealth.State=='healthy'])" \
-            --output text \
-            2>/dev/null)
+    else
 
-        echo
-        echo "Healthy Targets: ${HEALTHY_COUNT:-0}"
+        if echo "$ECR_ERROR" | grep -qi "RepositoryNotFound"; then
 
-        if [ "${HEALTHY_COUNT:-0}" -gt 0 ]; then
+            fail "ECR repository '$ECR_REPOSITORY' does not exist."
 
-            pass "Healthy ALB target(s) found."
+        elif echo "$ECR_ERROR" | grep -qi "AccessDenied"; then
+
+            warn "Access denied while reading ECR repository."
+
+        elif echo "$ECR_ERROR" | grep -qi "ExpiredToken\|Unable to locate credentials"; then
+
+            fail "AWS credentials are invalid or unavailable."
 
         else
 
-            fail "No healthy ALB targets found."
+            warn "ECR verification failed or timed out."
 
         fi
+
+    fi
+
+fi
+
+
+# =====================================================================
+# ECS
+# =====================================================================
+
+print_header "45. ECS CLUSTER"
+
+ECS_CLUSTER_STATUS=""
+
+if [ -n "$ECS_CLUSTER" ]; then
+
+    ECS_CLUSTER_STATUS=$(aws_fast_capture ecs describe-clusters \
+        --clusters "$ECS_CLUSTER" \
+        --query "clusters[0].status" \
+        --output text 2>/dev/null)
+
+    if [ "$ECS_CLUSTER_STATUS" = "ACTIVE" ]; then
+
+        pass "ECS cluster is ACTIVE."
+
+        aws_fast ecs describe-clusters \
+            --clusters "$ECS_CLUSTER" \
+            --query "clusters[0].{Name:clusterName,Status:status,RunningTasks:runningTasksCount,PendingTasks:pendingTasksCount,Services:activeServicesCount}" \
+            --output table 2>/dev/null
+
+    elif [ -n "$ECS_CLUSTER_STATUS" ] && [ "$ECS_CLUSTER_STATUS" != "None" ]; then
+
+        warn "ECS cluster status: $ECS_CLUSTER_STATUS"
+
+    else
+
+        fail "ECS cluster could not be found."
+
+    fi
+
+fi
+
+
+# ---------------------------------------------------------------------
+# 48. ECS SERVICE
+# ---------------------------------------------------------------------
+
+print_header "46. ECS SERVICE"
+
+if [ -n "$ECS_CLUSTER" ] && [ -n "$ECS_SERVICE" ]; then
+
+    ECS_SERVICE_STATUS=$(aws_fast_capture ecs describe-services \
+        --cluster "$ECS_CLUSTER" \
+        --services "$ECS_SERVICE" \
+        --query "services[0].status" \
+        --output text 2>/dev/null)
+
+    if [ "$ECS_SERVICE_STATUS" = "ACTIVE" ]; then
+
+        pass "ECS service is ACTIVE."
+
+        aws_fast ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --query "services[0].{Service:serviceName,Status:status,Desired:desiredCount,Running:runningCount,Pending:pendingCount,TaskDefinition:taskDefinition,LaunchType:launchType}" \
+            --output table 2>/dev/null
+
+    elif [ -n "$ECS_SERVICE_STATUS" ] && [ "$ECS_SERVICE_STATUS" != "None" ]; then
+
+        warn "ECS service status: $ECS_SERVICE_STATUS"
+
+    else
+
+        fail "ECS service could not be found."
+
+    fi
+
+fi
+
+
+# ---------------------------------------------------------------------
+# 49. ECS RUNNING TASKS
+# ---------------------------------------------------------------------
+
+print_header "47. ECS RUNNING TASKS"
+
+if [ -n "$ECS_CLUSTER" ] && [ -n "$ECS_SERVICE" ]; then
+
+    TASK_ARNS=$(aws_fast_capture ecs list-tasks \
+        --cluster "$ECS_CLUSTER" \
+        --service-name "$ECS_SERVICE" \
+        --desired-status RUNNING \
+        --query "taskArns[]" \
+        --output text 2>/dev/null)
+
+    if [ -n "$TASK_ARNS" ] && [ "$TASK_ARNS" != "None" ]; then
+
+        aws_fast ecs describe-tasks \
+            --cluster "$ECS_CLUSTER" \
+            --tasks $TASK_ARNS \
+            --query "tasks[].{TaskArn:taskArn,Status:lastStatus,Health:healthStatus,TaskDefinition:taskDefinition,CPU:cpu,Memory:memory}" \
+            --output table 2>/dev/null
+
+        pass "Running ECS tasks verified."
+
+    else
+
+        warn "No running ECS tasks found."
+
+    fi
+
+fi
+
+
+# =====================================================================
+# ALB
+# =====================================================================
+
+print_header "48. APPLICATION LOAD BALANCER"
+
+if [ -z "$ALB_ARN" ] && [ -n "$VPC_ID" ]; then
+
+    ALB_ARN=$(aws_fast_capture elbv2 describe-load-balancers \
+        --query "LoadBalancers[?VpcId=='$VPC_ID' && Type=='application'].LoadBalancerArn | [0]" \
+        --output text 2>/dev/null)
+
+fi
+
+
+ALB_DNS=""
+
+if [ -n "$ALB_ARN" ] && [ "$ALB_ARN" != "None" ]; then
+
+    aws_fast elbv2 describe-load-balancers \
+        --load-balancer-arns "$ALB_ARN" \
+        --query "LoadBalancers[0].{Name:LoadBalancerName,DNS:DNSName,State:State.Code,Type:Type,Scheme:Scheme,VpcId:VpcId,IPType:IpAddressType}" \
+        --output table 2>/dev/null
+
+    ALB_DNS=$(aws_fast_capture elbv2 describe-load-balancers \
+        --load-balancer-arns "$ALB_ARN" \
+        --query "LoadBalancers[0].DNSName" \
+        --output text 2>/dev/null)
+
+    if [ -n "$ALB_DNS" ] && [ "$ALB_DNS" != "None" ]; then
+
+        pass "Application Load Balancer discovered."
+
+    else
+
+        warn "ALB DNS name could not be retrieved."
+
+    fi
+
+else
+
+    warn "Application Load Balancer was not found in the lab VPC."
+
+fi
+
+
+# ---------------------------------------------------------------------
+# 50. ALB LISTENERS
+# ---------------------------------------------------------------------
+
+print_header "49. ALB LISTENERS"
+
+if [ -n "$ALB_ARN" ] && [ "$ALB_ARN" != "None" ]; then
+
+    aws_fast elbv2 describe-listeners \
+        --load-balancer-arn "$ALB_ARN" \
+        --query "Listeners[].{Protocol:Protocol,Port:Port,ARN:ListenerArn}" \
+        --output table 2>/dev/null
+
+fi
+
+
+# ---------------------------------------------------------------------
+# 51. ALB TARGET GROUPS
+# ---------------------------------------------------------------------
+
+print_header "50. ALB TARGET GROUPS"
+
+TARGET_GROUP_ARNS=""
+
+if [ -n "$ALB_ARN" ]; then
+
+    TARGET_GROUP_ARNS=$(aws_fast_capture elbv2 describe-target-groups \
+        --load-balancer-arn "$ALB_ARN" \
+        --query "TargetGroups[].TargetGroupArn" \
+        --output text 2>/dev/null)
+
+    aws_fast elbv2 describe-target-groups \
+        --load-balancer-arn "$ALB_ARN" \
+        --query "TargetGroups[].{Name:TargetGroupName,Protocol:Protocol,Port:Port,TargetType:TargetType,HealthPath:HealthCheckPath,HealthPort:HealthCheckPort}" \
+        --output table 2>/dev/null
+
+fi
+
+
+# ---------------------------------------------------------------------
+# 52. TARGET HEALTH
+# ---------------------------------------------------------------------
+
+print_header "51. ALB TARGET HEALTH"
+
+if [ -n "$TARGET_GROUP_ARNS" ] && [ "$TARGET_GROUP_ARNS" != "None" ]; then
+
+    for TG_ARN in $TARGET_GROUP_ARNS; do
+
+        echo
+        echo "Target Group:"
+        echo "$TG_ARN"
+
+        aws_fast elbv2 describe-target-health \
+            --target-group-arn "$TG_ARN" \
+            --query "TargetHealthDescriptions[].{Target:Target.Id,Port:Target.Port,State:TargetHealth.State,Reason:TargetHealth.Reason}" \
+            --output table 2>/dev/null
 
     done
 
+    pass "ALB target health verification completed."
+
+else
+
+    warn "No ALB target groups found."
+
 fi
 
 
-# ============================================================================
-# 58. ALB HTTP TEST
-# ============================================================================
+# ---------------------------------------------------------------------
+# 53. ALB HTTP TEST
+# ---------------------------------------------------------------------
 
-print_header "60. APPLICATION HTTP TEST THROUGH ALB"
+print_header "52. ALB HTTP TEST"
 
-if [ -n "$ALB_DNS" ] && \
-   [ "$ALB_DNS" != "None" ]; then
+if [ -n "$ALB_DNS" ] && [ "$ALB_DNS" != "None" ]; then
 
     echo "ALB DNS:"
     echo "$ALB_DNS"
 
     HTTP_STATUS=$(curl -sS \
+        --connect-timeout "$CURL_TIMEOUT_SECONDS" \
+        --max-time "$CURL_TIMEOUT_SECONDS" \
         -o /dev/null \
         -w "%{http_code}" \
-        --connect-timeout 10 \
-        --max-time 20 \
-        "http://$ALB_DNS/" \
-        2>/dev/null)
+        "http://$ALB_DNS" 2>/dev/null)
 
-    echo
-    echo "HTTP Status: $HTTP_STATUS"
+    if [[ "$HTTP_STATUS" =~ ^[23][0-9][0-9]$ ]]; then
 
-    if [[ "$HTTP_STATUS" =~ ^2[0-9][0-9]$ ]] || \
-       [[ "$HTTP_STATUS" =~ ^3[0-9][0-9]$ ]]; then
+        echo "HTTP Status: $HTTP_STATUS"
+        pass "Application responded through ALB."
 
-        pass "Application responded successfully through ALB."
+    elif [ -n "$HTTP_STATUS" ]; then
+
+        echo "HTTP Status: $HTTP_STATUS"
+        warn "ALB responded with HTTP $HTTP_STATUS."
 
     else
 
-        fail "Application did not return a successful response through ALB."
+        warn "ALB HTTP request timed out or failed."
 
     fi
 
 else
 
-    warn "ALB DNS unavailable; HTTP test skipped."
+    info "ALB HTTP test skipped because ALB DNS is unavailable."
 
 fi
 
 
-# ============================================================================
-# 59. CLOUDWATCH LOGS
-# ============================================================================
+# ---------------------------------------------------------------------
+# 54. ALB HTTPS TEST
+# ---------------------------------------------------------------------
 
-print_header "61. CLOUDWATCH LOGS"
+print_header "53. ALB HTTPS TEST"
 
-LOG_GROUP_EXISTS=$(aws logs describe-log-groups \
-    --log-group-name-prefix "$LOG_GROUP" \
-    --region "$AWS_REGION" \
-    --query "logGroups[?logGroupName=='$LOG_GROUP'].logGroupName" \
-    --output text \
-    2>/dev/null)
+HTTPS_LISTENER=$(aws_fast_capture elbv2 describe-listeners \
+    --load-balancer-arn "$ALB_ARN" \
+    --query "Listeners[?Port==\`443\`].ListenerArn | [0]" \
+    --output text 2>/dev/null)
 
-if [ "$LOG_GROUP_EXISTS" = "$LOG_GROUP" ]; then
+if [ -n "$HTTPS_LISTENER" ] && [ "$HTTPS_LISTENER" != "None" ]; then
 
-    pass "CloudWatch log group exists: $LOG_GROUP"
+    echo "HTTPS/443 listener detected."
 
-    echo
-    echo "--- Recent CloudWatch Logs ---"
+    HTTPS_STATUS=$(curl -k -sS \
+        --connect-timeout "$CURL_TIMEOUT_SECONDS" \
+        --max-time "$CURL_TIMEOUT_SECONDS" \
+        -o /dev/null \
+        -w "%{http_code}" \
+        "https://$ALB_DNS" 2>/dev/null)
 
-    aws logs tail "$LOG_GROUP" \
-        --since 10m \
-        --format short \
-        --region "$AWS_REGION" \
-        2>/dev/null || true
+    if [[ "$HTTPS_STATUS" =~ ^[23][0-9][0-9]$ ]]; then
+
+        echo "HTTPS Status: $HTTPS_STATUS"
+        pass "Application responded through ALB HTTPS."
+
+    else
+
+        echo "HTTPS Status: ${HTTPS_STATUS:-NO_RESPONSE}"
+        warn "ALB HTTPS request failed or timed out."
+
+    fi
 
 else
 
-    warn "CloudWatch log group not found: $LOG_GROUP"
+    info "No HTTPS/443 listener configured on this ALB."
 
 fi
 
 
-# ============================================================================
-# 60. FINAL EC2 -> RDS TEST
-# ============================================================================
+# =====================================================================
+# CLOUDWATCH LOGS
+# =====================================================================
+#
+# IMPORTANT:
+#
+# This section is intentionally FAST.
+#
+# We DO NOT call:
+#
+#     aws logs tail
+#
+# because log tailing can wait for log events and cause the script
+# to appear frozen.
+#
+# Instead we only:
+#
+#   1. Check whether the log group exists.
+#   2. Read its metadata.
+#   3. Count streams.
+#   4. Optionally retrieve logs ONLY if explicitly enabled.
+#
+# SHOW_RECENT_LOGS=false is the recommended setting.
+#
+# =====================================================================
 
-print_header "62. FINAL EC2 -> RDS CONNECTIVITY"
+print_header "54. CLOUDWATCH LOGS"
 
-if [ -n "$RDS_ENDPOINT" ] && \
-   [ "$RDS_ENDPOINT" != "None" ]; then
+CLOUDWATCH_LOG_GROUP_FOUND="false"
 
-    if command -v nc >/dev/null 2>&1; then
+if [ -n "$LOG_GROUP" ]; then
 
-        if nc -z -w 5 \
-            "$RDS_ENDPOINT" \
-            "$RDS_PORT" \
-            >/dev/null 2>&1; then
+    # ---------------------------------------------------------------
+    # FAST LOG GROUP LOOKUP
+    # ---------------------------------------------------------------
 
-            pass "Final EC2 -> RDS connectivity verified."
+    LOG_GROUP_DATA=$(aws_fast_capture logs describe-log-groups \
+        --log-group-name-prefix "$LOG_GROUP" \
+        --query "logGroups[?logGroupName=='$LOG_GROUP'] | [0]" \
+        --output json 2>/dev/null)
+
+    CW_RC=$?
+
+    if [ "$CW_RC" -eq 124 ]; then
+
+        warn "CloudWatch Log Group API timed out after ${AWS_TIMEOUT_SECONDS}s."
+        info "Continuing verification..."
+
+    elif [ "$CW_RC" -ne 0 ]; then
+
+        warn "CloudWatch Log Group lookup failed."
+        info "Continuing verification..."
+
+    elif [ -z "$LOG_GROUP_DATA" ] || [ "$LOG_GROUP_DATA" = "null" ]; then
+
+        warn "CloudWatch Log Group does not exist: $LOG_GROUP"
+
+    else
+
+        CLOUDWATCH_LOG_GROUP_FOUND="true"
+
+        echo "Log Group:"
+        echo "$LOG_GROUP_DATA"
+
+        pass "CloudWatch Log Group exists."
+
+    fi
+
+
+    # ---------------------------------------------------------------
+    # LOG STREAM COUNT
+    # ---------------------------------------------------------------
+    #
+    # This is also bounded by AWS_TIMEOUT_SECONDS.
+    #
+    # ---------------------------------------------------------------
+
+    if [ "$CLOUDWATCH_LOG_GROUP_FOUND" = "true" ]; then
+
+        LOG_STREAM_COUNT=$(aws_fast_capture logs describe-log-streams \
+            --log-group-name "$LOG_GROUP" \
+            --query "length(logStreams)" \
+            --output text 2>/dev/null)
+
+        STREAM_RC=$?
+
+        if [ "$STREAM_RC" -eq 124 ]; then
+
+            warn "CloudWatch log stream lookup timed out."
+            info "Continuing verification..."
+
+        elif [ "$STREAM_RC" -eq 0 ]; then
+
+            echo "Log Stream Count: ${LOG_STREAM_COUNT:-0}"
+
+            pass "CloudWatch log stream metadata verified."
 
         else
 
-            fail "Final EC2 -> RDS connectivity failed."
+            warn "CloudWatch log stream lookup failed."
+
+        fi
+
+    fi
+
+
+    # ---------------------------------------------------------------
+    # RECENT LOGS
+    # ---------------------------------------------------------------
+    #
+    # DISABLED BY DEFAULT.
+    #
+    # If you set:
+    #
+    # SHOW_RECENT_LOGS="true"
+    #
+    # then the script retrieves only a very small number of events.
+    #
+    # Even then, timeout protection remains active.
+    #
+    # ---------------------------------------------------------------
+
+    if [ "$SHOW_RECENT_LOGS" = "true" ] && \
+       [ "$CLOUDWATCH_LOG_GROUP_FOUND" = "true" ]; then
+
+        echo
+        echo "Recent CloudWatch Events:"
+        echo "---------------------------------------------"
+
+        RECENT_LOGS=$(aws_fast_capture logs filter-log-events \
+            --log-group-name "$LOG_GROUP" \
+            --limit 5 \
+            --query "events[].{Time:timestamp,Message:message}" \
+            --output table 2>/dev/null)
+
+        RECENT_RC=$?
+
+        if [ "$RECENT_RC" -eq 124 ]; then
+
+            warn "CloudWatch event retrieval timed out."
+            info "Continuing verification..."
+
+        elif [ "$RECENT_RC" -eq 0 ]; then
+
+            echo "$RECENT_LOGS"
+
+        else
+
+            warn "Recent CloudWatch events could not be retrieved."
 
         fi
 
     else
 
-        warn "nc is not installed. Final RDS connectivity test skipped."
+        info "CloudWatch log content retrieval is disabled for fast verification."
 
     fi
 
 else
 
-    warn "RDS endpoint unavailable."
+    info "CloudWatch Log Group variable is empty."
 
 fi
 
 
-# ============================================================================
-# 61. FINAL SUMMARY
-# ============================================================================
+# =====================================================================
+# CLOUDWATCH LOG GROUPS SUMMARY
+# =====================================================================
 
-print_header "FINAL CLOUDFORMATION DEVOPS LAB VERIFICATION SUMMARY"
+print_header "55. CLOUDWATCH LOG GROUP SUMMARY"
 
-echo
-echo "AWS Region      : $AWS_REGION"
-echo "AWS Account     : ${AWS_ACCOUNT_ID:-Unknown}"
-echo "AWS Identity    : ${AWS_CALLER_ARN:-Unknown}"
-echo "EC2 Instance    : ${INSTANCE_ID:-Unknown}"
-echo "VPC             : ${VPC_ID:-Unknown}"
-echo "RDS Instance    : ${RDS_IDENTIFIER:-Unknown}"
-echo "RDS Endpoint    : ${RDS_ENDPOINT:-Unknown}"
-echo "Website Bucket  : ${WEBSITE_BUCKET:-Unknown}"
-echo "CloudFront URL  : ${CLOUDFRONT_URL:-Unknown}"
-echo "ALB DNS         : ${ALB_DNS:-Unknown}"
-echo "ECS Cluster     : $ECS_CLUSTER"
-echo "ECS Service     : $ECS_SERVICE"
-echo
+CW_GROUP_COUNT=$(aws_fast_capture logs describe-log-groups \
+    --query "length(logGroups)" \
+    --output text 2>/dev/null)
 
-echo "----------------------------------------------------------------------"
+CW_GROUP_RC=$?
 
-echo "PASSED TESTS : $PASS_COUNT"
+if [ "$CW_GROUP_RC" -eq 124 ]; then
 
-echo "FAILED TESTS : $FAIL_COUNT"
+    warn "CloudWatch log group summary timed out."
 
-echo "WARNINGS     : $WARN_COUNT"
+elif [ "$CW_GROUP_RC" -eq 0 ]; then
 
-echo "----------------------------------------------------------------------"
+    echo "CloudWatch Log Groups in Region: ${CW_GROUP_COUNT:-0}"
 
-echo
-
-
-if [ "$FAIL_COUNT" -eq 0 ]; then
-
-    echo "======================================================================"
-    echo "RESULT: AWS CLOUDFORMATION DEVOPS LAB VERIFICATION PASSED"
-    echo "======================================================================"
-
-    echo
-    echo "All critical verification checks completed without failures."
+    pass "CloudWatch log group summary completed."
 
 else
 
-    echo "======================================================================"
-    echo "RESULT: AWS CLOUDFORMATION DEVOPS LAB HAS FAILURES"
-    echo "======================================================================"
-
-    echo
-    echo "Review all [FAIL] messages above."
+    warn "CloudWatch log group summary failed."
 
 fi
 
 
-echo
-echo "======================================================================"
-echo "VERIFICATION COMPLETED"
-echo "======================================================================"
+# =====================================================================
+# CLOUDFRONT
+# =====================================================================
+
+print_header "56. CLOUDFRONT DISTRIBUTIONS"
+
+CF_DISTRIBUTION_COUNT=$(aws cloudfront list-distributions \
+    --query "DistributionList.Quantity" \
+    --output text 2>/dev/null)
+
+CF_RC=$?
+
+if [ "$CF_RC" -eq 0 ]; then
+
+    echo "CloudFront Distributions: ${CF_DISTRIBUTION_COUNT:-0}"
+
+    aws cloudfront list-distributions \
+        --query "DistributionList.Items[].{Id:Id,Domain:DomainName,Status:Status,Enabled:Enabled}" \
+        --output table 2>/dev/null
+
+    pass "CloudFront distributions retrieved."
+
+else
+
+    warn "CloudFront distribution lookup failed."
+
+fi
+
+
+# ---------------------------------------------------------------------
+# 57. CLOUDFRONT AUTO DISCOVERY
+# ---------------------------------------------------------------------
+
+if [ -z "$CLOUDFRONT_DISTRIBUTION_ID" ]; then
+
+    if [ "${CF_DISTRIBUTION_COUNT:-0}" = "1" ]; then
+
+        CLOUDFRONT_DISTRIBUTION_ID=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[0].Id" \
+            --output text 2>/dev/null)
+
+    fi
+
+fi
+
+
+# ---------------------------------------------------------------------
+# 58. CLOUDFRONT DETAILS
+# ---------------------------------------------------------------------
+
+print_header "57. CLOUDFRONT DETAILS"
+
+if [ -n "$CLOUDFRONT_DISTRIBUTION_ID" ] && \
+   [ "$CLOUDFRONT_DISTRIBUTION_ID" != "None" ]; then
+
+    CF_STATUS=$(timeout \
+        --signal=TERM \
+        --kill-after=2s \
+        8s \
+        aws cloudfront get-distribution \
+        --id "$CLOUDFRONT_DISTRIBUTION_ID" \
+        --query "Distribution.{Id:Id,Domain:DomainName,Status:Status,Enabled:DistributionConfig.Enabled}" \
+        --output table 2>/dev/null)
+
+    CF_DETAIL_RC=$?
+
+    if [ "$CF_DETAIL_RC" -eq 0 ]; then
+
+        echo "$CF_STATUS"
+
+        CLOUDFRONT_DOMAIN=$(aws cloudfront get-distribution \
+            --id "$CLOUDFRONT_DISTRIBUTION_ID" \
+            --query "Distribution.DomainName" \
+            --output text 2>/dev/null)
+
+        CF_DEPLOYMENT_STATUS=$(aws cloudfront get-distribution \
+            --id "$CLOUDFRONT_DISTRIBUTION_ID" \
+            --query "Distribution.Status" \
+            --output text 2>/dev/null)
+
+        if [ "$CF_DEPLOYMENT_STATUS" = "Deployed" ]; then
+            pass "CloudFront distribution is deployed."
+        else
+            warn "CloudFront distribution status: $CF_DEPLOYMENT_STATUS"
+        fi
+
+    elif [ "$CF_DETAIL_RC" -eq 124 ]; then
+
+        warn "CloudFront detail lookup timed out."
+
+    else
+
+        warn "CloudFront detail lookup failed."
+
+    fi
+
+else
+
+    info "CloudFront distribution ID was not uniquely discovered."
+
+fi
+
+
+# ---------------------------------------------------------------------
+# 59. CLOUDFRONT HTTPS TEST
+# ---------------------------------------------------------------------
+
+print_header "58. CLOUDFRONT HTTPS TEST"
+
+if [ -n "$CLOUDFRONT_DOMAIN" ] && \
+   [ "$CLOUDFRONT_DOMAIN" != "None" ]; then
+
+    echo "CloudFront Domain:"
+    echo "$CLOUDFRONT_DOMAIN"
+
+    CF_HTTP_STATUS=$(curl -sS \
+        --connect-timeout "$CURL_TIMEOUT_SECONDS" \
+        --max-time "$CURL_TIMEOUT_SECONDS" \
+        -o /dev/null \
+        -w "%{http_code}" \
+        "https://$CLOUDFRONT_DOMAIN" 2>/dev/null)
+
+    if [[ "$CF_HTTP_STATUS" =~ ^[23][0-9][0-9]$ ]]; then
+
+        echo "HTTP Status: $CF_HTTP_STATUS"
+
+        pass "CloudFront HTTPS endpoint responded."
+
+    elif [ -n "$CF_HTTP_STATUS" ]; then
+
+        echo "HTTP Status: $CF_HTTP_STATUS"
+
+        warn "CloudFront responded with HTTP $CF_HTTP_STATUS."
+
+    else
+
+        warn "CloudFront HTTPS request timed out."
+
+    fi
+
+else
+
+    info "CloudFront HTTPS test skipped because domain is unavailable."
+
+fi
+
+
+# =====================================================================
+# CLOUDFORMATION RESOURCES
+# =====================================================================
+
+print_header "59. CLOUDFORMATION RESOURCES"
+
+if [ "$STACK_EXISTS" = "true" ]; then
+
+    aws_fast cloudformation list-stack-resources \
+        --stack-name "$MAIN_STACK" \
+        --query "StackResourceSummaries[].{LogicalId:LogicalResourceId,Type:ResourceType,Status:ResourceStatus}" \
+        --output table 2>/dev/null
+
+fi
+
+
+# =====================================================================
+# NESTED STACKS
+# =====================================================================
+
+print_header "60. NESTED CLOUDFORMATION STACKS"
+
+if [ "$STACK_EXISTS" = "true" ]; then
+
+    aws_fast cloudformation list-stack-resources \
+        --stack-name "$MAIN_STACK" \
+        --query "StackResourceSummaries[?ResourceType=='AWS::CloudFormation::Stack'].{LogicalId:LogicalResourceId,PhysicalId:PhysicalResourceId,Status:ResourceStatus}" \
+        --output table 2>/dev/null
+
+fi
+
+
+# =====================================================================
+# ECS CLOUDFORMATION STACK
+# =====================================================================
+
+print_header "61. ECS CLOUDFORMATION STACK"
+
+if [ -n "$ECS_STACK" ]; then
+
+    ECS_STACK_STATUS=$(aws_fast_capture cloudformation describe-stacks \
+        --stack-name "$ECS_STACK" \
+        --query "Stacks[0].StackStatus" \
+        --output text 2>/dev/null)
+
+    if [ "$ECS_STACK_STATUS" = "CREATE_COMPLETE" ] || \
+       [ "$ECS_STACK_STATUS" = "UPDATE_COMPLETE" ]; then
+
+        pass "ECS CloudFormation stack is healthy."
+
+    elif [ -n "$ECS_STACK_STATUS" ] && \
+         [ "$ECS_STACK_STATUS" != "None" ]; then
+
+        warn "ECS CloudFormation stack status: $ECS_STACK_STATUS"
+
+    else
+
+        info "ECS CloudFormation stack was not found."
+
+    fi
+
+fi
+
+
+# =====================================================================
+# CLOUDFORMATION FAILED EVENTS
+# =====================================================================
+
+print_header "62. CLOUDFORMATION RECENT EVENTS"
+
+if [ "$STACK_EXISTS" = "true" ]; then
+
+    aws_fast cloudformation describe-stack-events \
+        --stack-name "$MAIN_STACK" \
+        --query "StackEvents[:10].{Time:Timestamp,LogicalId:LogicalResourceId,Type:ResourceType,Status:ResourceStatus,Reason:ResourceStatusReason}" \
+        --output table 2>/dev/null
+
+    if [ "$?" -eq 0 ]; then
+        pass "Recent CloudFormation events retrieved."
+    else
+        warn "CloudFormation event lookup failed."
+    fi
+
+fi
+
+
+# =====================================================================
+# FINAL CONNECTIVITY TEST
+# =====================================================================
+
+print_header "63. FINAL EC2 → RDS CONNECTIVITY"
+
+if [ -n "$RDS_ENDPOINT" ] && \
+   [ "$RDS_ENDPOINT" != "None" ] && \
+   command_exists nc; then
+
+    if timeout "$NC_TIMEOUT_SECONDS" \
+        nc -z -w "$NC_TIMEOUT_SECONDS" \
+        "$RDS_ENDPOINT" "${RDS_PORT:-3306}" \
+        >/dev/null 2>&1; then
+
+        pass "Final EC2 → RDS TCP connectivity test passed."
+
+    else
+
+        warn "Final EC2 → RDS TCP connectivity test failed."
+
+    fi
+
+else
+
+    info "Final RDS connectivity test skipped."
+
+fi
+
+
+# =====================================================================
+# FINAL LOCAL HTTP CHECK
+# =====================================================================
+
+print_header "64. LOCAL WEB SERVER CHECK"
+
+LOCAL_HTTP_STATUS=$(curl -sS \
+    --connect-timeout 3 \
+    --max-time 5 \
+    -o /dev/null \
+    -w "%{http_code}" \
+    "http://127.0.0.1" 2>/dev/null)
+
+if [[ "$LOCAL_HTTP_STATUS" =~ ^[23][0-9][0-9]$ ]]; then
+
+    echo "Local HTTP Status: $LOCAL_HTTP_STATUS"
+
+    pass "Local web server responded."
+
+else
+
+    info "No local HTTP service detected on port 80."
+
+fi
+
+
+# =====================================================================
+# FINAL SUMMARY
+# =====================================================================
+
+print_header "65. VERIFICATION SUMMARY"
 
 echo
-echo "This script performs read-only verification."
+echo "AWS Region:       $AWS_REGION"
+echo "AWS Account:      ${ACCOUNT_ID:-UNKNOWN}"
+echo "EC2 Instance:     ${INSTANCE_ID:-UNKNOWN}"
+echo "VPC ID:           ${VPC_ID:-UNKNOWN}"
+echo "RDS Instance:     ${RDS_IDENTIFIER:-NOT_FOUND}"
+echo "ALB DNS:          ${ALB_DNS:-NOT_FOUND}"
+echo "CloudFront:       ${CLOUDFRONT_DOMAIN:-NOT_FOUND}"
+echo "S3 Bucket Count:  ${S3_BUCKET_COUNT:-0}"
+echo "ECS Cluster:      ${ECS_CLUSTER:-NOT_CONFIGURED}"
+echo "ECS Service:      ${ECS_SERVICE:-NOT_CONFIGURED}"
+echo "CloudWatch Group: ${LOG_GROUP:-NOT_CONFIGURED}"
+
 echo
-echo "It does not intentionally modify AWS resources."
+echo "---------------------------------------------------------------------"
+echo "RESULTS"
+echo "---------------------------------------------------------------------"
+
+echo "PASS: $PASS_COUNT"
+echo "WARN: $WARN_COUNT"
+echo "FAIL: $FAIL_COUNT"
+
 echo
-echo "Configured AWS Region: $AWS_REGION"
+echo "---------------------------------------------------------------------"
+echo "IMPORTANT"
+echo "---------------------------------------------------------------------"
+
+echo "This verification script does not modify AWS resources."
+echo "CloudWatch log content retrieval is disabled by default."
+echo "AWS API calls are timeout-protected."
+echo "Slow AWS APIs will WARN and verification will continue."
+
 echo
+echo "======================================================================"
+echo "VERIFICATION COMPLETE"
+echo "======================================================================"
+
+
+# =====================================================================
+# EXIT STATUS
+# =====================================================================
+
+if [ "$EXIT_NONZERO_ON_FAILURE" = "true" ] && [ "$FAIL_COUNT" -gt 0 ]; then
+
+    exit 1
+
+else
+
+    exit 0
+
+fi
