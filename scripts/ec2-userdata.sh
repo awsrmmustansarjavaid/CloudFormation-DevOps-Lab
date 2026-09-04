@@ -1,303 +1,234 @@
 #!/bin/bash
 
 # =========================================================
-# ☕ Charlie Cafe — EC2 User Data / Bootstrap Script
+# ☕ Charlie Cafe — Amazon Linux 2023 EC2 Bootstrap
 # =========================================================
 #
-# Operating System:
-#   Amazon Linux 2023
-#
 # Purpose:
-#   Prepare an EC2 instance for the Charlie Cafe DevOps Lab.
+#   Prepare an Amazon Linux 2023 EC2 instance for the
+#   Charlie Cafe DevOps Lab.
 #
 # Installs:
 #   - Apache HTTP Server
 #   - PHP
 #   - PHP-FPM
-#   - PHP MySQL support
-#   - MariaDB/MySQL client
+#   - PHP MySQL/MariaDB support
+#   - MariaDB client
 #   - Docker
 #   - Docker Compose v2
 #   - Git
-#   - AWS CLI
-#   - Common DevOps utilities
+#   - AWS CLI v2
+#   - Common Linux/DevOps utilities
 #
 # Configures:
 #   - Apache
 #   - PHP-FPM
+#   - Apache -> PHP-FPM
 #   - Docker
 #   - ec2-user Docker permissions
-#   - Apache web directory
+#   - Apache document root
 #
 # Creates:
-#   - PHP test page
-#   - Apache/PHP health page
-#   - Bootstrap log
-#   - Bootstrap completion marker
-#
-# Performs:
-#   - OS verification
-#   - Software verification
-#   - Apache HTTP test
-#   - PHP execution test
-#   - Docker daemon test
-#   - AWS IAM identity test
+#   - /var/www/html/index.php
+#   - /var/www/html/info.php
+#   - /var/log/charlie-cafe-bootstrap.log
+#   - /var/log/charlie-cafe-bootstrap-complete.txt
 #
 # IMPORTANT:
 #   EC2 User Data runs as root.
 #
-#   If running manually, use:
+# Manual execution:
 #
-#       sudo bash ./ec2-userdata.sh
+#   sudo bash ec2-userdata.sh
 #
 # Bootstrap log:
 #
-#       /var/log/charlie-cafe-bootstrap.log
-#
-# Completion marker:
-#
-#       /var/log/charlie-cafe-bootstrap-complete.txt
+#   /var/log/charlie-cafe-bootstrap.log
 #
 # =========================================================
 
 
 # =========================================================
-# 0. Require Root
-# =========================================================
-#
-# EC2 User Data normally runs as root.
-#
-# If somebody executes this script manually as ec2-user,
-# this check stops the script with a clear message instead
-# of producing confusing permission errors.
+# 0. ROOT CHECK
 # =========================================================
 
 if [[ "${EUID}" -ne 0 ]]; then
-
     echo "ERROR: This script must be run as root."
-    echo
-    echo "Run it with:"
+    echo "Use:"
     echo "  sudo bash ./ec2-userdata.sh"
     exit 1
-
 fi
 
 
 # =========================================================
-# 1. Bootstrap Log
-# =========================================================
-#
-# Everything printed by this script is written to:
-#
-#   /var/log/charlie-cafe-bootstrap.log
-#
-# This is extremely useful for troubleshooting EC2 User Data.
+# 1. LOGGING
 # =========================================================
 
 LOG_FILE="/var/log/charlie-cafe-bootstrap.log"
 
-touch "$LOG_FILE"
+touch "${LOG_FILE}"
 
-exec > >(tee -a "$LOG_FILE" | logger -t charlie-cafe-bootstrap -s 2>/dev/console) 2>&1
+exec > >(tee -a "${LOG_FILE}") 2>&1
 
 
 # =========================================================
-# 2. Bash Safety Settings
-# =========================================================
-#
-# -e:
-#   Stop when an important command fails.
-#
-# -u:
-#   Detect undefined variables.
-#
-# pipefail:
-#   Detect failures inside pipelines.
-#
-# We deliberately handle optional tests separately later.
+# 2. STRICT MODE
 # =========================================================
 
 set -Eeuo pipefail
 
 
 # =========================================================
-# 3. Error Handler
-# =========================================================
-#
-# If an unexpected command fails, print:
-#
-#   - exit code
-#   - line number
-#   - failed command
-#   - log location
-#
-# This makes future troubleshooting much easier.
+# 3. ERROR HANDLER
 # =========================================================
 
-trap 'EXIT_CODE=$?; echo; echo "========================================================="; echo "❌ CHARLIE CAFE BOOTSTRAP FAILED"; echo "========================================================="; echo "Exit Code : ${EXIT_CODE}"; echo "Line      : ${LINENO}"; echo "Command   : ${BASH_COMMAND}"; echo "Log File  : ${LOG_FILE}"; echo; echo "Review the log with:"; echo "sudo cat ${LOG_FILE}"; echo "========================================================="; exit "${EXIT_CODE}"' ERR
+trap '
+EXIT_CODE=$?
+echo
+echo "========================================================="
+echo "❌ CHARLIE CAFE BOOTSTRAP FAILED"
+echo "========================================================="
+echo "Exit Code : ${EXIT_CODE}"
+echo "Line      : ${LINENO}"
+echo "Command   : ${BASH_COMMAND}"
+echo "Log File  : ${LOG_FILE}"
+echo
+echo "Check the log:"
+echo "  sudo less ${LOG_FILE}"
+echo "========================================================="
+exit "${EXIT_CODE}"
+' ERR
 
 
 # =========================================================
-# 4. Helper Function
+# 4. HELPER
 # =========================================================
 
 step() {
-
     echo
     echo "========================================================="
     echo "$1"
     echo "========================================================="
-
 }
 
 
 # =========================================================
-# 5. Bootstrap Start
+# 5. START
 # =========================================================
 
-echo
-echo "========================================================="
-echo "☕ Charlie Cafe EC2 Bootstrap Started"
-echo "========================================================="
-echo
-echo "Date       : $(date)"
-echo "User       : $(whoami)"
-echo "UID        : $(id -u)"
-echo "Hostname   : $(hostname)"
-echo "Log File   : ${LOG_FILE}"
-echo
+step "☕ Charlie Cafe EC2 Bootstrap Started"
+
+echo "Date     : $(date)"
+echo "Hostname : $(hostname)"
+echo "User     : $(whoami)"
+echo "UID      : $(id -u)"
+echo "Log      : ${LOG_FILE}"
 
 
 # =========================================================
-# 6. Verify Operating System
+# 6. OPERATING SYSTEM CHECK
 # =========================================================
 
-step "1. Verifying Operating System"
-
+step "1. Verifying Amazon Linux 2023"
 
 if [[ ! -f /etc/os-release ]]; then
-
-    echo "ERROR: /etc/os-release does not exist."
+    echo "ERROR: /etc/os-release not found."
     exit 1
-
 fi
 
-
-# Load operating system information
 source /etc/os-release
 
+echo "NAME    : ${NAME}"
+echo "VERSION : ${VERSION}"
+echo "ID      : ${ID}"
+echo "VERSION_ID : ${VERSION_ID}"
 
-echo "OS Name    : ${NAME}"
-echo "OS Version : ${VERSION}"
-echo "OS ID      : ${ID}"
-
-
-# ---------------------------------------------------------
-# Confirm Amazon Linux
-# ---------------------------------------------------------
 
 if [[ "${ID}" != "amzn" ]]; then
-
-    echo "ERROR: This script is designed for Amazon Linux."
+    echo "ERROR: This script requires Amazon Linux."
     exit 1
-
 fi
 
+if [[ "${VERSION_ID}" != "2023" ]]; then
+    echo "ERROR: This script requires Amazon Linux 2023."
+    exit 1
+fi
 
-echo "Amazon Linux detected successfully."
+echo "[PASS] Amazon Linux 2023 detected."
 
 
 # =========================================================
-# 7. Verify DNF
+# 7. VERIFY DNF
 # =========================================================
 
-step "2. Verifying DNF package manager"
-
+step "2. Verifying DNF"
 
 if ! command -v dnf >/dev/null 2>&1; then
-
-    echo "ERROR: dnf package manager was not found."
+    echo "ERROR: dnf is not installed."
     exit 1
-
 fi
 
-
-echo "DNF:"
+echo "[PASS] DNF available."
 dnf --version | head -n 1
 
 
 # =========================================================
-# 8. Update Amazon Linux
+# 8. UPDATE SYSTEM
 # =========================================================
 
 step "3. Updating Amazon Linux packages"
 
-
 dnf update -y
 
-
-echo "Operating system update completed successfully."
+echo "[PASS] System update completed."
 
 
 # =========================================================
-# 9. Install Apache
+# 9. INSTALL BASE UTILITIES
 # =========================================================
 
-step "4. Installing Apache HTTP Server"
+step "4. Installing base utilities"
+
+dnf install -y \
+    httpd \
+    git \
+    wget \
+    unzip \
+    tar \
+    nano \
+    vim-enhanced \
+    htop \
+    curl-minimal \
+    ca-certificates \
+    openssl \
+    findutils \
+    procps-ng \
+    iproute
+
+echo "[PASS] Base utilities installed."
 
 
-dnf install -y httpd
+# =========================================================
+# 10. VERIFY CURL
+# =========================================================
 
+step "5. Verifying curl"
 
-echo "Apache package installed."
-
-
-# ---------------------------------------------------------
-# Enable Apache at boot
-# ---------------------------------------------------------
-
-systemctl enable httpd
-
-
-# ---------------------------------------------------------
-# Start Apache
-# ---------------------------------------------------------
-
-systemctl start httpd
-
-
-# ---------------------------------------------------------
-# Verify Apache
-# ---------------------------------------------------------
-
-if systemctl is-active --quiet httpd; then
-
-    echo "[PASS] Apache service is running."
-
-else
-
-    echo "[FAIL] Apache service is not running."
-    systemctl status httpd --no-pager || true
+if ! command -v curl >/dev/null 2>&1; then
+    echo "ERROR: curl is unavailable."
     exit 1
-
 fi
 
+curl --version | head -n 1
 
-# ---------------------------------------------------------
-# Apache version
-# ---------------------------------------------------------
-
-echo
-echo "Apache version:"
-httpd -v | head -n 1
+echo "[PASS] curl available."
 
 
 # =========================================================
-# 10. Install PHP
+# 11. INSTALL PHP
 # =========================================================
 
-step "5. Installing PHP and PHP extensions"
-
+step "6. Installing PHP"
 
 dnf install -y \
     php \
@@ -307,276 +238,356 @@ dnf install -y \
     php-mysqlnd \
     php-mbstring \
     php-xml \
-    php-json
+    php-opcache
+
+echo "[PASS] PHP packages installed."
 
 
-echo "PHP installation completed."
+# =========================================================
+# 12. PHP VERSION
+# =========================================================
 
+step "7. Verifying PHP"
 
-# ---------------------------------------------------------
-# PHP version
-# ---------------------------------------------------------
+if ! command -v php >/dev/null 2>&1; then
+    echo "ERROR: PHP command not found."
+    exit 1
+fi
 
-echo
-echo "PHP version:"
 php -v | head -n 1
 
-
-# =========================================================
-# 11. Verify PHP MySQL Support
-# =========================================================
-
-step "6. Verifying PHP extensions"
-
-
-if php -m | grep -qi '^mysqli$'; then
-
-    echo "[PASS] PHP mysqli extension installed."
-
-else
-
-    echo "[FAIL] PHP mysqli extension is missing."
-    exit 1
-
-fi
-
-
-if php -m | grep -qi '^mysqlnd$'; then
-
-    echo "[PASS] PHP mysqlnd extension installed."
-
-else
-
-    echo "[FAIL] PHP mysqlnd extension is missing."
-    exit 1
-
-fi
-
-
-if php -m | grep -qi '^mbstring$'; then
-
-    echo "[PASS] PHP mbstring extension installed."
-
-else
-
-    echo "[FAIL] PHP mbstring extension is missing."
-    exit 1
-
-fi
-
-
-if php -m | grep -qi '^xml$'; then
-
-    echo "[PASS] PHP XML extension installed."
-
-else
-
-    echo "[FAIL] PHP XML extension is missing."
-    exit 1
-
-fi
+echo "[PASS] PHP installed."
 
 
 # =========================================================
-# 12. Configure PHP-FPM
+# 13. VERIFY PHP EXTENSIONS
 # =========================================================
 
-step "7. Configuring PHP-FPM"
+step "8. Verifying PHP extensions"
+
+REQUIRED_EXTENSIONS=(
+    "mysqli"
+    "mysqlnd"
+    "mbstring"
+    "xml"
+    "json"
+    "opcache"
+)
+
+for EXT in "${REQUIRED_EXTENSIONS[@]}"; do
+
+    if php -m | grep -qi "^${EXT}$"; then
+        echo "[PASS] PHP extension: ${EXT}"
+    else
+        echo "[FAIL] PHP extension missing: ${EXT}"
+        exit 1
+    fi
+
+done
 
 
-# Enable PHP-FPM at boot
+# =========================================================
+# 14. CONFIGURE PHP-FPM
+# =========================================================
+
+step "9. Configuring PHP-FPM"
+
+
+PHP_FPM_CONFIG="/etc/php-fpm.d/www.conf"
+
+if [[ ! -f "${PHP_FPM_CONFIG}" ]]; then
+    echo "ERROR: ${PHP_FPM_CONFIG} not found."
+    exit 1
+fi
+
+
+# ---------------------------------------------------------
+# Configure PHP-FPM worker user/group
+# ---------------------------------------------------------
+
+sed -i 's/^user = .*/user = apache/' "${PHP_FPM_CONFIG}"
+sed -i 's/^group = .*/group = apache/' "${PHP_FPM_CONFIG}"
+
+
+# ---------------------------------------------------------
+# Configure Unix socket
+# ---------------------------------------------------------
+
+sed -i 's|^listen = .*|listen = /run/php-fpm/www.sock|' "${PHP_FPM_CONFIG}"
+
+
+# ---------------------------------------------------------
+# Configure socket permissions
+# ---------------------------------------------------------
+
+if grep -q '^;listen.owner' "${PHP_FPM_CONFIG}"; then
+    sed -i 's|^;listen.owner.*|listen.owner = apache|' "${PHP_FPM_CONFIG}"
+elif grep -q '^listen.owner' "${PHP_FPM_CONFIG}"; then
+    sed -i 's|^listen.owner.*|listen.owner = apache|' "${PHP_FPM_CONFIG}"
+else
+    echo "listen.owner = apache" >> "${PHP_FPM_CONFIG}"
+fi
+
+
+if grep -q '^;listen.group' "${PHP_FPM_CONFIG}"; then
+    sed -i 's|^;listen.group.*|listen.group = apache|' "${PHP_FPM_CONFIG}"
+elif grep -q '^listen.group' "${PHP_FPM_CONFIG}"; then
+    sed -i 's|^listen.group.*|listen.group = apache|' "${PHP_FPM_CONFIG}"
+else
+    echo "listen.group = apache" >> "${PHP_FPM_CONFIG}"
+fi
+
+
+if grep -q '^;listen.mode' "${PHP_FPM_CONFIG}"; then
+    sed -i 's|^;listen.mode.*|listen.mode = 0660|' "${PHP_FPM_CONFIG}"
+elif grep -q '^listen.mode' "${PHP_FPM_CONFIG}"; then
+    sed -i 's|^listen.mode.*|listen.mode = 0660|' "${PHP_FPM_CONFIG}"
+else
+    echo "listen.mode = 0660" >> "${PHP_FPM_CONFIG}"
+fi
+
+
+echo "[PASS] PHP-FPM configuration updated."
+
+
+# =========================================================
+# 15. PHP-FPM CONFIG TEST
+# =========================================================
+
+step "10. Testing PHP-FPM configuration"
+
+php-fpm -t
+
+echo "[PASS] PHP-FPM configuration valid."
+
+
+# =========================================================
+# 16. ENABLE + START PHP-FPM
+# =========================================================
+
+step "11. Starting PHP-FPM"
+
+systemctl daemon-reload
+
 systemctl enable php-fpm
 
-
-# Start PHP-FPM
-systemctl start php-fpm
+systemctl restart php-fpm
 
 
-# Verify PHP-FPM
 if systemctl is-active --quiet php-fpm; then
-
-    echo "[PASS] PHP-FPM service is running."
-
+    echo "[PASS] PHP-FPM is running."
 else
-
-    echo "[FAIL] PHP-FPM service is not running."
+    echo "[FAIL] PHP-FPM failed to start."
     systemctl status php-fpm --no-pager || true
+    journalctl -u php-fpm --no-pager -n 100 || true
     exit 1
+fi
 
+
+# ---------------------------------------------------------
+# Verify PHP-FPM socket
+# ---------------------------------------------------------
+
+if [[ -S /run/php-fpm/www.sock ]]; then
+    echo "[PASS] PHP-FPM socket exists:"
+    echo "       /run/php-fpm/www.sock"
+else
+    echo "[FAIL] PHP-FPM socket was not created."
+    exit 1
 fi
 
 
 # =========================================================
-# 13. Configure Apache Web Directory
+# 17. CONFIGURE APACHE -> PHP-FPM
 # =========================================================
 
-step "8. Configuring Apache web directory"
+step "12. Configuring Apache PHP-FPM integration"
 
 
-# Create web directory if it doesn't exist
+PHP_APACHE_CONFIG="/etc/httpd/conf.d/php-fpm.conf"
+
+
+cat > "${PHP_APACHE_CONFIG}" <<'APACHE'
+# =========================================================
+# Charlie Cafe - Apache PHP-FPM Configuration
+# =========================================================
+
+<IfModule proxy_module>
+    LoadModule proxy_module modules/mod_proxy.so
+</IfModule>
+
+<IfModule proxy_fcgi_module>
+    LoadModule proxy_fcgi_module modules/mod_proxy_fcgi.so
+</IfModule>
+
+<FilesMatch "\.php$">
+    SetHandler "proxy:unix:/run/php-fpm/www.sock|fcgi://localhost/"
+</FilesMatch>
+
+DirectoryIndex index.php index.html
+APACHE
+
+
+echo "[PASS] Apache PHP-FPM configuration created:"
+echo "${PHP_APACHE_CONFIG}"
+
+
+# =========================================================
+# 18. VERIFY APACHE MODULES
+# =========================================================
+
+step "13. Verifying Apache proxy modules"
+
+if httpd -M 2>/dev/null | grep -q "proxy_module"; then
+    echo "[PASS] mod_proxy loaded."
+else
+    echo "[FAIL] mod_proxy is not loaded."
+    exit 1
+fi
+
+
+if httpd -M 2>/dev/null | grep -q "proxy_fcgi_module"; then
+    echo "[PASS] mod_proxy_fcgi loaded."
+else
+    echo "[FAIL] mod_proxy_fcgi is not loaded."
+    exit 1
+fi
+
+
+# =========================================================
+# 19. CONFIGURE APACHE
+# =========================================================
+
+step "14. Configuring Apache"
+
 mkdir -p /var/www/html
 
 
 # ---------------------------------------------------------
-# IMPORTANT
+# Remove default test files if present
 # ---------------------------------------------------------
-#
-# We do NOT blindly change ownership of the entire
-# /var/www directory every time.
-#
-# Apache only needs access to the web files.
-# =========================================================
+
+rm -f /var/www/html/index.html
+
+
+# ---------------------------------------------------------
+# Web permissions
+# ---------------------------------------------------------
 
 chown -R apache:apache /var/www/html
 
-
-# Standard directory permissions
 find /var/www/html -type d -exec chmod 755 {} \;
-
-
-# Standard file permissions
 find /var/www/html -type f -exec chmod 644 {} \;
 
 
-echo "Apache web directory configured."
-
-
-echo
-echo "Web directory:"
-ls -ld /var/www
-ls -ld /var/www/html
-
-
-# =========================================================
-# 14. Install MariaDB/MySQL Client
-# =========================================================
-
-step "9. Installing MariaDB/MySQL client"
-
-
 # ---------------------------------------------------------
-# IMPORTANT:
-#
-# We install the CLIENT only.
-#
-# We do NOT install a local database server.
-#
-# Charlie Cafe can use Amazon RDS MySQL as the database.
+# Apache configuration test
+# ---------------------------------------------------------
+
+httpd -t
+
+echo "[PASS] Apache configuration valid."
+
+
+# =========================================================
+# 20. START APACHE
 # =========================================================
 
-if dnf list installed mariadb105 >/dev/null 2>&1; then
+step "15. Starting Apache"
 
-    echo "MariaDB 10.5 client package is already installed."
+systemctl enable httpd
+
+systemctl restart httpd
+
+
+if systemctl is-active --quiet httpd; then
+    echo "[PASS] Apache is running."
+else
+    echo "[FAIL] Apache failed to start."
+    systemctl status httpd --no-pager || true
+    journalctl -u httpd --no-pager -n 100 || true
+    exit 1
+fi
+
+
+# =========================================================
+# 21. INSTALL MARIADB CLIENT
+# =========================================================
+
+step "16. Installing MariaDB/MySQL client"
+
+if dnf list --available mariadb105 >/dev/null 2>&1; then
+
+    echo "Installing MariaDB 10.5 client..."
+    dnf install -y mariadb105
+
+elif dnf list --available mariadb1011 >/dev/null 2>&1; then
+
+    echo "Installing MariaDB 10.11 client..."
+    dnf install -y mariadb1011
+
+elif dnf list --available mariadb114 >/dev/null 2>&1; then
+
+    echo "Installing MariaDB 11.4 client..."
+    dnf install -y mariadb114
+
+elif dnf list --available mariadb123 >/dev/null 2>&1; then
+
+    echo "Installing MariaDB 12.3 client..."
+    dnf install -y mariadb123
 
 else
 
-    dnf install -y mariadb105
+    echo "ERROR: No supported MariaDB client package found."
+    dnf search mariadb | head -n 50 || true
+    exit 1
 
 fi
 
 
-echo "MariaDB/MySQL client installation completed."
-
-
 # ---------------------------------------------------------
-# Verify MariaDB/MySQL client
+# Verify client
 # ---------------------------------------------------------
 
 if command -v mariadb >/dev/null 2>&1; then
 
-    echo "MariaDB client:"
+    echo "[PASS] MariaDB client installed."
     mariadb --version
 
 elif command -v mysql >/dev/null 2>&1; then
 
-    echo "MySQL client:"
+    echo "[PASS] MySQL-compatible client installed."
     mysql --version
 
 else
 
-    echo "ERROR: MariaDB/MySQL client command was not found."
+    echo "[FAIL] Database client command not found."
     exit 1
 
 fi
 
 
 # =========================================================
-# 15. Install Docker
+# 22. INSTALL DOCKER
 # =========================================================
 
-step "10. Installing Docker"
-
+step "17. Installing Docker"
 
 dnf install -y docker
 
-
-echo "Docker package installed."
-
-
-# ---------------------------------------------------------
-# Enable Docker
-# ---------------------------------------------------------
-
-systemctl enable docker
-
-
-# ---------------------------------------------------------
-# Start Docker
-# ---------------------------------------------------------
-
-systemctl start docker
-
-
-# ---------------------------------------------------------
-# Verify Docker
-# ---------------------------------------------------------
-
-if systemctl is-active --quiet docker; then
-
-    echo "[PASS] Docker service is running."
-
-else
-
-    echo "[FAIL] Docker service is not running."
-    systemctl status docker --no-pager || true
-    exit 1
-
-fi
-
-
-# ---------------------------------------------------------
-# Docker version
-# ---------------------------------------------------------
-
-docker --version
+echo "[PASS] Docker package installed."
 
 
 # =========================================================
-# 16. Configure Docker Permissions
+# 23. DOCKER GROUP
 # =========================================================
 
-step "11. Configuring Docker permissions for ec2-user"
+step "18. Configuring Docker group"
 
-
-# ---------------------------------------------------------
-# Make sure docker group exists
-# ---------------------------------------------------------
-
-if getent group docker >/dev/null 2>&1; then
-
-    echo "Docker group already exists."
-
-else
-
+if ! getent group docker >/dev/null 2>&1; then
     groupadd docker
-    echo "Docker group created."
-
 fi
 
-
-# ---------------------------------------------------------
-# Add ec2-user to Docker group
-# ---------------------------------------------------------
 
 if id ec2-user >/dev/null 2>&1; then
 
@@ -587,37 +598,87 @@ if id ec2-user >/dev/null 2>&1; then
 else
 
     echo "WARNING: ec2-user does not exist."
-    echo "Docker group configuration skipped."
+    echo "Docker group membership skipped."
 
 fi
 
 
-echo
-echo "Docker group:"
-getent group docker
+# =========================================================
+# 24. START DOCKER
+# =========================================================
+
+step "19. Starting Docker"
+
+systemctl enable docker
+
+systemctl restart docker
+
+
+if systemctl is-active --quiet docker; then
+    echo "[PASS] Docker is running."
+else
+    echo "[FAIL] Docker failed to start."
+    systemctl status docker --no-pager || true
+    journalctl -u docker --no-pager -n 100 || true
+    exit 1
+fi
+
+
+docker --version
 
 
 # =========================================================
-# 17. Install Docker Compose v2
+# 25. DOCKER DAEMON TEST
 # =========================================================
 
-step "12. Installing Docker Compose v2"
+step "20. Testing Docker daemon"
+
+if docker info >/dev/null 2>&1; then
+    echo "[PASS] Docker daemon responding."
+else
+    echo "[FAIL] Docker daemon is not responding."
+    exit 1
+fi
+
+
+# =========================================================
+# 26. INSTALL DOCKER COMPOSE V2
+# =========================================================
+
+step "21. Installing Docker Compose v2"
 
 
 # ---------------------------------------------------------
-# IMPORTANT:
-#
-# Docker Compose v2 is installed as a Docker CLI plugin.
-#
-# This allows:
-#
-#     docker compose version
-#
-# instead of the old:
-#
-#     docker-compose version
-# =========================================================
+# Detect CPU architecture
+# ---------------------------------------------------------
 
+ARCH="$(uname -m)"
+
+case "${ARCH}" in
+
+    x86_64)
+        COMPOSE_ARCH="x86_64"
+        ;;
+
+    aarch64|arm64)
+        COMPOSE_ARCH="aarch64"
+        ;;
+
+    *)
+        echo "ERROR: Unsupported architecture: ${ARCH}"
+        exit 1
+        ;;
+
+esac
+
+
+echo "Detected architecture: ${ARCH}"
+echo "Docker Compose architecture: ${COMPOSE_ARCH}"
+
+
+# ---------------------------------------------------------
+# Compose plugin directory
+# ---------------------------------------------------------
 
 DOCKER_PLUGIN_DIR="/usr/local/lib/docker/cli-plugins"
 
@@ -625,593 +686,434 @@ mkdir -p "${DOCKER_PLUGIN_DIR}"
 
 
 # ---------------------------------------------------------
-# IMPORTANT CURL FIX
-# ---------------------------------------------------------
-#
-# Amazon Linux 2023 commonly has:
-#
-#     curl-minimal
-#
-# already installed.
-#
-# We DO NOT install the full "curl" package because it
-# conflicts with curl-minimal.
-#
-# Instead, we simply verify that curl already exists.
-# =========================================================
-
-if command -v curl >/dev/null 2>&1; then
-
-    echo "[PASS] curl is already available."
-
-else
-
-    echo "ERROR: curl command is not available."
-    exit 1
-
-fi
-
-
-echo
-echo "curl version:"
-curl --version | head -n 1
-
-
-# ---------------------------------------------------------
-# Download Docker Compose
+# Download current Compose v2
 # ---------------------------------------------------------
 
-COMPOSE_URL="https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64"
+COMPOSE_URL="https://github.com/docker/compose/releases/latest/download/docker-compose-linux-${COMPOSE_ARCH}"
 
-echo
-echo "Downloading Docker Compose from:"
+echo "Downloading:"
 echo "${COMPOSE_URL}"
 
 
-curl -fSL \
+curl -fL \
     --retry 5 \
     --retry-delay 3 \
-    --connect-timeout 15 \
+    --connect-timeout 20 \
     --max-time 300 \
     "${COMPOSE_URL}" \
     -o "${DOCKER_PLUGIN_DIR}/docker-compose"
 
 
-# ---------------------------------------------------------
-# Make Docker Compose executable
-# ---------------------------------------------------------
-
 chmod +x "${DOCKER_PLUGIN_DIR}/docker-compose"
 
 
 # ---------------------------------------------------------
-# Verify Docker Compose
+# Verify Compose
 # ---------------------------------------------------------
 
-if docker compose version; then
+if docker compose version >/dev/null 2>&1; then
 
-    echo "[PASS] Docker Compose v2 installed successfully."
+    echo "[PASS] Docker Compose v2 installed."
+    docker compose version
 
 else
 
-    echo "[FAIL] Docker Compose installation failed."
+    echo "[FAIL] Docker Compose v2 is not working."
     exit 1
 
 fi
 
 
 # =========================================================
-# 18. Install Git
+# 27. VERIFY GIT
 # =========================================================
 
-step "13. Installing Git"
+step "22. Verifying Git"
 
-
-dnf install -y git
-
-
-echo "Git installed."
-
+if ! command -v git >/dev/null 2>&1; then
+    echo "ERROR: Git not installed."
+    exit 1
+fi
 
 git --version
 
-
-# =========================================================
-# 19. Install DevOps Utilities
-# =========================================================
-
-step "14. Installing DevOps utilities"
-
-
-# ---------------------------------------------------------
-# IMPORTANT:
-#
-# DO NOT add "curl" here.
-#
-# Amazon Linux 2023 already provides curl-minimal.
-#
-# Installing full "curl" together with curl-minimal causes:
-#
-#   package curl-minimal conflicts with curl
-#
-# which was the exact cause of the previous bootstrap
-# failure.
-# =========================================================
-
-dnf install -y \
-    htop \
-    unzip \
-    wget \
-    nano \
-    vim-enhanced \
-    tar
-
-
-echo "DevOps utilities installed successfully."
-
-
-# ---------------------------------------------------------
-# Verify utilities
-# ---------------------------------------------------------
-
-echo
-echo "curl:"
-curl --version | head -n 1
-
-echo
-echo "wget:"
-wget --version | head -n 1
-
-echo
-echo "unzip:"
-unzip -v | head -n 1
-
-echo
-echo "tar:"
-tar --version | head -n 1
+echo "[PASS] Git available."
 
 
 # =========================================================
-# 20. Install AWS CLI
+# 28. VERIFY AWS CLI
 # =========================================================
 
-step "15. Installing AWS CLI"
+step "23. Verifying AWS CLI"
+
+# AL2023 ships with AWS CLI v2.
+
+if ! command -v aws >/dev/null 2>&1; then
+
+    echo "AWS CLI command not found."
+    echo "Installing AWS CLI..."
+
+    dnf install -y awscli
+
+fi
 
 
-# ---------------------------------------------------------
-# Amazon Linux 2023 provides AWS CLI through DNF.
-#
-# Installing through DNF keeps package management simple
-# and avoids unnecessary manual installation.
-# =========================================================
+if ! command -v aws >/dev/null 2>&1; then
+    echo "ERROR: AWS CLI installation failed."
+    exit 1
+fi
 
-dnf install -y awscli
-
-
-echo "AWS CLI installed."
-
-
-# ---------------------------------------------------------
-# AWS CLI version
-# ---------------------------------------------------------
 
 aws --version
 
-
-# =========================================================
-# 21. Create PHP Test Page
-# =========================================================
-
-step "16. Creating PHP test page"
-
-
-cat > /var/www/html/info.php <<'PHP'
-<?php
-
-phpinfo();
-
-?>
-PHP
-
-
-# Set ownership
-chown apache:apache /var/www/html/info.php
-
-
-# Set permissions
-chmod 644 /var/www/html/info.php
-
-
-echo "PHP info page created."
-
-
-ls -l /var/www/html/info.php
+echo "[PASS] AWS CLI available."
 
 
 # =========================================================
-# 22. Create Charlie Cafe Health Page
+# 29. CREATE CHARLIE CAFE HEALTH PAGE
 # =========================================================
 
-step "17. Creating Charlie Cafe application test page"
+step "24. Creating Charlie Cafe PHP health page"
 
 
 cat > /var/www/html/index.php <<'PHP'
 <?php
 
-echo "<!DOCTYPE html>";
-echo "<html>";
-echo "<head>";
-echo "<title>Charlie Cafe</title>";
-echo "</head>";
+header('Content-Type: text/html; charset=UTF-8');
 
-echo "<body>";
+$hostname = gethostname();
+$phpVersion = PHP_VERSION;
 
-echo "<h1>☕ Charlie Cafe EC2 Server</h1>";
+echo '<!DOCTYPE html>';
+echo '<html lang="en">';
+echo '<head>';
+echo '<meta charset="UTF-8">';
+echo '<meta name="viewport" content="width=device-width, initial-scale=1.0">';
+echo '<title>Charlie Cafe</title>';
 
-echo "<p><strong>Apache:</strong> Working</p>";
-echo "<p><strong>PHP:</strong> Working</p>";
-echo "<p><strong>Server:</strong> Amazon Linux 2023</p>";
+echo '<style>';
+echo 'body { font-family: Arial, sans-serif; margin: 40px; }';
+echo '.box { max-width: 700px; padding: 30px; border: 1px solid #ddd; border-radius: 10px; }';
+echo '.ok { font-weight: bold; }';
+echo '</style>';
 
-echo "<p><strong>Hostname:</strong> " . htmlspecialchars(gethostname()) . "</p>";
+echo '</head>';
+echo '<body>';
 
-echo "<p><strong>PHP Version:</strong> " . htmlspecialchars(PHP_VERSION) . "</p>";
+echo '<div class="box">';
 
-echo "</body>";
-echo "</html>";
+echo '<h1>☕ Charlie Cafe</h1>';
+
+echo '<p class="ok">Apache: Working</p>';
+echo '<p class="ok">PHP: Working</p>';
+echo '<p class="ok">PHP-FPM: Working</p>';
+echo '<p>Operating System: Amazon Linux 2023</p>';
+
+echo '<p>Hostname: ' .
+     htmlspecialchars($hostname, ENT_QUOTES, 'UTF-8') .
+     '</p>';
+
+echo '<p>PHP Version: ' .
+     htmlspecialchars($phpVersion, ENT_QUOTES, 'UTF-8') .
+     '</p>';
+
+echo '<p>Server Time: ' .
+     htmlspecialchars(date('Y-m-d H:i:s'), ENT_QUOTES, 'UTF-8') .
+     '</p>';
+
+echo '</div>';
+
+echo '</body>';
+echo '</html>';
 
 ?>
 PHP
 
 
-# Set ownership
 chown apache:apache /var/www/html/index.php
-
-
-# Set permissions
 chmod 644 /var/www/html/index.php
 
 
-echo "Charlie Cafe test page created."
+echo "[PASS] Charlie Cafe health page created."
 
 
 # =========================================================
-# 23. Apache Configuration Test
+# 30. CREATE PHP INFO PAGE
 # =========================================================
 
-step "18. Testing Apache configuration"
+step "25. Creating PHP information page"
 
 
-if httpd -t; then
+cat > /var/www/html/info.php <<'PHP'
+<?php
+phpinfo();
+?>
+PHP
 
-    echo "[PASS] Apache configuration is valid."
 
-else
+chown apache:apache /var/www/html/info.php
+chmod 644 /var/www/html/info.php
 
-    echo "[FAIL] Apache configuration is invalid."
-    exit 1
 
-fi
+echo "[PASS] PHP info page created."
 
 
 # =========================================================
-# 24. Restart Apache and PHP-FPM
+# 31. RESTART SERVICES
 # =========================================================
 
-step "19. Restarting Apache and PHP-FPM"
-
+step "26. Restarting Apache and PHP-FPM"
 
 systemctl restart php-fpm
-
 systemctl restart httpd
 
 
-echo "Apache and PHP-FPM restarted."
-
-
-# =========================================================
-# 25. Verify Services
-# =========================================================
-
-step "20. Verifying required services"
-
-
-echo
-echo "Apache:"
-systemctl is-active httpd
-
-
-echo
-echo "PHP-FPM:"
-systemctl is-active php-fpm
-
-
-echo
-echo "Docker:"
-systemctl is-active docker
-
-
-# ---------------------------------------------------------
-# Strict verification
-# ---------------------------------------------------------
-
-if ! systemctl is-active --quiet httpd; then
-
-    echo "ERROR: Apache is not running."
-    exit 1
-
-fi
-
-
 if ! systemctl is-active --quiet php-fpm; then
-
     echo "ERROR: PHP-FPM is not running."
     exit 1
-
 fi
 
 
-if ! systemctl is-active --quiet docker; then
-
-    echo "ERROR: Docker is not running."
+if ! systemctl is-active --quiet httpd; then
+    echo "ERROR: Apache is not running."
     exit 1
-
 fi
 
 
-echo
-echo "[PASS] Required services are running."
+echo "[PASS] Apache and PHP-FPM restarted."
 
 
 # =========================================================
-# 26. Verify Installed Software
+# 32. TEST APACHE
 # =========================================================
 
-step "21. Verifying installed software"
-
-
-echo
-echo "Apache:"
-httpd -v | head -n 1
-
-
-echo
-echo "PHP:"
-php -v | head -n 1
-
-
-echo
-echo "Docker:"
-docker --version
-
-
-echo
-echo "Docker Compose:"
-docker compose version
-
-
-echo
-echo "Git:"
-git --version
-
-
-echo
-echo "AWS CLI:"
-aws --version
-
-
-echo
-echo "MariaDB/MySQL client:"
-
-if command -v mariadb >/dev/null 2>&1; then
-
-    mariadb --version
-
-elif command -v mysql >/dev/null 2>&1; then
-
-    mysql --version
-
-else
-
-    echo "ERROR: Database client not found."
-    exit 1
-
-fi
-
-
-# =========================================================
-# 27. Test Apache HTTP
-# =========================================================
-
-step "22. Testing Apache HTTP response"
-
+step "27. Testing Apache HTTP"
 
 HTTP_STATUS="$(
-    curl -s \
-        -o /dev/null \
-        -w "%{http_code}" \
-        --max-time 10 \
-        http://localhost
+    curl \
+        --silent \
+        --show-error \
+        --output /dev/null \
+        --write-out "%{http_code}" \
+        --max-time 15 \
+        http://127.0.0.1/
 )"
 
 
-echo "Apache HTTP status: ${HTTP_STATUS}"
+echo "HTTP status: ${HTTP_STATUS}"
 
 
-if [[ "${HTTP_STATUS}" == "200" ||
-      "${HTTP_STATUS}" == "301" ||
-      "${HTTP_STATUS}" == "302" ]]; then
-
+if [[ "${HTTP_STATUS}" == "200" ]]; then
     echo "[PASS] Apache HTTP test."
-
 else
-
     echo "[FAIL] Apache HTTP test."
     exit 1
-
 fi
 
 
 # =========================================================
-# 28. Test PHP Execution
+# 33. TEST PHP
 # =========================================================
 
-step "23. Testing PHP execution"
+step "28. Testing PHP through Apache + PHP-FPM"
 
 
-PHP_STATUS="$(
-    curl -s \
-        -o /dev/null \
-        -w "%{http_code}" \
-        --max-time 10 \
-        http://localhost/index.php
+PHP_RESPONSE="$(
+    curl \
+        --silent \
+        --show-error \
+        --max-time 15 \
+        http://127.0.0.1/index.php
 )"
 
 
-echo "PHP HTTP status: ${PHP_STATUS}"
+echo "${PHP_RESPONSE}" | head -n 20
 
 
-if [[ "${PHP_STATUS}" == "200" ]]; then
+if echo "${PHP_RESPONSE}" | grep -q "Charlie Cafe"; then
 
-    echo "[PASS] PHP execution test."
+    echo "[PASS] PHP is executing correctly through Apache."
 
 else
 
-    echo "[FAIL] PHP execution test."
+    echo "[FAIL] PHP execution test failed."
+
+    echo
+    echo "Apache error log:"
+    tail -n 100 /var/log/httpd/error_log || true
+
+    echo
+    echo "PHP-FPM status:"
+    systemctl status php-fpm --no-pager || true
+
+    echo
+    echo "PHP-FPM log:"
+    journalctl -u php-fpm --no-pager -n 100 || true
+
     exit 1
 
 fi
 
 
 # =========================================================
-# 29. Test PHP Info Page
+# 34. TEST PHP INFO
 # =========================================================
 
-step "24. Testing PHP info page"
-
+step "29. Testing PHP info page"
 
 PHP_INFO_STATUS="$(
-    curl -s \
-        -o /dev/null \
-        -w "%{http_code}" \
-        --max-time 10 \
-        http://localhost/info.php
+    curl \
+        --silent \
+        --show-error \
+        --output /dev/null \
+        --write-out "%{http_code}" \
+        --max-time 15 \
+        http://127.0.0.1/info.php
 )"
 
 
-echo "PHP info HTTP status: ${PHP_INFO_STATUS}"
+echo "PHP info status: ${PHP_INFO_STATUS}"
 
 
 if [[ "${PHP_INFO_STATUS}" == "200" ]]; then
-
-    echo "[PASS] PHP info page test."
-
+    echo "[PASS] PHP info page."
 else
-
-    echo "[FAIL] PHP info page test."
+    echo "[FAIL] PHP info page."
     exit 1
-
 fi
 
 
 # =========================================================
-# 30. Test Docker
+# 35. TEST PHP MYSQL EXTENSION
 # =========================================================
 
-step "25. Testing Docker daemon"
+step "30. Testing PHP MySQL support"
 
+if php -r 'if (extension_loaded("mysqli")) exit(0); exit(1);'; then
+    echo "[PASS] PHP mysqli support."
+else
+    echo "[FAIL] PHP mysqli support."
+    exit 1
+fi
+
+
+if php -r 'if (extension_loaded("pdo_mysql")) exit(0); exit(1);'; then
+    echo "[PASS] PHP PDO MySQL support."
+else
+    echo "[FAIL] PHP PDO MySQL support."
+    exit 1
+fi
+
+
+# =========================================================
+# 36. TEST DOCKER
+# =========================================================
+
+step "31. Testing Docker"
+
+docker version
 
 if docker info >/dev/null 2>&1; then
-
-    echo "[PASS] Docker daemon test."
-
+    echo "[PASS] Docker daemon."
 else
-
-    echo "WARNING: Docker service is running, but docker info"
-    echo "could not be executed successfully."
-
-    echo
-    echo "This can happen because the bootstrap runs as root"
-    echo "and ec2-user Docker group membership only applies"
-    echo "after a new login session."
-
-    echo
-    echo "After reconnecting as ec2-user, run:"
-    echo
-    echo "    docker info"
-    echo
-    echo "    docker run hello-world"
-
+    echo "[FAIL] Docker daemon."
+    exit 1
 fi
 
 
 # =========================================================
-# 31. Test AWS IAM Identity
+# 37. TEST DOCKER COMPOSE
 # =========================================================
 
-step "26. Testing AWS IAM role"
+step "32. Testing Docker Compose"
+
+docker compose version
+
+if docker compose version >/dev/null 2>&1; then
+    echo "[PASS] Docker Compose v2."
+else
+    echo "[FAIL] Docker Compose v2."
+    exit 1
+fi
 
 
-# ---------------------------------------------------------
-# This does NOT create or modify AWS resources.
-#
-# It only asks AWS STS:
-#
-#   Who am I?
-#
-# The EC2 instance should have an IAM role attached.
 # =========================================================
+# 38. TEST AWS IAM ROLE
+# =========================================================
+
+step "33. Testing EC2 IAM identity"
 
 IDENTITY_FILE="/tmp/charlie-cafe-identity.json"
 
+if aws sts get-caller-identity \
+    --output json \
+    > "${IDENTITY_FILE}" 2>/dev/null; then
 
-if aws sts get-caller-identity > "${IDENTITY_FILE}" 2>/dev/null; then
+    echo "[PASS] EC2 IAM identity available."
 
-    echo "[PASS] AWS IAM identity test."
-
-    echo
-    echo "AWS identity:"
     cat "${IDENTITY_FILE}"
 
     rm -f "${IDENTITY_FILE}"
 
 else
 
-    echo
-    echo "WARNING: AWS identity could not be verified."
-
-    echo "Possible reasons:"
-    echo "  1. EC2 has no IAM role."
-    echo "  2. Instance metadata is unavailable."
-    echo "  3. AWS CLI configuration is not available."
+    echo "WARNING:"
+    echo "AWS CLI is installed, but this EC2 instance does not"
+    echo "appear to have a usable IAM role."
 
     echo
-    echo "This does not stop the bootstrap."
+    echo "If this instance is supposed to access AWS services,"
+    echo "attach an IAM role to the EC2 instance."
+
+    # Do NOT fail entire bootstrap because IAM role may
+    # intentionally be absent.
 
 fi
 
 
 # =========================================================
-# 32. Display Listening Ports
+# 39. VERIFY SERVICES
 # =========================================================
 
-step "27. Checking listening ports"
+step "34. Final service verification"
 
+
+SERVICES=(
+    "httpd"
+    "php-fpm"
+    "docker"
+)
+
+for SERVICE in "${SERVICES[@]}"; do
+
+    if systemctl is-active --quiet "${SERVICE}"; then
+        echo "[PASS] ${SERVICE}"
+    else
+        echo "[FAIL] ${SERVICE}"
+        exit 1
+    fi
+
+done
+
+
+# =========================================================
+# 40. CHECK LISTENING PORTS
+# =========================================================
+
+step "35. Checking listening ports"
 
 if command -v ss >/dev/null 2>&1; then
 
-    echo
-    echo "Listening TCP ports:"
     ss -lntp || true
 
 fi
 
 
 # =========================================================
-# 33. Create Bootstrap Completion Marker
+# 41. CREATE COMPLETION MARKER
 # =========================================================
 
-step "28. Creating bootstrap completion marker"
-
+step "36. Creating completion marker"
 
 COMPLETION_FILE="/var/log/charlie-cafe-bootstrap-complete.txt"
 
@@ -1230,6 +1132,9 @@ $(hostname)
 Operating System:
 ${NAME} ${VERSION}
 
+Architecture:
+$(uname -m)
+
 ---------------------------------------------------------
 Software
 ---------------------------------------------------------
@@ -1239,6 +1144,9 @@ $(httpd -v 2>&1 | head -n 1)
 
 PHP:
 $(php -v 2>&1 | head -n 1)
+
+PHP-FPM:
+$(php-fpm -v 2>&1 | head -n 1)
 
 Docker:
 $(docker --version 2>&1)
@@ -1269,65 +1177,81 @@ Docker:
 $(systemctl is-active docker)
 
 ---------------------------------------------------------
-Web Files
+PHP-FPM Socket
 ---------------------------------------------------------
 
-Web Root:
+/run/php-fpm/www.sock
+
+---------------------------------------------------------
+Apache Configuration
+---------------------------------------------------------
+
+${PHP_APACHE_CONFIG}
+
+---------------------------------------------------------
+Web Root
+---------------------------------------------------------
+
 /var/www/html
 
-Application Test:
-/var/www/html/index.php
+Application:
+http://<EC2-PUBLIC-IP>/index.php
 
 PHP Info:
-/var/www/html/info.php
+http://<EC2-PUBLIC-IP>/info.php
 
 ---------------------------------------------------------
 Logs
 ---------------------------------------------------------
 
-Bootstrap Log:
-/var/log/charlie-cafe-bootstrap.log
+Bootstrap:
+${LOG_FILE}
 
-Completion Marker:
-/var/log/charlie-cafe-bootstrap-complete.txt
+Apache:
+ /var/log/httpd/
+
+PHP-FPM:
+journalctl -u php-fpm
 
 =========================================================
 EOF
 
 
-echo "Bootstrap completion marker created."
+chmod 644 "${COMPLETION_FILE}"
 
 
 # =========================================================
-# 34. Final Verification Summary
+# 42. FINAL SUMMARY
 # =========================================================
 
-step "29. Final Charlie Cafe verification"
+step "37. Final Charlie Cafe Verification"
 
 
-echo
-echo "[PASS] Amazon Linux detected"
+echo "[PASS] Amazon Linux 2023"
 echo "[PASS] System packages updated"
-echo "[PASS] Apache installed and running"
+echo "[PASS] Apache installed"
+echo "[PASS] Apache running"
 echo "[PASS] PHP installed"
 echo "[PASS] PHP extensions verified"
-echo "[PASS] PHP-FPM installed and running"
+echo "[PASS] PHP-FPM installed"
+echo "[PASS] PHP-FPM running"
+echo "[PASS] PHP-FPM socket verified"
+echo "[PASS] Apache -> PHP-FPM configured"
+echo "[PASS] PHP execution verified"
+echo "[PASS] PHP MySQL support verified"
 echo "[PASS] MariaDB/MySQL client installed"
-echo "[PASS] Docker installed and running"
-echo "[PASS] ec2-user added to Docker group"
+echo "[PASS] Docker installed"
+echo "[PASS] Docker running"
 echo "[PASS] Docker Compose v2 installed"
 echo "[PASS] Git installed"
-echo "[PASS] DevOps utilities installed"
-echo "[PASS] AWS CLI installed"
-echo "[PASS] Apache configuration verified"
-echo "[PASS] Apache HTTP test passed"
-echo "[PASS] PHP execution test passed"
-echo "[PASS] PHP info page test passed"
-echo "[PASS] Bootstrap completion marker created"
+echo "[PASS] AWS CLI available"
+echo "[PASS] Charlie Cafe PHP health page"
+echo "[PASS] PHP info page"
+echo "[PASS] Completion marker created"
 
 
 # =========================================================
-# 35. Final Success Message
+# 43. SUCCESS
 # =========================================================
 
 echo
@@ -1339,6 +1263,9 @@ echo
 echo "Hostname:"
 echo "  $(hostname)"
 echo
+echo "Architecture:"
+echo "  $(uname -m)"
+echo
 echo "Bootstrap log:"
 echo "  ${LOG_FILE}"
 echo
@@ -1348,32 +1275,31 @@ echo
 echo "Web root:"
 echo "  /var/www/html"
 echo
-echo "Charlie Cafe test page:"
+echo "Charlie Cafe:"
 echo "  http://<EC2-PUBLIC-IP>/index.php"
 echo
-echo "PHP information page:"
+echo "PHP Info:"
 echo "  http://<EC2-PUBLIC-IP>/info.php"
 echo
 echo "---------------------------------------------------------"
-echo "IMPORTANT DOCKER NOTE"
+echo "Docker"
 echo "---------------------------------------------------------"
 echo
-echo "ec2-user was added to the docker group."
+echo "ec2-user has been added to the docker group."
 echo
-echo "You MUST reconnect to EC2 before using Docker as"
-echo "ec2-user so the new group membership takes effect."
+echo "Reconnect to EC2 before running Docker as ec2-user."
 echo
-echo "After reconnecting, test:"
+echo "Then run:"
 echo
 echo "  docker --version"
 echo "  docker compose version"
 echo "  docker info"
 echo
-echo "Optional Docker test:"
+echo "Optional:"
 echo
 echo "  docker run hello-world"
 echo
 echo "========================================================="
 echo "☕ Charlie Cafe Bootstrap Finished"
 echo "========================================================="
-echo
+
