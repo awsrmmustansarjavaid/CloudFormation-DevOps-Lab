@@ -1,61 +1,56 @@
 #!/bin/bash
 
-# ================================================================
-# ☕ Charlie Cafe — EC2 Environment Verification Script
-# ================================================================
+# =========================================================
+# ☕ Charlie Cafe — EC2 Bootstrap Verification Script
+# =========================================================
 #
-# File:
-#   verify-charlie-cafe-ec2.sh
+# PURPOSE
+# ---------------------------------------------------------
+# This script verifies the EC2 instance after running:
 #
-# Purpose:
-#   Read-only verification of the EC2 environment prepared by:
-#
-#       ec2-userdata.sh
+#   charlie-cafe EC2 User Data / Bootstrap Script
 #
 # Operating System:
 #   Amazon Linux 2023
 #
-# IMPORTANT:
-#   This script performs READ-ONLY verification.
+# IMPORTANT
+# ---------------------------------------------------------
+# THIS IS A READ-ONLY VERIFICATION SCRIPT.
 #
-#   It does NOT intentionally:
+# It does NOT:
 #
-#       - Install packages
-#       - Update packages
-#       - Create AWS resources
-#       - Delete AWS resources
-#       - Modify AWS resources
-#       - Restart services
-#       - Stop services
-#       - Change permissions
-#       - Change ownership
-#       - Modify Apache configuration
-#       - Modify Docker configuration
-#       - Modify PHP configuration
+#   - Install software
+#   - Update packages
+#   - Remove packages
+#   - Modify configuration
+#   - Restart services
+#   - Create users
+#   - Create groups
+#   - Change permissions
+#   - Create Docker containers
+#   - Create Kubernetes clusters
 #
-# Recommended execution:
+# It only READS the current EC2 state and reports:
 #
-#       chmod +x verify-charlie-cafe-ec2.sh
-#       sudo bash verify-charlie-cafe-ec2.sh
+#   [PASS] Everything is correct
+#   [FAIL] Something is missing or incorrect
+#   [WARN] Optional/expected condition is unavailable
 #
-# Log:
-#
-#       /var/log/charlie-cafe-verification.log
-#
-# ================================================================
+# =========================================================
 
 
-# ================================================================
-# 0. Require Root
-# ================================================================
+# =========================================================
+# 0. ROOT CHECK
+# =========================================================
 
 if [[ "${EUID}" -ne 0 ]]; then
 
+    echo
     echo "ERROR: This verification script should be run as root."
     echo
     echo "Run:"
     echo
-    echo "    sudo bash verify-charlie-cafe-ec2.sh"
+    echo "  sudo bash verify-charlie-cafe-ec2.sh"
     echo
 
     exit 1
@@ -63,51 +58,88 @@ if [[ "${EUID}" -ne 0 ]]; then
 fi
 
 
-# ================================================================
-# 1. Verification Log
-# ================================================================
-
-LOG_FILE="/var/log/charlie-cafe-verification.log"
-
-touch "${LOG_FILE}"
-
-exec > >(tee -a "${LOG_FILE}") 2>&1
-
-
-# ================================================================
-# 2. Bash Safety
-# ================================================================
+# =========================================================
+# 1. STRICT MODE
+# =========================================================
 
 set -u
 set -o pipefail
 
 
-# ================================================================
-# 3. Verification Counters
-# ================================================================
+# =========================================================
+# 2. VARIABLES
+# =========================================================
+
+WEB_ROOT="/var/www/html"
+
+PHP_FPM_CONFIG="/etc/php-fpm.d/www.conf"
+
+PHP_APACHE_CONFIG="/etc/httpd/conf.d/php-fpm.conf"
+
+COMPLETION_FILE="/var/log/charlie-cafe-bootstrap-complete.txt"
+
+BOOTSTRAP_LOG="/var/log/charlie-cafe-bootstrap.log"
+
+PHP_FPM_SOCKET="/run/php-fpm/www.sock"
+
+EXPECTED_SOCKET_OWNER="apache"
+
+EXPECTED_SOCKET_GROUP="apache"
+
+EXPECTED_SOCKET_MODE="660"
+
+FAIL_COUNT=0
 
 PASS_COUNT=0
-FAIL_COUNT=0
+
 WARN_COUNT=0
 
 
-# ================================================================
-# 4. Helper Functions
-# ================================================================
+# =========================================================
+# 3. COLORS
+# =========================================================
+#
+# Colors are only used when the terminal supports them.
+#
+
+if [[ -t 1 ]]; then
+
+    RED="\033[31m"
+    GREEN="\033[32m"
+    YELLOW="\033[33m"
+    BLUE="\033[34m"
+    RESET="\033[0m"
+
+else
+
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    RESET=""
+
+fi
+
+
+# =========================================================
+# 4. HELPER FUNCTIONS
+# =========================================================
+
 
 section() {
 
     echo
-    echo "==============================================================="
+    echo "========================================================="
     echo "$1"
-    echo "==============================================================="
+    echo "========================================================="
 
 }
 
 
 pass() {
 
-    echo "[PASS] $1"
+    echo -e "${GREEN}[PASS]${RESET} $1"
+
     PASS_COUNT=$((PASS_COUNT + 1))
 
 }
@@ -115,7 +147,8 @@ pass() {
 
 fail() {
 
-    echo "[FAIL] $1"
+    echo -e "${RED}[FAIL]${RESET} $1"
+
     FAIL_COUNT=$((FAIL_COUNT + 1))
 
 }
@@ -123,7 +156,8 @@ fail() {
 
 warn() {
 
-    echo "[WARN] $1"
+    echo -e "${YELLOW}[WARN]${RESET} $1"
+
     WARN_COUNT=$((WARN_COUNT + 1))
 
 }
@@ -131,7 +165,7 @@ warn() {
 
 info() {
 
-    echo "[INFO] $1"
+    echo -e "${BLUE}[INFO]${RESET} $1"
 
 }
 
@@ -143,155 +177,292 @@ command_exists() {
 }
 
 
-package_installed() {
+check_command() {
 
-    rpm -q "$1" >/dev/null 2>&1
+    local COMMAND_NAME="$1"
 
-}
+    if command_exists "${COMMAND_NAME}"; then
 
+        pass "${COMMAND_NAME} command is available."
 
-service_active() {
+        return 0
 
-    systemctl is-active --quiet "$1"
-
-}
-
-
-service_enabled() {
-
-    systemctl is-enabled --quiet "$1"
-
-}
-
-
-# ================================================================
-# 5. Verification Start
-# ================================================================
-
-echo
-echo "==============================================================="
-echo "☕ CHARLIE CAFE EC2 ENVIRONMENT VERIFICATION"
-echo "==============================================================="
-echo
-echo "Date       : $(date)"
-echo "Hostname   : $(hostname)"
-echo "User       : $(whoami)"
-echo "UID        : $(id -u)"
-echo "Log File   : ${LOG_FILE}"
-echo
-
-
-# ================================================================
-# 6. Operating System Verification
-# ================================================================
-
-section "1. Operating System Verification"
-
-
-if [[ -f /etc/os-release ]]; then
-
-    source /etc/os-release
-
-    info "OS Name    : ${NAME}"
-    info "OS Version : ${VERSION}"
-    info "OS ID      : ${ID}"
-
-    if [[ "${ID}" == "amzn" ]]; then
-        pass "Amazon Linux detected."
     else
-        fail "System is not Amazon Linux."
+
+        fail "${COMMAND_NAME} command is missing."
+
+        return 1
+
     fi
+
+}
+
+
+check_package() {
+
+    local PACKAGE="$1"
+
+    if rpm -q "${PACKAGE}" >/dev/null 2>&1; then
+
+        pass "Package installed: ${PACKAGE}"
+
+    else
+
+        fail "Package missing: ${PACKAGE}"
+
+    fi
+
+}
+
+
+check_file() {
+
+    local FILE="$1"
+
+    if [[ -f "${FILE}" ]]; then
+
+        pass "File exists: ${FILE}"
+
+    else
+
+        fail "File missing: ${FILE}"
+
+    fi
+
+}
+
+
+check_directory() {
+
+    local DIRECTORY="$1"
+
+    if [[ -d "${DIRECTORY}" ]]; then
+
+        pass "Directory exists: ${DIRECTORY}"
+
+    else
+
+        fail "Directory missing: ${DIRECTORY}"
+
+    fi
+
+}
+
+
+check_service_active() {
+
+    local SERVICE="$1"
+
+    if systemctl is-active --quiet "${SERVICE}"; then
+
+        pass "Service active: ${SERVICE}"
+
+    else
+
+        fail "Service NOT active: ${SERVICE}"
+
+    fi
+
+}
+
+
+check_service_enabled() {
+
+    local SERVICE="$1"
+
+    if systemctl is-enabled --quiet "${SERVICE}"; then
+
+        pass "Service enabled at boot: ${SERVICE}"
+
+    else
+
+        fail "Service NOT enabled at boot: ${SERVICE}"
+
+    fi
+
+}
+
+
+# =========================================================
+# 5. START
+# =========================================================
+
+section "☕ Charlie Cafe EC2 Verification Started"
+
+echo
+echo "Date:"
+date
+
+echo
+echo "Hostname:"
+hostname
+
+echo
+echo "Current user:"
+whoami
+
+echo
+echo "UID:"
+id -u
+
+echo
+echo "Architecture:"
+uname -m
+
+echo
+echo "Kernel:"
+uname -r
+
+echo
+
+
+# =========================================================
+# 6. OPERATING SYSTEM
+# =========================================================
+
+section "1. Amazon Linux 2023 Verification"
+
+
+if [[ ! -f /etc/os-release ]]; then
+
+    fail "/etc/os-release does not exist."
 
 else
 
-    fail "/etc/os-release does not exist."
+    # shellcheck disable=SC1091
+    source /etc/os-release
+
+    echo "OS Name       : ${NAME:-unknown}"
+    echo "OS ID         : ${ID:-unknown}"
+    echo "Version       : ${VERSION:-unknown}"
+    echo "Version ID    : ${VERSION_ID:-unknown}"
+
+    if [[ "${ID:-}" == "amzn" ]]; then
+
+        pass "Amazon Linux detected."
+
+    else
+
+        fail "Operating system is not Amazon Linux."
+
+    fi
+
+
+    if [[ "${VERSION_ID:-}" == "2023" ]]; then
+
+        pass "Amazon Linux 2023 detected."
+
+    else
+
+        fail "Operating system is not Amazon Linux 2023."
+
+    fi
 
 fi
 
 
-# ================================================================
-# 7. DNF Verification
-# ================================================================
+# =========================================================
+# 7. DNF
+# =========================================================
 
 section "2. DNF Package Manager Verification"
 
 
-if command_exists dnf; then
+if check_command dnf; then
 
-    pass "DNF package manager is available."
-
-    echo
     dnf --version | head -n 1
-
-else
-
-    fail "DNF package manager is not available."
 
 fi
 
 
-# ================================================================
-# 8. Apache Verification
-# ================================================================
+# =========================================================
+# 8. BASE PACKAGES
+# =========================================================
 
-section "3. Apache HTTP Server Verification"
+section "3. Base Package Verification"
 
+
+BASE_PACKAGES=(
+
+    httpd
+    git
+    wget
+    unzip
+    tar
+    gzip
+    bzip2
+    xz
+    nano
+    vim-enhanced
+    htop
+    curl
+    ca-certificates
+    openssl
+    findutils
+    procps-ng
+    iproute
+    iputils
+    bind-utils
+    jq
+    which
+    util-linux
+    shadow-utils
+
+)
+
+
+for PACKAGE in "${BASE_PACKAGES[@]}"; do
+
+    check_package "${PACKAGE}"
+
+done
+
+
+# =========================================================
+# 9. CURL
+# =========================================================
+
+section "4. curl Verification"
+
+
+if check_command curl; then
+
+    curl --version | head -n 1
+
+fi
+
+
+# =========================================================
+# 10. APACHE
+# =========================================================
+
+section "5. Apache HTTP Server Verification"
+
+
+check_command httpd
 
 if command_exists httpd; then
 
-    pass "Apache command is installed."
-
-    echo
-    httpd -v | head -n 1
-
-else
-
-    fail "Apache command is not installed."
+    httpd -v 2>&1 | head -n 1
 
 fi
 
 
-if package_installed httpd; then
-
-    pass "Apache RPM package is installed."
-
-else
-
-    fail "Apache RPM package is not installed."
-
-fi
+check_package httpd
 
 
-if service_active httpd; then
+# ---------------------------------------------------------
+# Apache service
+# ---------------------------------------------------------
 
-    pass "Apache service is running."
+check_service_active httpd
 
-else
-
-    fail "Apache service is not running."
-
-    systemctl status httpd --no-pager 2>/dev/null || true
-
-fi
+check_service_enabled httpd
 
 
-if service_enabled httpd; then
-
-    pass "Apache is enabled at boot."
-
-else
-
-    warn "Apache is not enabled at boot."
-
-fi
-
-
-# ================================================================
-# 9. Apache Configuration Verification
-# ================================================================
-
-section "4. Apache Configuration Verification"
-
+# ---------------------------------------------------------
+# Apache configuration
+# ---------------------------------------------------------
 
 if command_exists httpd; then
 
@@ -303,6 +474,8 @@ if command_exists httpd; then
 
         fail "Apache configuration syntax is invalid."
 
+        echo
+        echo "Apache configuration test:"
         httpd -t || true
 
     fi
@@ -310,241 +483,916 @@ if command_exists httpd; then
 fi
 
 
-# ================================================================
-# 10. PHP Verification
-# ================================================================
+# =========================================================
+# 11. APACHE MODULES
+# =========================================================
 
-section "5. PHP Verification"
+section "6. Apache PHP-FPM Module Verification"
 
 
-if command_exists php; then
+if command_exists httpd; then
 
-    pass "PHP command is available."
 
-    echo
+    if httpd -M 2>/dev/null | grep -q "proxy_module"; then
+
+        pass "Apache mod_proxy is loaded."
+
+    else
+
+        fail "Apache mod_proxy is NOT loaded."
+
+    fi
+
+
+    if httpd -M 2>/dev/null | grep -q "proxy_fcgi_module"; then
+
+        pass "Apache mod_proxy_fcgi is loaded."
+
+    else
+
+        fail "Apache mod_proxy_fcgi is NOT loaded."
+
+    fi
+
+fi
+
+
+# =========================================================
+# 12. PHP PACKAGES
+# =========================================================
+
+section "7. PHP Package Verification"
+
+
+PHP_PACKAGES=(
+
+    php
+    php-cli
+    php-common
+    php-fpm
+    php-mysqlnd
+    php-mbstring
+    php-xml
+    php-opcache
+
+)
+
+
+for PACKAGE in "${PHP_PACKAGES[@]}"; do
+
+    check_package "${PACKAGE}"
+
+done
+
+
+# ---------------------------------------------------------
+# php-json is included in the original bootstrap package
+# list. Depending on the AL2023 PHP packaging generation,
+# JSON may also be provided by the main PHP package.
+# Therefore we verify the actual PHP extension below.
+# ---------------------------------------------------------
+
+if rpm -q php-json >/dev/null 2>&1; then
+
+    pass "Package installed: php-json"
+
+else
+
+    warn "php-json is not a separate RPM package; verifying JSON extension through PHP."
+
+fi
+
+
+# =========================================================
+# 13. PHP COMMAND
+# =========================================================
+
+section "8. PHP Verification"
+
+
+if check_command php; then
+
     php -v | head -n 1
 
-else
-
-    fail "PHP command is not available."
-
 fi
 
 
-if package_installed php; then
+# =========================================================
+# 14. PHP EXTENSIONS
+# =========================================================
 
-    pass "PHP RPM package is installed."
-
-else
-
-    fail "PHP RPM package is not installed."
-
-fi
+section "9. PHP Extension Verification"
 
 
-# ================================================================
-# 11. PHP Extension Verification
-# ================================================================
+REQUIRED_EXTENSIONS=(
 
-section "6. PHP Extension Verification"
+    mysqli
+    mysqlnd
+    mbstring
+    xml
+    json
+    opcache
+    pdo_mysql
+
+)
 
 
 if command_exists php; then
 
+    for EXT in "${REQUIRED_EXTENSIONS[@]}"; do
 
-    if php -m | grep -qi '^mysqli$'; then
-        pass "PHP mysqli extension is available."
+        if php -m 2>/dev/null | grep -qi "^${EXT}$"; then
+
+            pass "PHP extension available: ${EXT}"
+
+        else
+
+            fail "PHP extension missing: ${EXT}"
+
+        fi
+
+    done
+
+fi
+
+
+# =========================================================
+# 15. PHP-FPM CONFIGURATION
+# =========================================================
+
+section "10. PHP-FPM Configuration Verification"
+
+
+check_file "${PHP_FPM_CONFIG}"
+
+
+if [[ -f "${PHP_FPM_CONFIG}" ]]; then
+
+
+    # -----------------------------------------------------
+    # PHP-FPM user
+    # -----------------------------------------------------
+
+    if grep -Eq '^[[:space:]]*user[[:space:]]*=[[:space:]]*apache' \
+        "${PHP_FPM_CONFIG}"; then
+
+        pass "PHP-FPM user is configured as apache."
+
     else
-        fail "PHP mysqli extension is missing."
+
+        fail "PHP-FPM user is NOT configured as apache."
+
     fi
 
 
-    if php -m | grep -qi '^mysqlnd$'; then
-        pass "PHP mysqlnd extension is available."
+    # -----------------------------------------------------
+    # PHP-FPM group
+    # -----------------------------------------------------
+
+    if grep -Eq '^[[:space:]]*group[[:space:]]*=[[:space:]]*apache' \
+        "${PHP_FPM_CONFIG}"; then
+
+        pass "PHP-FPM group is configured as apache."
+
     else
-        fail "PHP mysqlnd extension is missing."
+
+        fail "PHP-FPM group is NOT configured as apache."
+
     fi
 
 
-    if php -m | grep -qi '^mbstring$'; then
-        pass "PHP mbstring extension is available."
+    # -----------------------------------------------------
+    # PHP-FPM socket
+    # -----------------------------------------------------
+
+    if grep -Eq '^listen[[:space:]]*=[[:space:]]*/run/php-fpm/www.sock' \
+        "${PHP_FPM_CONFIG}"; then
+
+        pass "PHP-FPM listen socket is correctly configured."
+
     else
-        fail "PHP mbstring extension is missing."
+
+        fail "PHP-FPM listen socket is incorrectly configured."
+
     fi
 
 
-    if php -m | grep -qi '^xml$'; then
-        pass "PHP XML extension is available."
+    # -----------------------------------------------------
+    # Socket owner
+    # -----------------------------------------------------
+
+    if grep -Eq '^listen\.owner[[:space:]]*=[[:space:]]*apache' \
+        "${PHP_FPM_CONFIG}"; then
+
+        pass "PHP-FPM socket owner is apache."
+
     else
-        fail "PHP XML extension is missing."
+
+        fail "PHP-FPM socket owner is NOT apache."
+
     fi
 
 
-    if php -m | grep -qi '^json$'; then
-        pass "PHP JSON extension is available."
+    # -----------------------------------------------------
+    # Socket group
+    # -----------------------------------------------------
+
+    if grep -Eq '^listen\.group[[:space:]]*=[[:space:]]*apache' \
+        "${PHP_FPM_CONFIG}"; then
+
+        pass "PHP-FPM socket group is apache."
+
     else
-        warn "PHP JSON extension was not detected explicitly."
+
+        fail "PHP-FPM socket group is NOT apache."
+
+    fi
+
+
+    # -----------------------------------------------------
+    # Socket mode
+    # -----------------------------------------------------
+
+    if grep -Eq '^listen\.mode[[:space:]]*=[[:space:]]*0660' \
+        "${PHP_FPM_CONFIG}"; then
+
+        pass "PHP-FPM socket mode is 0660."
+
+    else
+
+        fail "PHP-FPM socket mode is NOT 0660."
+
     fi
 
 fi
 
 
-# ================================================================
-# 12. PHP-FPM Verification
-# ================================================================
+# =========================================================
+# 16. PHP-FPM CONFIG TEST
+# =========================================================
 
-section "7. PHP-FPM Verification"
+section "11. PHP-FPM Configuration Syntax"
 
 
 if command_exists php-fpm; then
 
-    pass "PHP-FPM command is available."
+    php-fpm -t >/dev/null 2>&1
+
+    if [[ $? -eq 0 ]]; then
+
+        pass "PHP-FPM configuration syntax is valid."
+
+    else
+
+        fail "PHP-FPM configuration syntax is invalid."
+
+        php-fpm -t || true
+
+    fi
 
 else
 
-    fail "PHP-FPM command is not available."
+    fail "php-fpm command is missing."
 
 fi
 
 
-if package_installed php-fpm; then
+# =========================================================
+# 17. PHP-FPM SERVICE
+# =========================================================
 
-    pass "PHP-FPM RPM package is installed."
+section "12. PHP-FPM Service Verification"
+
+
+check_service_active php-fpm
+
+check_service_enabled php-fpm
+
+
+# =========================================================
+# 18. PHP-FPM SOCKET
+# =========================================================
+
+section "13. PHP-FPM Socket Verification"
+
+
+if [[ -S "${PHP_FPM_SOCKET}" ]]; then
+
+    pass "PHP-FPM socket exists: ${PHP_FPM_SOCKET}"
+
+    SOCKET_OWNER="$(stat -c '%U' "${PHP_FPM_SOCKET}")"
+
+    SOCKET_GROUP="$(stat -c '%G' "${PHP_FPM_SOCKET}")"
+
+    SOCKET_MODE="$(stat -c '%a' "${PHP_FPM_SOCKET}")"
+
+
+    echo
+    echo "Socket:"
+    echo "  ${PHP_FPM_SOCKET}"
+
+    echo
+    echo "Owner:"
+    echo "  ${SOCKET_OWNER}"
+
+    echo
+    echo "Group:"
+    echo "  ${SOCKET_GROUP}"
+
+    echo
+    echo "Mode:"
+    echo "  ${SOCKET_MODE}"
+
+
+    if [[ "${SOCKET_OWNER}" == "${EXPECTED_SOCKET_OWNER}" ]]; then
+
+        pass "PHP-FPM socket owner is apache."
+
+    else
+
+        fail "PHP-FPM socket owner is ${SOCKET_OWNER}, expected apache."
+
+    fi
+
+
+    if [[ "${SOCKET_GROUP}" == "${EXPECTED_SOCKET_GROUP}" ]]; then
+
+        pass "PHP-FPM socket group is apache."
+
+    else
+
+        fail "PHP-FPM socket group is ${SOCKET_GROUP}, expected apache."
+
+    fi
+
+
+    if [[ "${SOCKET_MODE}" == "${EXPECTED_SOCKET_MODE}" ]]; then
+
+        pass "PHP-FPM socket mode is 660."
+
+    else
+
+        fail "PHP-FPM socket mode is ${SOCKET_MODE}, expected 660."
+
+    fi
+
 
 else
 
-    fail "PHP-FPM RPM package is not installed."
+    fail "PHP-FPM socket does not exist: ${PHP_FPM_SOCKET}"
 
 fi
 
 
-if service_active php-fpm; then
+# =========================================================
+# 19. APACHE PHP-FPM CONFIGURATION
+# =========================================================
 
-    pass "PHP-FPM service is running."
+section "14. Apache → PHP-FPM Configuration"
 
-else
 
-    fail "PHP-FPM service is not running."
+check_file "${PHP_APACHE_CONFIG}"
 
-    systemctl status php-fpm --no-pager 2>/dev/null || true
+
+if [[ -f "${PHP_APACHE_CONFIG}" ]]; then
+
+
+    if grep -q "proxy_module" "${PHP_APACHE_CONFIG}"; then
+
+        pass "Apache PHP-FPM config references mod_proxy."
+
+    else
+
+        fail "Apache PHP-FPM config missing mod_proxy configuration."
+
+    fi
+
+
+    if grep -q "proxy_fcgi_module" "${PHP_APACHE_CONFIG}"; then
+
+        pass "Apache PHP-FPM config references mod_proxy_fcgi."
+
+    else
+
+        fail "Apache PHP-FPM config missing mod_proxy_fcgi configuration."
+
+    fi
+
+
+    if grep -q "proxy:unix:/run/php-fpm/www.sock" \
+        "${PHP_APACHE_CONFIG}"; then
+
+        pass "Apache configured to use PHP-FPM Unix socket."
+
+    else
+
+        fail "Apache PHP-FPM Unix socket configuration missing."
+
+    fi
+
+
+    if grep -q '<FilesMatch "\\.php\$">' \
+        "${PHP_APACHE_CONFIG}"; then
+
+        pass "Apache PHP FilesMatch configuration exists."
+
+    else
+
+        fail "Apache PHP FilesMatch configuration missing."
+
+    fi
+
+
+    if grep -q "DirectoryIndex index.html index.php" \
+        "${PHP_APACHE_CONFIG}"; then
+
+        pass "Apache DirectoryIndex configuration is correct."
+
+    else
+
+        fail "Apache DirectoryIndex configuration missing."
+
+    fi
 
 fi
 
 
-if service_enabled php-fpm; then
+# =========================================================
+# 20. WEB ROOT
+# =========================================================
 
-    pass "PHP-FPM is enabled at boot."
+section "15. Apache Web Root Verification"
 
-else
 
-    warn "PHP-FPM is not enabled at boot."
+check_directory "${WEB_ROOT}"
+
+
+if [[ -d "${WEB_ROOT}" ]]; then
+
+    WEB_OWNER="$(stat -c '%U' "${WEB_ROOT}")"
+
+    WEB_GROUP="$(stat -c '%G' "${WEB_ROOT}")"
+
+    WEB_MODE="$(stat -c '%a' "${WEB_ROOT}")"
+
+
+    echo
+    echo "Web root owner : ${WEB_OWNER}"
+    echo "Web root group : ${WEB_GROUP}"
+    echo "Web root mode  : ${WEB_MODE}"
+
+
+    if [[ "${WEB_OWNER}" == "apache" ]]; then
+
+        pass "Web root owner is apache."
+
+    else
+
+        fail "Web root owner is ${WEB_OWNER}, expected apache."
+
+    fi
+
+
+    if [[ "${WEB_GROUP}" == "apache" ]]; then
+
+        pass "Web root group is apache."
+
+    else
+
+        fail "Web root group is ${WEB_GROUP}, expected apache."
+
+    fi
 
 fi
 
 
-# ================================================================
-# 13. MariaDB/MySQL Client Verification
-# ================================================================
+# =========================================================
+# 21. INDEX.HTML
+# =========================================================
 
-section "8. MariaDB / MySQL Client Verification"
+section "16. index.html Verification"
+
+
+INDEX_FILE="${WEB_ROOT}/index.html"
+
+
+check_file "${INDEX_FILE}"
+
+
+if [[ -f "${INDEX_FILE}" ]]; then
+
+
+    if grep -q "Charlie Cafe" "${INDEX_FILE}"; then
+
+        pass "index.html contains Charlie Cafe."
+
+    else
+
+        fail "index.html does not contain Charlie Cafe."
+
+    fi
+
+
+    if grep -q "Apache HTTP Server: Working" "${INDEX_FILE}"; then
+
+        pass "index.html contains Apache status."
+
+    else
+
+        fail "index.html missing Apache status."
+
+    fi
+
+
+    if grep -q "Amazon Linux 2023: Working" "${INDEX_FILE}"; then
+
+        pass "index.html contains Amazon Linux 2023 status."
+
+    else
+
+        fail "index.html missing Amazon Linux 2023 status."
+
+    fi
+
+
+    if grep -q "Docker: Installed" "${INDEX_FILE}"; then
+
+        pass "index.html contains Docker status."
+
+    else
+
+        fail "index.html missing Docker status."
+
+    fi
+
+
+    if grep -q "Kubernetes Tools: Installed" "${INDEX_FILE}"; then
+
+        pass "index.html contains Kubernetes status."
+
+    else
+
+        fail "index.html missing Kubernetes status."
+
+    fi
+
+
+    if grep -q 'href="/info.php"' "${INDEX_FILE}"; then
+
+        pass "index.html contains info.php link."
+
+    else
+
+        fail "index.html missing info.php link."
+
+    fi
+
+fi
+
+
+# =========================================================
+# 22. INFO.PHP
+# =========================================================
+
+section "17. info.php Verification"
+
+
+INFO_FILE="${WEB_ROOT}/info.php"
+
+
+check_file "${INFO_FILE}"
+
+
+if [[ -f "${INFO_FILE}" ]]; then
+
+
+    if grep -q "phpinfo" "${INFO_FILE}"; then
+
+        pass "info.php contains phpinfo()."
+
+    else
+
+        fail "info.php does not contain phpinfo()."
+
+    fi
+
+fi
+
+
+# =========================================================
+# 23. WEB FILE PERMISSIONS
+# =========================================================
+
+section "18. Web File Permission Verification"
+
+
+if [[ -d "${WEB_ROOT}" ]]; then
+
+
+    BAD_DIRS="$(find "${WEB_ROOT}" -type d ! -perm 755 -print 2>/dev/null)"
+
+    if [[ -z "${BAD_DIRS}" ]]; then
+
+        pass "All web directories use permission 755."
+
+    else
+
+        fail "One or more web directories do not use permission 755."
+
+        echo "${BAD_DIRS}"
+
+    fi
+
+
+    BAD_FILES="$(find "${WEB_ROOT}" -type f ! -perm 644 -print 2>/dev/null)"
+
+    if [[ -z "${BAD_FILES}" ]]; then
+
+        pass "All web files use permission 644."
+
+    else
+
+        fail "One or more web files do not use permission 644."
+
+        echo "${BAD_FILES}"
+
+    fi
+
+
+fi
+
+
+# =========================================================
+# 24. INDEX.PHP MUST NOT EXIST
+# =========================================================
+
+section "19. index.php Verification"
+
+
+if [[ -e "${WEB_ROOT}/index.php" ]]; then
+
+    fail "Unexpected index.php exists."
+
+else
+
+    pass "index.php does not exist."
+
+fi
+
+
+# =========================================================
+# 25. APACHE HTTP TEST
+# =========================================================
+
+section "20. Apache HTTP index.html Test"
+
+
+HTTP_OUTPUT="/tmp/charlie-cafe-index-verification.html"
+
+
+HTTP_STATUS="$(
+    curl \
+        --silent \
+        --show-error \
+        --output "${HTTP_OUTPUT}" \
+        --write-out "%{http_code}" \
+        --max-time 15 \
+        http://127.0.0.1/ \
+        2>/dev/null
+)"
+
+
+echo "HTTP status: ${HTTP_STATUS}"
+
+
+if [[ "${HTTP_STATUS}" == "200" ]]; then
+
+    pass "Apache returned HTTP 200 for /."
+
+else
+
+    fail "Apache did not return HTTP 200 for /."
+
+fi
+
+
+if [[ -f "${HTTP_OUTPUT}" ]]; then
+
+
+    if grep -q "Charlie Cafe" "${HTTP_OUTPUT}"; then
+
+        pass "HTTP response contains Charlie Cafe."
+
+    else
+
+        fail "HTTP response does not contain Charlie Cafe."
+
+    fi
+
+
+    rm -f "${HTTP_OUTPUT}"
+
+fi
+
+
+# =========================================================
+# 26. PHP HTTP TEST
+# =========================================================
+
+section "21. Apache → PHP-FPM HTTP Test"
+
+
+PHP_OUTPUT="/tmp/charlie-cafe-php-verification.html"
+
+
+PHP_STATUS="$(
+    curl \
+        --silent \
+        --show-error \
+        --output "${PHP_OUTPUT}" \
+        --write-out "%{http_code}" \
+        --max-time 15 \
+        http://127.0.0.1/info.php \
+        2>/dev/null
+)"
+
+
+echo "PHP HTTP status: ${PHP_STATUS}"
+
+
+if [[ "${PHP_STATUS}" == "200" ]]; then
+
+    pass "Apache returned HTTP 200 for /info.php."
+
+else
+
+    fail "Apache did not return HTTP 200 for /info.php."
+
+fi
+
+
+if [[ -f "${PHP_OUTPUT}" ]]; then
+
+
+    if grep -qi "PHP Version" "${PHP_OUTPUT}"; then
+
+        pass "PHP executed successfully through Apache/PHP-FPM."
+
+    else
+
+        fail "PHP output was not detected."
+
+    fi
+
+
+    rm -f "${PHP_OUTPUT}"
+
+fi
+
+
+# =========================================================
+# 27. MARIADB CLIENT
+# =========================================================
+
+section "22. MariaDB / MySQL Client Verification"
+
+
+MARIADB_FOUND="false"
+
+
+for PACKAGE in \
+    mariadb123 \
+    mariadb118 \
+    mariadb114 \
+    mariadb1011 \
+    mariadb105
+do
+
+    if rpm -q "${PACKAGE}" >/dev/null 2>&1; then
+
+        pass "MariaDB package installed: ${PACKAGE}"
+
+        MARIADB_FOUND="true"
+
+    fi
+
+done
+
+
+if [[ "${MARIADB_FOUND}" == "false" ]]; then
+
+    warn "No expected MariaDB package name was detected."
+
+fi
 
 
 if command_exists mariadb; then
 
-    pass "MariaDB client command is available."
+    pass "mariadb command is available."
 
-    echo
     mariadb --version
 
 elif command_exists mysql; then
 
-    pass "MySQL client command is available."
+    pass "mysql-compatible client command is available."
 
-    echo
     mysql --version
 
 else
 
-    fail "MariaDB/MySQL client command was not found."
+    fail "Neither mariadb nor mysql client command is available."
 
 fi
 
 
-if package_installed mariadb105; then
+# =========================================================
+# 28. DOCKER PACKAGE
+# =========================================================
 
-    pass "MariaDB 10.5 client package is installed."
-
-else
-
-    warn "mariadb105 RPM package was not detected."
-
-fi
+section "23. Docker Installation Verification"
 
 
-# ================================================================
-# 14. Docker Verification
-# ================================================================
+check_package docker
 
-section "9. Docker Verification"
+check_command docker
 
 
 if command_exists docker; then
 
-    pass "Docker command is available."
-
-    echo
     docker --version
 
+fi
+
+
+# =========================================================
+# 29. DOCKER GROUP
+# =========================================================
+
+section "24. Docker Group Verification"
+
+
+if getent group docker >/dev/null 2>&1; then
+
+    pass "docker group exists."
+
+    echo
+    echo "Docker group:"
+    getent group docker
+
 else
 
-    fail "Docker command is not available."
+    fail "docker group does not exist."
 
 fi
 
 
-if package_installed docker; then
+# ---------------------------------------------------------
+# ec2-user
+# ---------------------------------------------------------
 
-    pass "Docker RPM package is installed."
+if id ec2-user >/dev/null 2>&1; then
+
+    pass "ec2-user exists."
+
+
+    if id -nG ec2-user | tr ' ' '\n' | grep -qx docker; then
+
+        pass "ec2-user belongs to docker group."
+
+    else
+
+        fail "ec2-user is NOT a member of docker group."
+
+    fi
 
 else
 
-    fail "Docker RPM package is not installed."
+    fail "ec2-user does not exist."
 
 fi
 
 
-if service_active docker; then
+# =========================================================
+# 30. DOCKER SERVICE
+# =========================================================
 
-    pass "Docker service is running."
-
-else
-
-    fail "Docker service is not running."
-
-    systemctl status docker --no-pager 2>/dev/null || true
-
-fi
+section "25. Docker Service Verification"
 
 
-if service_enabled docker; then
+check_service_active docker
 
-    pass "Docker is enabled at boot."
-
-else
-
-    warn "Docker is not enabled at boot."
-
-fi
+check_service_enabled docker
 
 
-# ================================================================
-# 15. Docker Daemon Verification
-# ================================================================
+# =========================================================
+# 31. DOCKER DAEMON
+# =========================================================
 
-section "10. Docker Daemon Verification"
+section "26. Docker Daemon Verification"
 
 
 if command_exists docker; then
+
 
     if docker info >/dev/null 2>&1; then
 
@@ -552,206 +1400,128 @@ if command_exists docker; then
 
     else
 
-        fail "Docker daemon is not responding to docker info."
+        fail "Docker daemon is NOT responding."
 
     fi
 
 fi
 
 
-# ================================================================
-# 16. Docker Group Verification
-# ================================================================
+# =========================================================
+# 32. DOCKER COMPOSE
+# =========================================================
 
-section "11. Docker Group Verification"
-
-
-if getent group docker >/dev/null 2>&1; then
-
-    pass "Docker group exists."
-
-    echo
-    getent group docker
-
-else
-
-    fail "Docker group does not exist."
-
-fi
+section "27. Docker Compose v2 Verification"
 
 
-if id ec2-user >/dev/null 2>&1; then
+DOCKER_PLUGIN_DIR="/usr/local/lib/docker/cli-plugins"
 
-    if id -nG ec2-user | tr ' ' '\n' | grep -qx docker; then
-
-        pass "ec2-user belongs to the docker group."
-
-    else
-
-        fail "ec2-user does not belong to the docker group."
-
-    fi
-
-else
-
-    fail "ec2-user account does not exist."
-
-fi
+DOCKER_COMPOSE_PLUGIN="${DOCKER_PLUGIN_DIR}/docker-compose"
 
 
-# ================================================================
-# 17. Docker Compose Verification
-# ================================================================
-
-section "12. Docker Compose v2 Verification"
-
-
-if command_exists docker; then
-
-    if docker compose version >/dev/null 2>&1; then
-
-        pass "Docker Compose v2 is available."
-
-        echo
-        docker compose version
-
-    else
-
-        fail "Docker Compose v2 is not available."
-
-    fi
-
-fi
-
-
-DOCKER_PLUGIN="/usr/local/lib/docker/cli-plugins/docker-compose"
-
-
-if [[ -f "${DOCKER_PLUGIN}" ]]; then
+if [[ -f "${DOCKER_COMPOSE_PLUGIN}" ]]; then
 
     pass "Docker Compose CLI plugin exists."
 
 else
 
-    warn "Docker Compose CLI plugin was not found at:"
-    warn "${DOCKER_PLUGIN}"
+    fail "Docker Compose CLI plugin is missing."
 
 fi
 
 
-if [[ -x "${DOCKER_PLUGIN}" ]]; then
+if [[ -x "${DOCKER_COMPOSE_PLUGIN}" ]]; then
 
-    pass "Docker Compose CLI plugin is executable."
+    pass "Docker Compose plugin is executable."
 
 else
 
-    warn "Docker Compose CLI plugin is not executable."
+    fail "Docker Compose plugin is not executable."
 
 fi
 
 
-# ================================================================
-# 18. Git Verification
-# ================================================================
-
-section "13. Git Verification"
+if command_exists docker; then
 
 
-if command_exists git; then
+    if docker compose version >/dev/null 2>&1; then
 
-    pass "Git is installed."
+        pass "Docker Compose v2 command works."
 
-    echo
-    git --version
-
-else
-
-    fail "Git is not installed."
-
-fi
-
-
-# ================================================================
-# 19. DevOps Utilities Verification
-# ================================================================
-
-section "14. DevOps Utilities Verification"
-
-
-for utility in htop unzip wget nano vim tar; do
-
-    if command_exists "${utility}"; then
-
-        pass "${utility} is available."
+        docker compose version
 
     else
 
-        fail "${utility} is not available."
+        fail "docker compose command does not work."
 
     fi
 
-done
+fi
 
 
-# ================================================================
-# 20. curl Verification
-# ================================================================
+# =========================================================
+# 33. GIT
+# =========================================================
 
-section "15. curl Verification"
+section "28. Git Verification"
 
 
-if command_exists curl; then
+check_package git
 
-    pass "curl is available."
+if check_command git; then
 
-    echo
-    curl --version | head -n 1
-
-else
-
-    fail "curl is not available."
+    git --version
 
 fi
 
 
-# ================================================================
-# 21. AWS CLI Verification
-# ================================================================
+# =========================================================
+# 34. AWS CLI
+# =========================================================
 
-section "16. AWS CLI Verification"
+section "29. AWS CLI v2 Verification"
 
 
-if command_exists aws; then
+if check_command aws; then
 
-    pass "AWS CLI is installed."
 
-    echo
-    aws --version
+    AWS_VERSION="$(aws --version 2>&1)"
 
-else
+    echo "${AWS_VERSION}"
 
-    fail "AWS CLI is not installed."
+
+    if echo "${AWS_VERSION}" | grep -q "aws-cli/2"; then
+
+        pass "AWS CLI v2 detected."
+
+    else
+
+        fail "AWS CLI is installed but is NOT version 2."
+
+    fi
 
 fi
 
 
-# ================================================================
-# 22. AWS IAM Identity Verification
-# ================================================================
+# =========================================================
+# 35. AWS STS / IAM ROLE
+# =========================================================
 
-section "17. AWS IAM Role / Identity Verification"
-
-
-IDENTITY_FILE="/tmp/charlie-cafe-verification-identity.json"
+section "30. EC2 IAM Role / AWS STS Verification"
 
 
 if command_exists aws; then
+
+
+    IDENTITY_FILE="/tmp/charlie-cafe-verification-identity.json"
+
 
     if aws sts get-caller-identity \
         --output json \
         > "${IDENTITY_FILE}" 2>/dev/null; then
 
-        pass "AWS STS caller identity is available."
+
+        pass "AWS STS get-caller-identity succeeded."
 
         echo
         echo "AWS identity:"
@@ -759,758 +1529,798 @@ if command_exists aws; then
 
         rm -f "${IDENTITY_FILE}"
 
+
     else
 
-        warn "AWS STS caller identity could not be verified."
+        warn "AWS CLI works, but EC2 IAM credentials are not currently available."
 
         echo
-        echo "Possible reasons:"
-        echo "  - No IAM role attached to EC2"
-        echo "  - Instance metadata unavailable"
-        echo "  - AWS credentials unavailable"
-        echo "  - Network/connectivity issue"
+        echo "This can happen if the EC2 instance has no IAM role."
+
+        echo "The original bootstrap script intentionally did NOT fail in this situation."
 
     fi
 
 fi
 
 
-# ================================================================
-# 23. Web Directory Verification
-# ================================================================
+# =========================================================
+# 36. KUBECTL
+# =========================================================
 
-section "18. Apache Web Directory Verification"
-
-
-WEB_ROOT="/var/www/html"
+section "31. kubectl Verification"
 
 
-if [[ -d "${WEB_ROOT}" ]]; then
+if check_command kubectl; then
 
-    pass "Apache web root exists: ${WEB_ROOT}"
-
-else
-
-    fail "Apache web root does not exist: ${WEB_ROOT}"
+    kubectl version --client
 
 fi
 
 
-if [[ -r "${WEB_ROOT}" ]]; then
+# =========================================================
+# 37. EKSCTL
+# =========================================================
 
-    pass "Apache web root is readable."
-
-else
-
-    fail "Apache web root is not readable."
-
-fi
+section "32. eksctl Verification"
 
 
-# ================================================================
-# 24. Charlie Cafe index.php Verification
-# ================================================================
+if check_command eksctl; then
 
-section "19. Charlie Cafe Application Page Verification"
-
-
-INDEX_FILE="${WEB_ROOT}/index.php"
-
-
-if [[ -f "${INDEX_FILE}" ]]; then
-
-    pass "Charlie Cafe index.php exists."
-
-else
-
-    fail "Charlie Cafe index.php does not exist."
+    eksctl version
 
 fi
 
 
-if [[ -r "${INDEX_FILE}" ]]; then
+# =========================================================
+# 38. HELM
+# =========================================================
 
-    pass "index.php is readable."
+section "33. Helm Verification"
 
-else
 
-    fail "index.php is not readable."
+if check_command helm; then
+
+    helm version --short
 
 fi
 
 
-if [[ -f "${INDEX_FILE}" ]]; then
+# =========================================================
+# 39. KIND
+# =========================================================
 
-    if grep -q "Charlie Cafe" "${INDEX_FILE}"; then
+section "34. kind Verification"
 
-        pass "index.php contains Charlie Cafe application content."
+
+if check_command kind; then
+
+    kind version
+
+fi
+
+
+# =========================================================
+# 40. KUBERNETES TOOL SUMMARY
+# =========================================================
+
+section "35. Kubernetes Tools Final Verification"
+
+
+K8S_TOOLS=(
+
+    kubectl
+    eksctl
+    helm
+    kind
+
+)
+
+
+for TOOL in "${K8S_TOOLS[@]}"; do
+
+    if command_exists "${TOOL}"; then
+
+        pass "Kubernetes tool available: ${TOOL}"
 
     else
 
-        warn "index.php exists but Charlie Cafe text was not detected."
+        fail "Kubernetes tool missing: ${TOOL}"
+
+    fi
+
+done
+
+
+# =========================================================
+# 41. EC2-USER .BASHRC
+# =========================================================
+
+section "36. ec2-user Environment Verification"
+
+
+EC2_BASHRC="/home/ec2-user/.bashrc"
+
+
+if id ec2-user >/dev/null 2>&1; then
+
+
+    check_file "${EC2_BASHRC}"
+
+
+    if [[ -f "${EC2_BASHRC}" ]]; then
+
+
+        if grep -q 'export PATH="/usr/local/bin:$PATH"' \
+            "${EC2_BASHRC}"; then
+
+            pass "ec2-user .bashrc contains /usr/local/bin PATH configuration."
+
+        else
+
+            fail "ec2-user .bashrc is missing /usr/local/bin PATH configuration."
+
+        fi
+
+
+        BASHRC_OWNER="$(stat -c '%U' "${EC2_BASHRC}")"
+
+        BASHRC_GROUP="$(stat -c '%G' "${EC2_BASHRC}")"
+
+
+        if [[ "${BASHRC_OWNER}" == "ec2-user" ]]; then
+
+            pass "ec2-user .bashrc owner is ec2-user."
+
+        else
+
+            fail "ec2-user .bashrc owner is ${BASHRC_OWNER}."
+
+        fi
+
+
+        if [[ "${BASHRC_GROUP}" == "ec2-user" ]]; then
+
+            pass "ec2-user .bashrc group is ec2-user."
+
+        else
+
+            fail "ec2-user .bashrc group is ${BASHRC_GROUP}."
+
+        fi
 
     fi
 
 fi
 
 
-# ================================================================
-# 25. PHP Info Page Verification
-# ================================================================
+# =========================================================
+# 42. REQUIRED DIRECTORIES
+# =========================================================
 
-section "20. PHP Info Page Verification"
-
-
-PHP_INFO_FILE="${WEB_ROOT}/info.php"
+section "37. Required Directory Verification"
 
 
-if [[ -f "${PHP_INFO_FILE}" ]]; then
+REQUIRED_DIRECTORIES=(
 
-    pass "info.php exists."
+    /var/www/html
+    /etc/php-fpm.d
+    /etc/httpd
+    /etc/httpd/conf.d
+    /usr/local/bin
+    /usr/local/lib/docker/cli-plugins
 
-else
-
-    fail "info.php does not exist."
-
-fi
-
-
-if [[ -r "${PHP_INFO_FILE}" ]]; then
-
-    pass "info.php is readable."
-
-else
-
-    fail "info.php is not readable."
-
-fi
+)
 
 
-# ================================================================
-# 26. Apache HTTP Verification
-# ================================================================
+for DIRECTORY in "${REQUIRED_DIRECTORIES[@]}"; do
 
-section "21. Apache HTTP Response Verification"
+    check_directory "${DIRECTORY}"
 
-
-if command_exists curl; then
-
-    HTTP_STATUS="$(
-        curl -s \
-            -o /dev/null \
-            -w "%{http_code}" \
-            --max-time 10 \
-            http://localhost
-    )"
-
-    echo "HTTP status: ${HTTP_STATUS}"
+done
 
 
-    if [[ "${HTTP_STATUS}" == "200" ||
-          "${HTTP_STATUS}" == "301" ||
-          "${HTTP_STATUS}" == "302" ]]; then
+# =========================================================
+# 43. COMPLETION MARKER
+# =========================================================
 
-        pass "Apache HTTP endpoint responded successfully."
+section "38. Bootstrap Completion Marker Verification"
+
+
+check_file "${COMPLETION_FILE}"
+
+
+if [[ -f "${COMPLETION_FILE}" ]]; then
+
+
+    if grep -q "Charlie Cafe EC2 Bootstrap Completed Successfully" \
+        "${COMPLETION_FILE}"; then
+
+        pass "Bootstrap completion marker contains success message."
 
     else
 
-        fail "Apache HTTP endpoint returned unexpected status."
+        fail "Bootstrap completion marker does not contain expected success message."
 
     fi
 
-fi
-
-
-# ================================================================
-# 27. PHP Execution Verification
-# ================================================================
-
-section "22. PHP Execution Verification"
-
-
-if command_exists curl; then
-
-    PHP_STATUS="$(
-        curl -s \
-            -o /dev/null \
-            -w "%{http_code}" \
-            --max-time 10 \
-            http://localhost/index.php
-    )"
-
-    echo "index.php HTTP status: ${PHP_STATUS}"
-
-
-    if [[ "${PHP_STATUS}" == "200" ]]; then
-
-        pass "PHP application page returned HTTP 200."
-
-    else
-
-        fail "PHP application page did not return HTTP 200."
-
-    fi
-
-fi
-
-
-# ================================================================
-# 28. PHP Content Verification
-# ================================================================
-
-section "23. PHP Application Content Verification"
-
-
-if command_exists curl; then
-
-    PHP_CONTENT="$(
-        curl -s \
-            --max-time 10 \
-            http://localhost/index.php
-    )"
-
-
-    if echo "${PHP_CONTENT}" | grep -q "Charlie Cafe"; then
-
-        pass "Charlie Cafe content is being served by PHP."
-
-    else
-
-        fail "Charlie Cafe content was not detected in HTTP response."
-
-    fi
-
-
-    if echo "${PHP_CONTENT}" | grep -q "PHP Version"; then
-
-        pass "PHP version information is being rendered."
-
-    else
-
-        warn "PHP version information was not detected."
-
-    fi
-
-fi
-
-
-# ================================================================
-# 29. PHP Info HTTP Verification
-# ================================================================
-
-section "24. PHP Info HTTP Verification"
-
-
-if command_exists curl; then
-
-    PHP_INFO_STATUS="$(
-        curl -s \
-            -o /dev/null \
-            -w "%{http_code}" \
-            --max-time 10 \
-            http://localhost/info.php
-    )"
-
-    echo "info.php HTTP status: ${PHP_INFO_STATUS}"
-
-
-    if [[ "${PHP_INFO_STATUS}" == "200" ]]; then
-
-        pass "PHP info page returned HTTP 200."
-
-    else
-
-        fail "PHP info page did not return HTTP 200."
-
-    fi
-
-fi
-
-
-# ================================================================
-# 30. PHP-FPM Socket / Process Verification
-# ================================================================
-
-section "25. PHP-FPM Process Verification"
-
-
-if pgrep -x php-fpm >/dev/null 2>&1; then
-
-    pass "PHP-FPM process is running."
-
-else
-
-    fail "PHP-FPM process was not detected."
-
-fi
-
-
-# ================================================================
-# 31. Listening Port Verification
-# ================================================================
-
-section "26. Listening Port Verification"
-
-
-if command_exists ss; then
 
     echo
-    echo "Listening TCP ports:"
-    echo
+    echo "Completion marker:"
+    echo "---------------------------------------------------------"
 
-    ss -lntp || true
+    sed -n '1,80p' "${COMPLETION_FILE}"
 
-
-    if ss -lnt | grep -q ':80 '; then
-
-        pass "Port 80 is listening."
-
-    else
-
-        fail "Port 80 is not listening."
-
-    fi
-
-
-    if ss -lnt | grep -q ':8080 '; then
-
-        info "Port 8080 is currently listening."
-
-    else
-
-        info "Port 8080 is not currently listening."
-
-    fi
-
-else
-
-    warn "ss command is not available."
+    echo "---------------------------------------------------------"
 
 fi
 
 
-# ================================================================
-# 32. Bootstrap Log Verification
-# ================================================================
+# =========================================================
+# 44. BOOTSTRAP LOG
+# =========================================================
 
-section "27. Bootstrap Log Verification"
+section "39. Bootstrap Log Verification"
 
 
-BOOTSTRAP_LOG="/var/log/charlie-cafe-bootstrap.log"
+check_file "${BOOTSTRAP_LOG}"
 
 
 if [[ -f "${BOOTSTRAP_LOG}" ]]; then
 
-    pass "Bootstrap log exists."
 
-    echo
-    echo "Bootstrap log size:"
-    du -h "${BOOTSTRAP_LOG}"
+    LOG_SIZE="$(stat -c '%s' "${BOOTSTRAP_LOG}")"
 
 
-    if grep -q "BOOTSTRAP COMPLETED SUCCESSFULLY" "${BOOTSTRAP_LOG}"; then
+    echo "Bootstrap log size: ${LOG_SIZE} bytes"
+
+
+    if (( LOG_SIZE > 0 )); then
+
+        pass "Bootstrap log contains data."
+
+    else
+
+        fail "Bootstrap log is empty."
+
+    fi
+
+
+    if grep -q "CHARLIE CAFE EC2 BOOTSTRAP COMPLETED SUCCESSFULLY" \
+        "${BOOTSTRAP_LOG}"; then
 
         pass "Bootstrap log contains successful completion message."
 
     else
 
-        warn "Bootstrap completion message was not detected in the log."
+        warn "Successful completion message was not found in bootstrap log."
 
     fi
-
-else
-
-    fail "Bootstrap log does not exist."
 
 fi
 
 
-# ================================================================
-# 33. Bootstrap Completion Marker
-# ================================================================
+# =========================================================
+# 45. APACHE LOG DIRECTORY
+# =========================================================
 
-section "28. Bootstrap Completion Marker Verification"
-
-
-COMPLETION_FILE="/var/log/charlie-cafe-bootstrap-complete.txt"
+section "40. Apache Log Verification"
 
 
-if [[ -f "${COMPLETION_FILE}" ]]; then
+if [[ -d /var/log/httpd ]]; then
 
-    pass "Bootstrap completion marker exists."
+    pass "Apache log directory exists."
+
+else
+
+    fail "Apache log directory does not exist."
+
+fi
+
+
+# =========================================================
+# 46. SERVICE FINAL STATUS
+# =========================================================
+
+section "41. Final Service Status"
+
+
+SERVICES=(
+
+    httpd
+    php-fpm
+    docker
+
+)
+
+
+for SERVICE in "${SERVICES[@]}"; do
+
 
     echo
-    echo "Completion marker:"
-    echo "---------------------------------------------------------------"
-    cat "${COMPLETION_FILE}"
-    echo "---------------------------------------------------------------"
-
-else
-
-    fail "Bootstrap completion marker does not exist."
-
-fi
+    echo "Service: ${SERVICE}"
 
 
-# ================================================================
-# 34. Web File Permissions
-# ================================================================
+    systemctl is-active "${SERVICE}" 2>/dev/null || true
 
-section "29. Web File Permission Verification"
+    systemctl is-enabled "${SERVICE}" 2>/dev/null || true
 
 
-if [[ -d "${WEB_ROOT}" ]]; then
+    if systemctl is-active --quiet "${SERVICE}"; then
 
-    WEB_OWNER="$(stat -c '%U:%G' "${WEB_ROOT}")"
-
-    echo "Web root owner: ${WEB_OWNER}"
-
-
-    if [[ "${WEB_OWNER}" == "apache:apache" ]]; then
-
-        pass "Apache owns the web root."
+        pass "${SERVICE} is active."
 
     else
 
-        warn "Web root ownership is ${WEB_OWNER}; expected apache:apache."
+        fail "${SERVICE} is NOT active."
 
     fi
 
-fi
 
+    if systemctl is-enabled --quiet "${SERVICE}"; then
 
-if [[ -f "${INDEX_FILE}" ]]; then
-
-    INDEX_PERMISSION="$(stat -c '%a' "${INDEX_FILE}")"
-
-    echo "index.php permissions: ${INDEX_PERMISSION}"
-
-
-    if [[ "${INDEX_PERMISSION}" == "644" ]]; then
-
-        pass "index.php permissions are 644."
+        pass "${SERVICE} is enabled."
 
     else
 
-        warn "index.php permissions are ${INDEX_PERMISSION}; expected 644."
+        fail "${SERVICE} is NOT enabled."
 
     fi
 
-fi
+done
 
 
-if [[ -f "${PHP_INFO_FILE}" ]]; then
+# =========================================================
+# 47. LISTENING PORTS
+# =========================================================
 
-    INFO_PERMISSION="$(stat -c '%a' "${PHP_INFO_FILE}")"
-
-    echo "info.php permissions: ${INFO_PERMISSION}"
-
-
-    if [[ "${INFO_PERMISSION}" == "644" ]]; then
-
-        pass "info.php permissions are 644."
-
-    else
-
-        warn "info.php permissions are ${INFO_PERMISSION}; expected 644."
-
-    fi
-
-fi
+section "42. Listening Port Verification"
 
 
-# ================================================================
-# 35. Disk Space Verification
-# ================================================================
+if command_exists ss; then
 
-section "30. Disk Space Verification"
-
-
-echo
-df -h /
-
-
-ROOT_USAGE="$(
-    df -P / |
-    awk 'NR==2 {gsub("%","",$5); print $5}'
-)"
-
-
-if [[ "${ROOT_USAGE}" =~ ^[0-9]+$ ]]; then
-
-    if (( ROOT_USAGE < 90 )); then
-
-        pass "Root filesystem usage is below 90%."
-
-    else
-
-        warn "Root filesystem usage is ${ROOT_USAGE}%."
-
-    fi
-
-fi
-
-
-# ================================================================
-# 36. Memory Verification
-# ================================================================
-
-section "31. Memory Verification"
-
-
-if command_exists free; then
 
     echo
-    free -h
+    echo "Current listening TCP ports:"
+    echo
 
-    pass "Memory information is available."
+    ss -lntp || true
+
+
+    if ss -lnt 2>/dev/null | grep -Eq 'LISTEN.*:80[[:space:]]'; then
+
+        pass "Port 80 is listening."
+
+    else
+
+        fail "Port 80 is NOT listening."
+
+    fi
 
 else
 
-    warn "free command is not available."
+    warn "ss command is unavailable."
 
 fi
 
 
-# ================================================================
-# 37. Docker Functional Test
-# ================================================================
+# =========================================================
+# 48. LOCAL HTTP CONNECTIVITY
+# =========================================================
 
-section "32. Docker Functional Verification"
+section "43. Local Web Connectivity"
 
 
-if command_exists docker && service_active docker; then
+if curl \
+    --silent \
+    --show-error \
+    --max-time 10 \
+    http://127.0.0.1/ \
+    >/dev/null 2>&1; then
+
+    pass "Local HTTP connectivity to Apache works."
+
+else
+
+    fail "Local HTTP connectivity to Apache failed."
+
+fi
+
+
+# =========================================================
+# 49. PHP-FPM LOCAL HEALTH
+# =========================================================
+
+section "44. PHP-FPM Local Health"
+
+
+if systemctl is-active --quiet php-fpm; then
+
+    pass "PHP-FPM systemd service is healthy."
+
+else
+
+    fail "PHP-FPM systemd service is unhealthy."
+
+fi
+
+
+if [[ -S "${PHP_FPM_SOCKET}" ]]; then
+
+    pass "PHP-FPM Unix socket is healthy."
+
+else
+
+    fail "PHP-FPM Unix socket is unavailable."
+
+fi
+
+
+# =========================================================
+# 50. DOCKER LOCAL HEALTH
+# =========================================================
+
+section "45. Docker Local Health"
+
+
+if systemctl is-active --quiet docker; then
+
 
     if docker info >/dev/null 2>&1; then
 
-        DOCKER_VERSION="$(
-            docker version \
-                --format '{{.Server.Version}}' \
-                2>/dev/null
-        )"
-
-        if [[ -n "${DOCKER_VERSION}" ]]; then
-
-            pass "Docker server version detected: ${DOCKER_VERSION}"
-
-        else
-
-            warn "Docker daemon is running but server version could not be read."
-
-        fi
-
-
-        # --------------------------------------------------------
-        # Read-only Docker image/container inspection
-        # --------------------------------------------------------
-
-        echo
-        echo "Docker images:"
-        docker images || true
-
-        echo
-        echo "Docker containers:"
-        docker ps -a || true
+        pass "Docker daemon health check passed."
 
     else
 
-        fail "Docker daemon functional test failed."
+        fail "Docker daemon health check failed."
 
     fi
 
+else
+
+    fail "Docker service is not active."
+
 fi
 
 
-# ================================================================
-# 38. IAM Metadata Verification
-# ================================================================
+# =========================================================
+# 51. INSTALLED TOOL VERSION SUMMARY
+# =========================================================
 
-section "33. EC2 Instance Metadata Verification"
+section "46. Installed DevOps Tool Versions"
 
 
-TOKEN="$(
-    curl -sS \
-        --max-time 3 \
-        -X PUT \
-        -H "X-aws-ec2-metadata-token-ttl-seconds: 60" \
-        http://169.254.169.254/latest/api/token \
-        2>/dev/null || true
+echo
+
+echo "---------------------------------------------------------"
+echo "Apache"
+echo "---------------------------------------------------------"
+
+httpd -v 2>&1 | head -n 1 || true
+
+
+echo
+
+echo "---------------------------------------------------------"
+echo "PHP"
+echo "---------------------------------------------------------"
+
+php -v 2>&1 | head -n 1 || true
+
+
+echo
+
+echo "---------------------------------------------------------"
+echo "PHP-FPM"
+echo "---------------------------------------------------------"
+
+php-fpm -v 2>&1 | head -n 1 || true
+
+
+echo
+
+echo "---------------------------------------------------------"
+echo "Docker"
+echo "---------------------------------------------------------"
+
+docker --version 2>&1 || true
+
+
+echo
+
+echo "---------------------------------------------------------"
+echo "Docker Compose"
+echo "---------------------------------------------------------"
+
+docker compose version 2>&1 || true
+
+
+echo
+
+echo "---------------------------------------------------------"
+echo "Git"
+echo "---------------------------------------------------------"
+
+git --version 2>&1 || true
+
+
+echo
+
+echo "---------------------------------------------------------"
+echo "AWS CLI"
+echo "---------------------------------------------------------"
+
+aws --version 2>&1 || true
+
+
+echo
+
+echo "---------------------------------------------------------"
+echo "kubectl"
+echo "---------------------------------------------------------"
+
+kubectl version --client 2>&1 | head -n 1 || true
+
+
+echo
+
+echo "---------------------------------------------------------"
+echo "eksctl"
+echo "---------------------------------------------------------"
+
+eksctl version 2>&1 || true
+
+
+echo
+
+echo "---------------------------------------------------------"
+echo "Helm"
+echo "---------------------------------------------------------"
+
+helm version --short 2>&1 || true
+
+
+echo
+
+echo "---------------------------------------------------------"
+echo "kind"
+echo "---------------------------------------------------------"
+
+kind version 2>&1 || true
+
+
+echo
+
+echo "---------------------------------------------------------"
+echo "MariaDB / MySQL"
+echo "---------------------------------------------------------"
+
+mariadb --version 2>&1 || mysql --version 2>&1 || true
+
+
+# =========================================================
+# 52. IMPORTANT FILE INVENTORY
+# =========================================================
+
+section "47. Charlie Cafe File Inventory"
+
+
+echo
+echo "Web root:"
+find "${WEB_ROOT}" -maxdepth 2 -type f -printf '%M %U:%G %p\n' 2>/dev/null || true
+
+
+echo
+echo "PHP-FPM configuration:"
+ls -l "${PHP_FPM_CONFIG}" 2>/dev/null || true
+
+
+echo
+echo "Apache PHP-FPM configuration:"
+ls -l "${PHP_APACHE_CONFIG}" 2>/dev/null || true
+
+
+echo
+echo "Docker Compose plugin:"
+ls -l "${DOCKER_COMPOSE_PLUGIN}" 2>/dev/null || true
+
+
+# =========================================================
+# 53. FINAL APPLICATION TEST
+# =========================================================
+
+section "48. Final Charlie Cafe Application Test"
+
+
+FINAL_HTML="/tmp/charlie-cafe-final-test.html"
+
+
+FINAL_STATUS="$(
+    curl \
+        --silent \
+        --show-error \
+        --output "${FINAL_HTML}" \
+        --write-out "%{http_code}" \
+        --max-time 15 \
+        http://127.0.0.1/index.html \
+        2>/dev/null
 )"
 
 
-if [[ -n "${TOKEN}" ]]; then
+if [[ "${FINAL_STATUS}" == "200" ]]; then
 
-    pass "EC2 Instance Metadata Service is reachable."
+    pass "Charlie Cafe index.html final HTTP test passed."
 
 else
 
-    warn "EC2 Instance Metadata Service token could not be obtained."
+    fail "Charlie Cafe index.html final HTTP test failed."
 
 fi
 
 
-# ================================================================
-# 39. System Information
-# ================================================================
-
-section "34. System Information"
+if [[ -f "${FINAL_HTML}" ]]; then
 
 
-echo
-echo "Hostname:"
-hostname
+    if grep -q "Charlie Cafe" "${FINAL_HTML}"; then
+
+        pass "Charlie Cafe application content detected."
+
+    else
+
+        fail "Charlie Cafe application content missing."
+
+    fi
 
 
-echo
-echo "Kernel:"
-uname -r
-
-
-echo
-echo "Architecture:"
-uname -m
-
-
-echo
-echo "Uptime:"
-uptime
-
-
-# ================================================================
-# 40. Service Summary
-# ================================================================
-
-section "35. Service Status Summary"
-
-
-echo
-echo "Apache:"
-systemctl is-active httpd || true
-
-
-echo
-echo "PHP-FPM:"
-systemctl is-active php-fpm || true
-
-
-echo
-echo "Docker:"
-systemctl is-active docker || true
-
-
-# ================================================================
-# 41. Software Summary
-# ================================================================
-
-section "36. Installed Software Summary"
-
-
-echo
-echo "Apache:"
-httpd -v 2>/dev/null | head -n 1 || true
-
-
-echo
-echo "PHP:"
-php -v 2>/dev/null | head -n 1 || true
-
-
-echo
-echo "PHP-FPM:"
-php-fpm --version 2>/dev/null | head -n 1 || true
-
-
-echo
-echo "Docker:"
-docker --version 2>/dev/null || true
-
-
-echo
-echo "Docker Compose:"
-docker compose version 2>/dev/null || true
-
-
-echo
-echo "Git:"
-git --version 2>/dev/null || true
-
-
-echo
-echo "AWS CLI:"
-aws --version 2>/dev/null || true
-
-
-echo
-echo "Database Client:"
-
-if command_exists mariadb; then
-
-    mariadb --version
-
-elif command_exists mysql; then
-
-    mysql --version
-
-else
-
-    echo "Not installed"
+    rm -f "${FINAL_HTML}"
 
 fi
 
 
-# ================================================================
-# 42. Final Verification Summary
-# ================================================================
+# =========================================================
+# 54. FINAL PHP TEST
+# =========================================================
 
-section "37. FINAL VERIFICATION SUMMARY"
+section "49. Final PHP Application Test"
+
+
+FINAL_PHP="/tmp/charlie-cafe-final-php.html"
+
+
+FINAL_PHP_STATUS="$(
+    curl \
+        --silent \
+        --show-error \
+        --output "${FINAL_PHP}" \
+        --write-out "%{http_code}" \
+        --max-time 15 \
+        http://127.0.0.1/info.php \
+        2>/dev/null
+)"
+
+
+if [[ "${FINAL_PHP_STATUS}" == "200" ]]; then
+
+    pass "Charlie Cafe PHP final HTTP test passed."
+
+else
+
+    fail "Charlie Cafe PHP final HTTP test failed."
+
+fi
+
+
+if [[ -f "${FINAL_PHP}" ]]; then
+
+
+    if grep -qi "PHP Version" "${FINAL_PHP}"; then
+
+        pass "PHP-FPM final execution test passed."
+
+    else
+
+        fail "PHP-FPM final execution test failed."
+
+    fi
+
+
+    rm -f "${FINAL_PHP}"
+
+fi
+
+
+# =========================================================
+# 55. FINAL SUMMARY
+# =========================================================
+
+section "☕ CHARLIE CAFE EC2 VERIFICATION SUMMARY"
 
 
 echo
-echo "==============================================================="
-echo "                 CHARLIE CAFE VERIFICATION"
-echo "==============================================================="
-echo
-echo "PASS : ${PASS_COUNT}"
-echo "FAIL : ${FAIL_COUNT}"
-echo "WARN : ${WARN_COUNT}"
+echo "PASS COUNT : ${PASS_COUNT}"
+echo "FAIL COUNT : ${FAIL_COUNT}"
+echo "WARN COUNT : ${WARN_COUNT}"
 echo
 
 
-# ================================================================
-# 43. Overall Result
-# ================================================================
+# =========================================================
+# 56. PASS/FAIL DECISION
+# =========================================================
 
-if [[ "${FAIL_COUNT}" -eq 0 ]]; then
+if (( FAIL_COUNT == 0 )); then
 
-    echo "==============================================================="
-    echo "✅ CHARLIE CAFE EC2 VERIFICATION PASSED"
-    echo "==============================================================="
+
     echo
-    echo "The EC2 environment passed all required checks."
+    echo "========================================================="
+    echo -e "${GREEN}✅ CHARLIE CAFE EC2 VERIFICATION PASSED${RESET}"
+    echo "========================================================="
     echo
-    echo "Warnings: ${WARN_COUNT}"
+    echo "All required bootstrap components passed verification."
     echo
-    echo "Verification log:"
-    echo "  ${LOG_FILE}"
+    echo "The EC2 instance contains the expected:"
     echo
-    echo "==============================================================="
+    echo "  ✓ Amazon Linux 2023"
+    echo "  ✓ Apache"
+    echo "  ✓ PHP"
+    echo "  ✓ PHP-FPM"
+    echo "  ✓ Apache → PHP-FPM"
+    echo "  ✓ index.html"
+    echo "  ✓ info.php"
+    echo "  ✓ MariaDB/MySQL client"
+    echo "  ✓ Docker"
+    echo "  ✓ Docker Compose v2"
+    echo "  ✓ Git"
+    echo "  ✓ AWS CLI v2"
+    echo "  ✓ kubectl"
+    echo "  ✓ eksctl"
+    echo "  ✓ Helm"
+    echo "  ✓ kind"
+    echo
+    echo "Services:"
+    echo
+    echo "  ✓ Apache"
+    echo "  ✓ PHP-FPM"
+    echo "  ✓ Docker"
+    echo
+    echo "Web tests:"
+    echo
+    echo "  ✓ index.html HTTP test"
+    echo "  ✓ PHP-FPM HTTP test"
+    echo
+    echo "========================================================="
+    echo "☕ Charlie Cafe EC2 is ready."
+    echo "========================================================="
+    echo
+
 
     exit 0
 
+
 else
 
-    echo "==============================================================="
-    echo "❌ CHARLIE CAFE EC2 VERIFICATION FAILED"
-    echo "==============================================================="
+
     echo
-    echo "Failed checks: ${FAIL_COUNT}"
-    echo "Warnings      : ${WARN_COUNT}"
+    echo "========================================================="
+    echo -e "${RED}❌ CHARLIE CAFE EC2 VERIFICATION FAILED${RESET}"
+    echo "========================================================="
     echo
-    echo "Review the verification log:"
+    echo "Failures detected: ${FAIL_COUNT}"
+    echo "Warnings detected: ${WARN_COUNT}"
     echo
-    echo "  sudo cat ${LOG_FILE}"
+    echo "Review the [FAIL] messages above."
     echo
-    echo "==============================================================="
+    echo "Useful logs:"
+    echo
+    echo "  sudo less ${BOOTSTRAP_LOG}"
+    echo
+    echo "  sudo journalctl -u httpd --no-pager"
+    echo
+    echo "  sudo journalctl -u php-fpm --no-pager"
+    echo
+    echo "  sudo journalctl -u docker --no-pager"
+    echo
+    echo "========================================================="
+
 
     exit 1
 
