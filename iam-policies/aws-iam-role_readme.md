@@ -22,6 +22,8 @@
 - ### Attach IAM Policies
 
 - 1. aws-rds-CreateDBSnapshot
+ 
+    [aws-rds-CreateDBSnapshot]
 
 - 2. CharlieCafe-CloudFormation-ServiceRole-Policy
 
@@ -54,24 +56,24 @@ If you're going to use GitHub Actions OIDC, use a trust relationship along these
 
 ```
 {
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Principal": {
-                "Federated": "arn:aws:iam::537236558357:oidc-provider/token.actions.githubusercontent.com"
-            },
-            "Action": "sts:AssumeRoleWithWebIdentity",
-            "Condition": {
-                "StringEquals": {
-                    "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
-                },
-                "StringLike": {
-                    "token.actions.githubusercontent.com:sub": "repo:YOUR-GITHUB-USERNAME/YOUR-REPOSITORY:*"
-                }
-            }
-        }
-    ]
+	"Version": "2012-10-17",
+	"Statement": [
+		{
+			"Effect": "Allow",
+			"Principal": {
+				"Federated": "arn:aws:iam::537236558357:oidc-provider/token.actions.githubusercontent.com"
+			},
+			"Action": "sts:AssumeRoleWithWebIdentity",
+			"Condition": {
+				"StringEquals": {
+					"token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+				},
+				"StringLike": {
+					"token.actions.githubusercontent.com:sub": "repo:awsrmmustansarjavaid@242676971/CloudFormation-DevOps-Lab@1322851615:*"
+				}
+			}
+		}
+	]
 }
 ```
 
@@ -83,6 +85,10 @@ If you're going to use GitHub Actions OIDC, use a trust relationship along these
 - 2. CharlieCafe-Terraform-ServiceRole-Policy
 
 - 3. CharlieCafe-TF-RDS-SecretsManager-KMS-Policy
+
+- 4. CharlieCafe-Terraform-ECR-ECS-ALB-Policy
+
+- 5. CharlieCafe-Terraform-S3-CloudFront-Policy     
 
 
 ---
