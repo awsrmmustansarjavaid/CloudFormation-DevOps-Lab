@@ -10,186 +10,61 @@
 # ----------------------------------------------------------
 # Completely remove the Charlie Cafe / AWS DevOps Lab.
 #
-#
-# HIGH-LEVEL DELETION ORDER
+# IMPORTANT DELETION ORDER
 # ----------------------------------------------------------
 #
-# 1. Checkout repository
-# 2. Configure AWS credentials
-# 3. Verify AWS account
-# 4. Discover root CloudFormation stack
-# 5. Display root resources
-# 6. Discover standalone ECS/ECR stack
-# 7. Display ECS/ECR resources
-# 8. Discover standalone ECS cluster
-# 9. Discover standalone ECS service
-# 10. Discover standalone ECR repository
-# 11. Stop standalone ECS service
-# 12. Wait for ECS tasks to stop
-# 13. Delete ECR images
-# 14. Delete standalone ECS/ECR stack
-# 15. Discover EC2 instances
-# 16. Clean Docker on EC2 through SSM
-# 17. Discover template S3 bucket
-# 18. Empty template S3 bucket
-# 19. Delete template bucket stack
-# 20. Discover RDS nested stack
-# 21. Discover RDS instance
-# 22. Disable RDS deletion protection
-# 23. Discover nested ECS stack
-# 24. Disable root termination protection
-#
-# 25. Discover website S3 bucket
-# 26. Discover CloudFront distribution
-# 27. Disable CloudFront distribution
-# 28. Wait for CloudFront disable
-# 29. Delete CloudFront distribution
-# 30. Wait for CloudFront deletion
-# 31. Empty website S3 bucket
-#
-# 32. Delete root CloudFormation stack
-# 33. Monitor root deletion
-# 34. Inspect DELETE_FAILED resources
-# 35. Retry nested ECS cleanup
-# 36. Retry ALB cleanup
-# 37. Retry Target Group cleanup
-# 38. Retry root deletion
-# 39. Final root deletion wait
-#
-# 40. Verify standalone ECS stack
-# 41. Verify ECS
-# 42. Verify ECR
-# 43. Verify template bucket stack
-# 44. Verify root stack
-# 45. Verify CloudFront
-# 46. Final CloudFormation verification
-# 47. Final cleanup summary
+# 1. Discover root stack
+# 2. Discover standalone ECS/ECR stack
+# 3. Stop standalone ECS service
+# 4. Wait for ECS tasks
+# 5. Delete ECR images
+# 6. Delete standalone ECS/ECR CloudFormation stack
+# 7. Clean Docker containers/images on EC2 through SSM
+# 8. Empty Template S3 bucket
+# 9. Delete Template Bucket stack
+# 10. Delete ROOT CloudFormation stack
+# 11. CloudFormation deletes nested stacks
+# 12. Wait for root deletion
+# 13. If DELETE_FAILED:
+#       - inspect failed resources
+#       - retry ECS cleanup
+#       - retry ALB cleanup
+#       - retry Target Group cleanup
+#       - retry root deletion
+# 14. Final verification
 #
 #
-# ==========================================================
-# IMPORTANT ARCHITECTURE NOTES
-# ==========================================================
-#
-# TWO POSSIBLE ECS ARCHITECTURES
+# IMPORTANT:
 # ----------------------------------------------------------
+# There are TWO possible ECS architectures:
 #
 # A) Standalone ECS stack:
-#
 #      CharlieCafe-ECS-Stack
 #
-# This workflow explicitly discovers and deletes this stack.
-#
+#    This workflow deletes it FIRST.
 #
 # B) Nested ECS stack:
-#
 #      ECSStack
 #
-# If ECSStack is a real nested stack under:
+#    If ECSStack is a true nested stack under the root stack,
+#    DO NOT delete it directly.
 #
-#      Main-CloudFormation
-#
-# then this workflow DOES NOT directly delete ECSStack.
-#
-# CloudFormation deletes the nested stack automatically when
-# the root stack is deleted.
+#    CloudFormation will delete it when the ROOT stack is deleted.
 #
 #
-# ==========================================================
-# ECR NOTES
-# ==========================================================
-#
-# ECR images are removed BEFORE deleting:
-#
-#      CharlieCafe-ECS-Stack
-#
-# This prevents an ECR repository containing images from
-# preventing CloudFormation from deleting the repository.
+# ECR:
+# ----------------------------------------------------------
+# ECR images are deleted BEFORE deleting the ECS/ECR stack.
+# This is important because an ECR repository containing images
+# can prevent CloudFormation from deleting the repository.
 #
 #
-# ==========================================================
-# CLOUDFRONT NOTES
-# ==========================================================
-#
-# CloudFront distributions are global resources.
-#
-# CloudFront cannot normally be deleted while it is enabled.
-#
-# Therefore the workflow performs:
-#
-#      Discover
-#          |
-#          v
-#      Disable
-#          |
-#          v
-#      Wait for deployment
-#          |
-#          v
-#      Delete
-#          |
-#          v
-#      Wait for deletion
-#          |
-#          v
-#      Empty website S3 bucket
-#
-# The CloudFront distribution is discovered by checking its
-# origins against the website S3 bucket discovered from the
-# root CloudFormation stack.
-#
-#
-# ==========================================================
-# S3 NOTES
-# ==========================================================
-#
-# The workflow handles versioned S3 buckets.
-#
-# It removes:
-#
-#   - Current objects
-#   - Object versions
-#   - Delete markers
-#
-# This is required before CloudFormation can delete the bucket.
-#
-#
-# ==========================================================
-# DOCKER NOTES
-# ==========================================================
-#
-# Docker cleanup is performed on EC2 through AWS Systems Manager
-# Session Manager / Run Command.
+# DOCKER:
+# ----------------------------------------------------------
+# Docker cleanup is performed on EC2 through AWS SSM.
 #
 # The GitHub Actions runner is NOT the EC2 Docker host.
 #
-#
-# ==========================================================
-# RDS NOTES
-# ==========================================================
-#
-# If RDS deletion protection is enabled, the workflow disables
-# it before deleting the root stack.
-#
-#
-# ==========================================================
-# ROOT CLOUDFORMATION NOTES
-# ==========================================================
-#
-# The root stack:
-#
-#      Main-CloudFormation
-#
-# is deleted only after the standalone resources and external
-# dependencies have been cleaned.
-#
-# If deletion fails, the workflow:
-#
-#   1. Displays DELETE_FAILED resources
-#   2. Retries nested ECS service cleanup
-#   3. Retries ALB cleanup
-#   4. Retries Target Group cleanup
-#   5. Retries root deletion
-#   6. Uses FORCE_DELETE_STACK when appropriate
 #
 # ==========================================================
 
@@ -199,17 +74,6 @@ name: Complete AWS Lab Cleanup
 
 # ==========================================================
 # MANUAL TRIGGER ONLY
-# ==========================================================
-#
-# This workflow will NOT run automatically.
-#
-# You must manually start it from:
-#
-# GitHub
-#   -> Actions
-#   -> Complete AWS Lab Cleanup
-#   -> Run workflow
-#
 # ==========================================================
 
 on:
@@ -225,52 +89,38 @@ env:
   # --------------------------------------------------------
   # AWS REGION
   # --------------------------------------------------------
-
   AWS_REGION: us-east-1
-
 
   # --------------------------------------------------------
   # MAIN / ROOT CLOUDFORMATION STACK
   # --------------------------------------------------------
-
   STACK_NAME: Main-CloudFormation
 
-
   # --------------------------------------------------------
-  # STANDALONE ECS + ECR CLOUDFORMATION STACK
-  # --------------------------------------------------------
+  # STANDALONE ECS + ECR STACK
   #
-  # This stack is created independently from the root stack.
-  #
+  # This is the stack created by your ECS deployment workflow.
   # --------------------------------------------------------
-
   ECS_STACK_NAME: CharlieCafe-ECS-Stack
-
 
   # --------------------------------------------------------
   # SEPARATE S3 TEMPLATE BUCKET STACK
   # --------------------------------------------------------
-
   TEMPLATE_BUCKET_STACK: Lab01-CloudFormation-TemplateBucket
-
 
   # --------------------------------------------------------
   # MAX ROOT STACK DELETE WAIT
-  #
-  # 1200 seconds = 20 minutes
+  # 20 minutes
   # --------------------------------------------------------
-
+  
   ROOT_DELETE_WAIT_SECONDS: 1200
 
-
   # --------------------------------------------------------
-  # MAX CLOUDFRONT DELETE WAIT
+  # CLOUDFRONT WEBSITE DISTRIBUTION
   #
-  # 1800 seconds = 30 minutes
-  #
-  # CloudFront deletion can take a significant amount of time.
+  # The workflow discovers the distribution from AWS.
+  # No hard-coded CloudFront distribution ID is required.
   # --------------------------------------------------------
-
   CLOUDFRONT_DELETE_WAIT_SECONDS: 1800
 
 
@@ -285,11 +135,6 @@ jobs:
     name: Complete AWS Lab Cleanup
 
     runs-on: ubuntu-latest
-
-
-    # ======================================================
-    # JOB STEPS
-    # ======================================================
 
     steps:
 
@@ -343,7 +188,6 @@ jobs:
 
           echo ""
 
-          echo "AWS Caller Identity:"
           aws sts get-caller-identity
 
           echo ""
@@ -353,7 +197,7 @@ jobs:
 
           echo ""
 
-          echo "Root CloudFormation Stack:"
+          echo "Root Stack:"
           echo "  $STACK_NAME"
 
           echo ""
@@ -410,8 +254,6 @@ jobs:
 
             echo "Root stack exists."
 
-            echo "Stack : $STACK_NAME"
-
             echo "Status: $STATUS"
 
           else
@@ -458,6 +300,18 @@ jobs:
       # ======================================================
       # STEP 6
       # DISCOVER STANDALONE ECS/ECR STACK
+      # ======================================================
+      #
+      # THIS IS THE IMPORTANT FIX.
+      #
+      # Your previous workflow only discovered ECSStack as a
+      # nested resource inside the root stack.
+      #
+      # Your Charlie Cafe ECS workflow creates:
+      #
+      #   CharlieCafe-ECS-Stack
+      #
+      # Therefore we explicitly discover it here.
       # ======================================================
 
       - name: "Step 6 - Discover Standalone ECS ECR Stack"
@@ -517,7 +371,7 @@ jobs:
 
       # ======================================================
       # STEP 7
-      # DISPLAY ECS/ECR STACK RESOURCES
+      # DISPLAY ECS STACK RESOURCES
       # ======================================================
 
       - name: "Step 7 - Display ECS Stack Resources"
@@ -545,7 +399,7 @@ jobs:
 
       # ======================================================
       # STEP 8
-      # DISCOVER ECS CLUSTER
+      # DISCOVER ECS CLUSTER FROM STANDALONE STACK
       # ======================================================
 
       - name: "Step 8 - Discover ECS Cluster"
@@ -559,10 +413,6 @@ jobs:
         run: |
 
           set -euo pipefail
-
-          echo "=================================================="
-          echo "DISCOVER ECS CLUSTER"
-          echo "=================================================="
 
           ECS_CLUSTER=$(
             aws cloudformation list-stack-resources \
@@ -605,10 +455,6 @@ jobs:
 
           set -euo pipefail
 
-          echo "=================================================="
-          echo "DISCOVER ECS SERVICE"
-          echo "=================================================="
-
           ECS_SERVICE=$(
             aws cloudformation list-stack-resources \
               --stack-name "$ECS_STACK_NAME" \
@@ -650,10 +496,6 @@ jobs:
 
           set -euo pipefail
 
-          echo "=================================================="
-          echo "DISCOVER ECR REPOSITORY"
-          echo "=================================================="
-
           ECR_REPOSITORY=$(
             aws cloudformation list-stack-resources \
               --stack-name "$ECS_STACK_NAME" \
@@ -683,14 +525,14 @@ jobs:
       # STOP ECS SERVICE
       # ======================================================
       #
-      # We do NOT manually delete the CloudFormation-owned
-      # ECS service.
+      # IMPORTANT:
+      # We do NOT manually delete the CloudFormation-owned ECS
+      # service here.
       #
-      # We only scale it to zero.
+      # We simply scale it to zero.
       #
-      # CloudFormation will delete the service when the stack
-      # itself is deleted.
-      #
+      # Then CloudFormation can safely delete it when the stack
+      # is deleted.
       # ======================================================
 
       - name: "Step 11 - Stop ECS Service"
@@ -803,14 +645,18 @@ jobs:
 
       # ======================================================
       # STEP 13
-      # DELETE ALL ECR IMAGES
+      # EMPTY ECR REPOSITORY
       # ======================================================
       #
-      # ECR repositories containing images can prevent
-      # CloudFormation from deleting the repository.
+      # THIS IS REQUIRED BEFORE ECS/ECR STACK DELETION.
       #
-      # Therefore all images are removed first.
+      # CloudFormation cannot normally delete an ECR repository
+      # that still contains images unless the repository was
+      # explicitly configured with:
       #
+      #   EmptyOnDelete: true
+      #
+      # Therefore we remove the images first.
       # ======================================================
 
       - name: "Step 13 - Delete All ECR Images"
@@ -873,7 +719,8 @@ jobs:
               --repository-name "$ECR_REPOSITORY" \
               --image-ids file:///tmp/ecr-images.json \
               --region "$AWS_REGION" \
-              --no-cli-pager
+              --no-cli-pager \
+              || true
 
           done
 
@@ -882,10 +729,32 @@ jobs:
       # STEP 14
       # DELETE STANDALONE ECS/ECR STACK
       # ======================================================
+      #
+      # THIS IS THE OTHER MAJOR FIX.
+      #
+      # Your old workflow never explicitly deleted:
+      #
+      #   CharlieCafe-ECS-Stack
+      #
+      # This step does.
+      #
+      # CloudFormation will now delete:
+      #
+      #   ECS Service
+      #   ECS Cluster
+      #   ALB
+      #   Target Group
+      #   ECR Repository
+      #   Task Definition
+      #   Security Groups
+      #   other resources owned by this stack
+      # ======================================================
 
       - name: "Step 14 - Delete Standalone ECS ECR Stack"
 
         if: steps.ecs_stack.outputs.exists == 'true'
+
+        id: delete_ecs_stack
 
         shell: bash
 
@@ -927,6 +796,15 @@ jobs:
             echo "ECS/ECR stack already deleted."
 
             exit 0
+
+          fi
+
+          if [[ "$STATUS" == "DELETE_FAILED" ]]
+          then
+
+            echo "Stack is already DELETE_FAILED."
+
+            echo "Retrying normal deletion first."
 
           fi
 
@@ -1039,7 +917,7 @@ jobs:
 
       # ======================================================
       # STEP 16
-      # CLEAN DOCKER ON EC2 THROUGH SSM
+      # CLEAN DOCKER ON EC2
       # ======================================================
 
       - name: "Step 16 - Clean Docker Containers And Images On EC2"
@@ -1103,13 +981,13 @@ jobs:
                   "  docker stop $(docker ps -q) 2>/dev/null || true",
                   "  echo Removing containers...",
                   "  docker rm -f $(docker ps -aq) 2>/dev/null || true",
-                  "  echo Removing unused images...",
+                  "  echo Removing images...",
                   "  docker image prune -af || true",
-                  "  echo Removing unused containers...",
+                  "  echo Removing containers...",
                   "  docker container prune -f || true",
-                  "  echo Removing unused volumes...",
+                  "  echo Removing volumes...",
                   "  docker volume prune -f || true",
-                  "  echo Removing unused networks...",
+                  "  echo Removing networks...",
                   "  docker network prune -f || true",
                   "  echo Removing build cache...",
                   "  docker builder prune -af || true",
@@ -1223,23 +1101,14 @@ jobs:
 
           echo "exists=true" >> "$GITHUB_OUTPUT"
 
-          if [[ -n "$BUCKET" && "$BUCKET" != "None" ]]
-          then
-
-            echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
-
-          else
-
-            echo "bucket=" >> "$GITHUB_OUTPUT"
-
-          fi
+          echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
 
           echo "Template bucket: $BUCKET"
 
 
       # ======================================================
       # STEP 18
-      # EMPTY VERSIONED TEMPLATE S3 BUCKET
+      # EMPTY VERSIONED S3 BUCKET
       # ======================================================
 
       - name: "Step 18 - Empty Versioned S3 Bucket"
@@ -1255,7 +1124,7 @@ jobs:
           BUCKET="${{ steps.template_s3.outputs.bucket }}"
 
           echo "=================================================="
-          echo "EMPTY TEMPLATE S3 BUCKET"
+          echo "EMPTY S3 BUCKET"
           echo "=================================================="
 
           while true
@@ -1284,7 +1153,7 @@ jobs:
             if [[ "$TOTAL" -eq 0 ]]
             then
 
-              echo "Template S3 bucket is empty."
+              echo "S3 bucket is empty."
 
               break
 
@@ -1302,11 +1171,11 @@ jobs:
                     | .[0:1000]
                   ),
                 Quiet: true
-              }' > /tmp/template-s3-delete.json
+              }' > /tmp/s3-delete.json
 
             aws s3api delete-objects \
               --bucket "$BUCKET" \
-              --delete file:///tmp/template-s3-delete.json \
+              --delete file:///tmp/s3-delete.json \
               --region "$AWS_REGION" \
               --no-cli-pager
 
@@ -1331,34 +1200,6 @@ jobs:
           echo "=================================================="
           echo "DELETE TEMPLATE BUCKET STACK"
           echo "=================================================="
-
-          STATUS=$(
-            aws cloudformation describe-stacks \
-              --stack-name "$TEMPLATE_BUCKET_STACK" \
-              --region "$AWS_REGION" \
-              --query "Stacks[0].StackStatus" \
-              --output text \
-              --no-cli-pager \
-              2>/dev/null || echo "NOT_FOUND"
-          )
-
-          if [[ "$STATUS" == "NOT_FOUND" ]]
-          then
-
-            echo "Template Bucket stack already deleted."
-
-            exit 0
-
-          fi
-
-          if [[ "$STATUS" == "DELETE_COMPLETE" ]]
-          then
-
-            echo "Template Bucket stack already deleted."
-
-            exit 0
-
-          fi
 
           aws cloudformation delete-stack \
             --stack-name "$TEMPLATE_BUCKET_STACK" \
@@ -1506,8 +1347,6 @@ jobs:
               --region "$AWS_REGION" \
               --no-cli-pager
 
-            echo "RDS deletion protection disable request submitted."
-
           else
 
             echo "RDS deletion protection already disabled."
@@ -1522,14 +1361,12 @@ jobs:
       #
       # IMPORTANT:
       #
-      # We ONLY discover the nested ECS stack.
+      # We ONLY discover it.
       #
-      # We DO NOT directly delete it.
+      # We do NOT directly delete it.
       #
-      # If it is genuinely nested under the root stack,
-      # CloudFormation deletes it automatically when the root
-      # stack is deleted.
-      #
+      # If ECSStack is genuinely nested under the root stack,
+      # CloudFormation will delete it as part of root deletion.
       # ======================================================
 
       - name: "Step 23 - Discover Nested ECS Stack"
@@ -1563,7 +1400,6 @@ jobs:
             echo "nested=$ECS_NESTED_STACK_ID" >> "$GITHUB_OUTPUT"
 
             echo ""
-
             echo "Nested ECS stack detected."
 
             echo "It will be deleted by the ROOT stack."
@@ -1612,12 +1448,15 @@ jobs:
       # DISCOVER WEBSITE S3 BUCKET
       # ======================================================
       #
-      # This discovers the website S3 bucket owned directly by
-      # the root CloudFormation stack.
+      # This discovers S3 buckets belonging to the ROOT
+      # CloudFormation stack.
       #
-      # The separate template bucket was already handled in
-      # Steps 17-19.
+      # The separate CloudFormation template bucket was already
+      # handled in Steps 17-19.
       #
+      # IMPORTANT:
+      # The website bucket must be emptied before CloudFormation
+      # can delete it.
       # ======================================================
 
       - name: "Step 25 - Discover Website S3 Bucket"
@@ -1656,7 +1495,6 @@ jobs:
             echo "bucket=$WEBSITE_BUCKET" >> "$GITHUB_OUTPUT"
 
             echo ""
-
             echo "Website S3 bucket discovered."
 
           else
@@ -1664,484 +1502,27 @@ jobs:
             echo "bucket=" >> "$GITHUB_OUTPUT"
 
             echo ""
-
             echo "No website S3 bucket found in root stack."
 
           fi
 
-
       # ======================================================
       # STEP 26
-      # DISCOVER CHARLIE CAFE CLOUDFRONT DISTRIBUTION
-      # ======================================================
-      #
-      # IMPORTANT:
-      #
-      # CloudFront distributions are global.
-      #
-      # We do NOT simply select the first CloudFront distribution
-      # in the AWS account.
-      #
-      # Instead we:
-      #
-      #   1. Get all CloudFront distributions.
-      #   2. Examine every origin of every distribution.
-      #   3. Compare the origin against the discovered website
-      #      S3 bucket.
-      #
-      # Supported common origin formats include:
-      #
-      #   bucket-name
-      #   bucket-name.s3.amazonaws.com
-      #   bucket-name.s3.us-east-1.amazonaws.com
-      #   bucket-name.s3-website-us-east-1.amazonaws.com
-      #
-      # ======================================================
-
-      - name: "Step 26 - Discover CloudFront Distribution"
-
-        if: steps.website_s3.outputs.bucket != ''
-
-        id: cloudfront
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          echo "=================================================="
-          echo "DISCOVER CHARLIE CAFE CLOUDFRONT DISTRIBUTION"
-          echo "=================================================="
-
-          WEBSITE_BUCKET="${{ steps.website_s3.outputs.bucket }}"
-
-          echo "Website S3 Bucket:"
-          echo "  $WEBSITE_BUCKET"
-
-          DISTRIBUTION_ID=""
-
-          DISTRIBUTIONS_JSON=$(
-            aws cloudfront list-distributions \
-              --output json \
-              --no-cli-pager
-          )
-
-          echo ""
-
-          echo "Searching CloudFront distributions..."
-
-          while IFS= read -r DISTRIBUTION
-          do
-
-            ID=$(echo "$DISTRIBUTION" | jq -r '.Id')
-
-            DOMAIN=$(echo "$DISTRIBUTION" | jq -r '.DomainName')
-
-            MATCHING_ORIGIN=$(
-              echo "$DISTRIBUTION" |
-                jq -r --arg BUCKET "$WEBSITE_BUCKET" --arg REGION "$AWS_REGION" '
-                  [
-                    .Origins.Items[]?.DomainName
-                  ]
-                  | map(
-                      select(
-                        . == $BUCKET
-                        or . == ($BUCKET + ".s3.amazonaws.com")
-                        or . == ($BUCKET + ".s3." + $REGION + ".amazonaws.com")
-                        or . == ($BUCKET + ".s3-website-" + $REGION + ".amazonaws.com")
-                        or . == ($BUCKET + ".s3-website." + $REGION + ".amazonaws.com")
-                      )
-                    )
-                  | .[0] // empty
-                '
-            )
-
-            echo ""
-
-            echo "Checking distribution:"
-            echo "  ID     : $ID"
-            echo "  Domain : $DOMAIN"
-
-            if [[ -n "$MATCHING_ORIGIN" ]]
-            then
-
-              echo "  Origin : $MATCHING_ORIGIN"
-
-              DISTRIBUTION_ID="$ID"
-
-              echo ""
-
-              echo "Charlie Cafe CloudFront distribution FOUND."
-
-              echo "Distribution ID:"
-              echo "  $DISTRIBUTION_ID"
-
-              echo ""
-
-              break
-
-            else
-
-              echo "  Match  : NO"
-
-            fi
-
-          done < <(
-            echo "$DISTRIBUTIONS_JSON" |
-              jq -c '.DistributionList.Items[]?'
-          )
-
-          if [[ -n "$DISTRIBUTION_ID" ]]
-          then
-
-            echo "distribution_id=$DISTRIBUTION_ID" >> "$GITHUB_OUTPUT"
-
-          else
-
-            echo "distribution_id=" >> "$GITHUB_OUTPUT"
-
-            echo ""
-
-            echo "No CloudFront distribution was found for:"
-
-            echo "  $WEBSITE_BUCKET"
-
-          fi
-
-
-      # ======================================================
-      # STEP 27
-      # DISABLE CLOUDFRONT DISTRIBUTION
-      # ======================================================
-      #
-      # CloudFront must be disabled before it can be deleted.
-      #
-      # We retrieve the current configuration and ETag.
-      #
-      # The ETag is required by update-distribution.
-      #
-      # ======================================================
-
-      - name: "Step 27 - Disable CloudFront Distribution"
-
-        if: steps.cloudfront.outputs.distribution_id != ''
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          DISTRIBUTION_ID="${{ steps.cloudfront.outputs.distribution_id }}"
-
-          echo "=================================================="
-          echo "DISABLE CLOUDFRONT DISTRIBUTION"
-          echo "=================================================="
-
-          echo "Distribution ID:"
-          echo "  $DISTRIBUTION_ID"
-
-          CONFIG_FILE="/tmp/cloudfront-config.json"
-
-          DISABLED_CONFIG_FILE="/tmp/cloudfront-disabled-config.json"
-
-          echo ""
-
-          echo "Downloading CloudFront configuration..."
-
-          aws cloudfront get-distribution-config \
-            --id "$DISTRIBUTION_ID" \
-            --output json \
-            --no-cli-pager \
-            > "$CONFIG_FILE"
-
-          ETAG=$(jq -r '.ETag' "$CONFIG_FILE")
-
-          ENABLED=$(jq -r '.DistributionConfig.Enabled' "$CONFIG_FILE")
-
-          echo "Current Enabled state:"
-          echo "  $ENABLED"
-
-          echo "Current ETag:"
-          echo "  $ETAG"
-
-          if [[ "$ENABLED" == "false" ]]
-          then
-
-            echo ""
-
-            echo "CloudFront distribution is already disabled."
-
-            exit 0
-
-          fi
-
-          echo ""
-
-          echo "Creating disabled CloudFront configuration..."
-
-          jq '
-            .DistributionConfig.Enabled = false |
-            .DistributionConfig
-          ' "$CONFIG_FILE" > "$DISABLED_CONFIG_FILE"
-
-          echo ""
-
-          echo "Submitting CloudFront disable request..."
-
-          aws cloudfront update-distribution \
-            --id "$DISTRIBUTION_ID" \
-            --if-match "$ETAG" \
-            --distribution-config file://"$DISABLED_CONFIG_FILE" \
-            --no-cli-pager
-
-          echo ""
-
-          echo "CloudFront disable request submitted."
-
-
-      # ======================================================
-      # STEP 28
-      # WAIT FOR CLOUDFRONT DISABLE
-      # ======================================================
-      #
-      # CloudFront changes are asynchronous.
-      #
-      # We wait until the distribution reaches a deployed state
-      # and then verify that Enabled == False.
-      #
-      # ======================================================
-
-      - name: "Step 28 - Wait For CloudFront Disable"
-
-        if: steps.cloudfront.outputs.distribution_id != ''
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          DISTRIBUTION_ID="${{ steps.cloudfront.outputs.distribution_id }}"
-
-          echo "=================================================="
-          echo "WAIT FOR CLOUDFRONT DISABLE"
-          echo "=================================================="
-
-          echo "Distribution:"
-          echo "  $DISTRIBUTION_ID"
-
-          echo ""
-
-          echo "Waiting for CloudFront deployment..."
-
-          aws cloudfront wait distribution-deployed \
-            --id "$DISTRIBUTION_ID"
-
-          ENABLED=$(
-            aws cloudfront get-distribution \
-              --id "$DISTRIBUTION_ID" \
-              --query "Distribution.DistributionConfig.Enabled" \
-              --output text \
-              --no-cli-pager
-          )
-
-          echo ""
-
-          echo "CloudFront Enabled:"
-          echo "  $ENABLED"
-
-          if [[ "$ENABLED" != "False" ]]
-          then
-
-            echo ""
-
-            echo "ERROR: CloudFront distribution is still enabled."
-
-            exit 1
-
-          fi
-
-          echo ""
-
-          echo "CloudFront distribution is now disabled."
-
-
-      # ======================================================
-      # STEP 29
-      # DELETE CLOUDFRONT DISTRIBUTION
-      # ======================================================
-      #
-      # IMPORTANT:
-      #
-      # We retrieve the ETag again because CloudFront configuration
-      # changes can change the ETag.
-      #
-      # The latest ETag must be used for deletion.
-      #
-      # ======================================================
-
-      - name: "Step 29 - Delete CloudFront Distribution"
-
-        if: steps.cloudfront.outputs.distribution_id != ''
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          DISTRIBUTION_ID="${{ steps.cloudfront.outputs.distribution_id }}"
-
-          echo "=================================================="
-          echo "DELETE CLOUDFRONT DISTRIBUTION"
-          echo "=================================================="
-
-          echo "Distribution ID:"
-          echo "  $DISTRIBUTION_ID"
-
-          ETAG=$(
-            aws cloudfront get-distribution-config \
-              --id "$DISTRIBUTION_ID" \
-              --query "ETag" \
-              --output text \
-              --no-cli-pager
-          )
-
-          echo ""
-
-          echo "Latest CloudFront ETag:"
-          echo "  $ETAG"
-
-          echo ""
-
-          echo "Submitting CloudFront deletion request..."
-
-          aws cloudfront delete-distribution \
-            --id "$DISTRIBUTION_ID" \
-            --if-match "$ETAG" \
-            --no-cli-pager
-
-          echo ""
-
-          echo "CloudFront deletion request submitted."
-
-
-      # ======================================================
-      # STEP 30
-      # WAIT FOR CLOUDFRONT DELETION
-      # ======================================================
-      #
-      # CloudFront deletion is asynchronous.
-      #
-      # We poll until get-distribution fails because the
-      # distribution no longer exists.
-      #
-      # Maximum wait:
-      #
-      #   CLOUDFRONT_DELETE_WAIT_SECONDS
-      #
-      # Default:
-      #
-      #   1800 seconds = 30 minutes
-      #
-      # ======================================================
-
-      - name: "Step 30 - Wait For CloudFront Deletion"
-
-        if: steps.cloudfront.outputs.distribution_id != ''
-
-        shell: bash
-
-        run: |
-
-          set -euo pipefail
-
-          DISTRIBUTION_ID="${{ steps.cloudfront.outputs.distribution_id }}"
-
-          MAX_SECONDS="$CLOUDFRONT_DELETE_WAIT_SECONDS"
-
-          POLL_INTERVAL=30
-
-          ELAPSED=0
-
-          echo "=================================================="
-          echo "WAIT FOR CLOUDFRONT DELETION"
-          echo "=================================================="
-
-          echo "Distribution:"
-          echo "  $DISTRIBUTION_ID"
-
-          echo ""
-
-          echo "Maximum wait:"
-          echo "  ${MAX_SECONDS} seconds"
-
-          echo ""
-
-          while [[ "$ELAPSED" -lt "$MAX_SECONDS" ]]
-          do
-
-            if aws cloudfront get-distribution \
-              --id "$DISTRIBUTION_ID" \
-              --no-cli-pager \
-              >/dev/null 2>&1
-            then
-
-              echo "Elapsed: ${ELAPSED}s"
-
-              echo "CloudFront distribution still exists."
-
-              sleep "$POLL_INTERVAL"
-
-              ELAPSED=$((ELAPSED + POLL_INTERVAL))
-
-            else
-
-              echo ""
-
-              echo "CloudFront distribution no longer exists."
-
-              echo "CloudFront deletion completed."
-
-              exit 0
-
-            fi
-
-          done
-
-          echo ""
-
-          echo "WARNING: CloudFront distribution still exists after:"
-
-          echo "  ${MAX_SECONDS} seconds"
-
-          echo ""
-
-          echo "The workflow will continue, but CloudFront may still"
-          echo "be finishing asynchronous deletion."
-
-
-      # ======================================================
-      # STEP 31
       # EMPTY WEBSITE S3 BUCKET
       # ======================================================
       #
-      # IMPORTANT ORDER:
+      # CloudFormation cannot delete an S3 bucket containing
+      # objects.
       #
-      # CloudFront is already disabled/deleted before this step.
+      # This also removes:
       #
-      # We now remove:
-      #
-      #   - Object versions
-      #   - Delete markers
-      #
-      # so CloudFormation can delete the bucket.
+      # - Current objects
+      # - Object versions
+      # - Delete markers
       #
       # ======================================================
 
-      - name: "Step 31 - Empty Website S3 Bucket"
+      - name: "Step 26 - Empty Website S3 Bucket"
 
         if: steps.website_s3.outputs.bucket != ''
 
@@ -2158,7 +1539,7 @@ jobs:
           echo "=================================================="
 
           echo "Bucket:"
-          echo "  $BUCKET"
+          echo "$BUCKET"
 
           while true
           do
@@ -2178,18 +1559,14 @@ jobs:
             TOTAL=$((VERSION_COUNT + MARKER_COUNT))
 
             echo ""
-
             echo "Object versions : $VERSION_COUNT"
-
             echo "Delete markers  : $MARKER_COUNT"
-
             echo "Total           : $TOTAL"
 
             if [[ "$TOTAL" -eq 0 ]]
             then
 
               echo ""
-
               echo "Website S3 bucket is empty."
 
               break
@@ -2220,28 +1597,299 @@ jobs:
 
 
       # ======================================================
+      # STEP 27
+      # DISCOVER CHARLIE CAFE CLOUDFRONT DISTRIBUTION
+      # ======================================================
+      #
+      # CloudFront distributions must be identified by the
+      # Charlie Cafe website S3 bucket.
+      #
+      # We do NOT simply select the first CloudFront
+      # distribution in the AWS account.
+      #
+      # ======================================================
+
+      - name: "Step 27 - Discover CloudFront Distribution"
+        id: cloudfront
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo "DISCOVER CHARLIE CAFE CLOUDFRONT DISTRIBUTION"
+          echo "=================================================="
+
+          WEBSITE_BUCKET="${{ steps.website_s3.outputs.bucket }}"
+
+          echo "Website S3 Bucket:"
+          echo "$WEBSITE_BUCKET"
+
+          if [[ -z "$WEBSITE_BUCKET" || "$WEBSITE_BUCKET" == "None" ]]
+          then
+            echo "No website S3 bucket was discovered."
+            echo "distribution_id=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          DISTRIBUTION_ID=""
+
+          DISTRIBUTIONS=$(
+            aws cloudfront list-distributions \
+              --query "DistributionList.Items[*].[Id,DomainName,Origins.Items[0].DomainName]" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )
+
+          echo ""
+          echo "CloudFront distributions:"
+          echo "$DISTRIBUTIONS"
+
+          while IFS=$'\t' read -r ID DOMAIN ORIGIN
+          do
+            [[ -z "$ID" || "$ID" == "None" ]] && continue
+
+            echo ""
+            echo "Checking distribution:"
+            echo "  ID     : $ID"
+            echo "  Domain : $DOMAIN"
+            echo "  Origin : $ORIGIN"
+
+            if [[ "$ORIGIN" == "$WEBSITE_BUCKET" ]] ||
+              [[ "$ORIGIN" == "$WEBSITE_BUCKET.s3.amazonaws.com" ]] ||
+              [[ "$ORIGIN" == "$WEBSITE_BUCKET.s3.us-east-1.amazonaws.com" ]]
+            then
+              DISTRIBUTION_ID="$ID"
+
+              echo ""
+              echo "Charlie Cafe CloudFront distribution FOUND."
+              echo "Distribution ID: $DISTRIBUTION_ID"
+
+              break
+            fi
+
+          done <<< "$DISTRIBUTIONS"
+
+          if [[ -n "$DISTRIBUTION_ID" ]]
+          then
+            echo "distribution_id=$DISTRIBUTION_ID" >> "$GITHUB_OUTPUT"
+          else
+            echo "distribution_id=" >> "$GITHUB_OUTPUT"
+
+            echo ""
+            echo "No CloudFront distribution was found for:"
+            echo "  $WEBSITE_BUCKET"
+          fi          
+
+
+      # ======================================================
+      # STEP 28
+      # DISABLE CLOUDFRONT DISTRIBUTION
+      # ======================================================
+
+      - name: "Step 28 - Disable CloudFront Distribution"
+
+        if: steps.cloudfront.outputs.distribution_id != ''
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          DISTRIBUTION_ID="${{ steps.cloudfront.outputs.distribution_id }}"
+
+          echo "=================================================="
+          echo "DISABLE CLOUDFRONT DISTRIBUTION"
+          echo "=================================================="
+
+          echo "Distribution ID:"
+          echo "$DISTRIBUTION_ID"
+
+          CONFIG_FILE="/tmp/cloudfront-config.json"
+
+          aws cloudfront get-distribution-config \
+            --id "$DISTRIBUTION_ID" \
+            --output json \
+            --no-cli-pager \
+            > "$CONFIG_FILE"
+
+          ETAG=$(jq -r '.ETag' "$CONFIG_FILE")
+
+          jq '.DistributionConfig.Enabled = false |
+              .DistributionConfig' \
+            "$CONFIG_FILE" \
+            > /tmp/cloudfront-disabled-config.json
+
+          aws cloudfront update-distribution \
+            --id "$DISTRIBUTION_ID" \
+            --if-match "$ETAG" \
+            --distribution-config file:///tmp/cloudfront-disabled-config.json \
+            --no-cli-pager
+
+          echo ""
+          echo "CloudFront disable request submitted."    
+
+      # ======================================================
+      # STEP 29
+      # WAIT FOR CLOUDFRONT DISABLE
+      # ======================================================
+
+      - name: "Step 29 - Wait for CloudFront Disable"
+
+        if: steps.cloudfront.outputs.distribution_id != ''
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          DISTRIBUTION_ID="${{ steps.cloudfront.outputs.distribution_id }}"
+
+          echo "=================================================="
+          echo "WAITING FOR CLOUDFRONT"
+          echo "=================================================="
+
+          echo "Distribution:"
+          echo "$DISTRIBUTION_ID"
+
+          aws cloudfront wait distribution-deployed \
+            --id "$DISTRIBUTION_ID"
+
+          ENABLED=$(
+            aws cloudfront get-distribution \
+              --id "$DISTRIBUTION_ID" \
+              --query "Distribution.DistributionConfig.Enabled" \
+              --output text \
+              --no-cli-pager
+          )
+
+          echo ""
+          echo "CloudFront Enabled:"
+          echo "$ENABLED"
+
+          if [[ "$ENABLED" != "False" ]]
+          then
+
+            echo ""
+            echo "ERROR: CloudFront distribution is still enabled."
+
+            exit 1
+
+          fi
+
+          echo ""
+          echo "CloudFront distribution is now disabled."
+      
+      # ======================================================
+      # STEP 30
+      # DELETE CLOUDFRONT DISTRIBUTION
+      # ======================================================
+
+      - name: "Step 30 - Delete CloudFront Distribution"
+
+        if: steps.cloudfront.outputs.distribution_id != ''
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          DISTRIBUTION_ID="${{ steps.cloudfront.outputs.distribution_id }}"
+
+          echo "=================================================="
+          echo "DELETE CLOUDFRONT DISTRIBUTION"
+          echo "=================================================="
+
+          ETAG=$(
+            aws cloudfront get-distribution-config \
+              --id "$DISTRIBUTION_ID" \
+              --query "ETag" \
+              --output text \
+              --no-cli-pager
+          )
+
+          aws cloudfront delete-distribution \
+            --id "$DISTRIBUTION_ID" \
+            --if-match "$ETAG" \
+            --no-cli-pager
+
+          echo ""
+          echo "CloudFront deletion request submitted."   
+      
+      # ======================================================
+      # STEP 31
+      # WAIT FOR CLOUDFRONT DELETION
+      # ======================================================
+
+      - name: "Step 31 - Wait For CloudFront Deletion"
+
+        if: steps.cloudfront.outputs.distribution_id != ''
+
+        shell: bash
+
+        run: |
+
+          set -euo pipefail
+
+          DISTRIBUTION_ID="${{ steps.cloudfront.outputs.distribution_id }}"
+
+          echo "Waiting for CloudFront distribution deletion..."
+
+          for ATTEMPT in $(seq 1 60)
+          do
+
+            if aws cloudfront get-distribution \
+              --id "$DISTRIBUTION_ID" \
+              --no-cli-pager \
+              >/dev/null 2>&1
+            then
+
+              echo "Attempt $ATTEMPT / 60"
+
+              echo "CloudFront distribution still exists."
+
+              sleep 30
+
+            else
+
+              echo ""
+
+              echo "CloudFront distribution no longer exists."
+
+              exit 0
+
+            fi
+
+          done
+
+          echo ""
+
+          echo "WARNING: CloudFront distribution still exists after waiting."
+
+      # ======================================================
       # STEP 32
-      # DELETE ROOT CLOUDFORMATION STACK
+      # DELETE ROOT STACK
       # ======================================================
       #
       # At this point:
       #
-      #   - Standalone ECS/ECR stack was handled
-      #   - ECR images were removed
-      #   - Docker cleanup was attempted
-      #   - Template S3 bucket was emptied
-      #   - Template bucket stack was deleted
-      #   - RDS deletion protection was disabled
-      #   - CloudFront was disabled/deleted
-      #   - Website S3 bucket was emptied
+      # - Standalone ECS/ECR stack was deleted
+      # - ECR images were deleted
+      # - Docker was cleaned
+      # - Template S3 stack was deleted
+      # - RDS deletion protection was disabled
       #
-      # NOW the root stack can be deleted.
-      #
+      # NOW the root stack can delete its nested stacks.
       # ======================================================
 
       - name: "Step 32 - Delete Root CloudFormation Stack"
 
         if: steps.root.outputs.exists == 'true'
+
+        id: root_delete
 
         shell: bash
 
@@ -2263,19 +1911,9 @@ jobs:
               2>/dev/null || echo "NOT_FOUND"
           )
 
-          echo "Current root status:"
-          echo "  $STATUS"
+          echo "Current root status: $STATUS"
 
           if [[ "$STATUS" == "NOT_FOUND" ]]
-          then
-
-            echo "Root stack already deleted."
-
-            exit 0
-
-          fi
-
-          if [[ "$STATUS" == "DELETE_COMPLETE" ]]
           then
 
             echo "Root stack already deleted."
@@ -2287,7 +1925,7 @@ jobs:
           if [[ "$STATUS" == "DELETE_IN_PROGRESS" ]]
           then
 
-            echo "Root stack deletion is already in progress."
+            echo "Root stack deletion already in progress."
 
             exit 0
 
@@ -2295,8 +1933,6 @@ jobs:
 
           if [[ "$STATUS" == "DELETE_FAILED" ]]
           then
-
-            echo ""
 
             echo "Root stack is DELETE_FAILED."
 
@@ -2315,16 +1951,14 @@ jobs:
               --region "$AWS_REGION" \
               --no-cli-pager
 
-            echo ""
-
-            echo "Root stack deletion started."
+            echo "Root deletion started."
 
           fi
 
 
       # ======================================================
       # STEP 33
-      # MONITOR ROOT STACK DELETION
+      # MONITOR ROOT DELETION
       # ======================================================
 
       - name: "Step 33 - Monitor Root Stack Deletion"
@@ -2424,7 +2058,7 @@ jobs:
 
       # ======================================================
       # STEP 34
-      # INSPECT DELETE_FAILED RESOURCES
+      # INSPECT DELETE FAILED RESOURCES
       # ======================================================
 
       - name: "Step 34 - Inspect DELETE_FAILED Resources"
@@ -2442,10 +2076,6 @@ jobs:
           echo "=================================================="
           echo "ROOT DELETE FAILED RESOURCES"
           echo "=================================================="
-
-          echo ""
-
-          echo "DELETE_FAILED EVENTS"
 
           aws cloudformation describe-stack-events \
             --stack-name "$STACK_NAME" \
@@ -2468,7 +2098,7 @@ jobs:
 
       # ======================================================
       # STEP 35
-      # RETRY NESTED ECS SERVICE CLEANUP
+      # RETRY ECS SERVICE CLEANUP
       # ======================================================
 
       - name: "Step 35 - Retry Nested ECS Service Cleanup"
@@ -2536,13 +2166,7 @@ jobs:
               --no-cli-pager \
               || true
 
-            echo "Nested ECS service desired count set to zero."
-
             sleep 20
-
-          else
-
-            echo "Nested ECS cluster/service not found."
 
           fi
 
@@ -2585,8 +2209,7 @@ jobs:
 
           fi
 
-          echo "ALB:"
-          echo "  $ALB_ARN"
+          echo "ALB: $ALB_ARN"
 
           if [[ -n "$ALB_ARN" && "$ALB_ARN" != "None" ]]
           then
@@ -2596,8 +2219,6 @@ jobs:
               --region "$AWS_REGION" \
               --no-cli-pager \
               || true
-
-            echo "ALB deletion requested."
 
           else
 
@@ -2644,8 +2265,7 @@ jobs:
 
           fi
 
-          echo "Target Group:"
-          echo "  $TARGET_GROUP_ARN"
+          echo "Target Group: $TARGET_GROUP_ARN"
 
           if [[ -n "$TARGET_GROUP_ARN" &&
                 "$TARGET_GROUP_ARN" != "None" ]]
@@ -2656,8 +2276,6 @@ jobs:
               --region "$AWS_REGION" \
               --no-cli-pager \
               || true
-
-            echo "Target Group deletion requested."
 
           else
 
@@ -2697,8 +2315,7 @@ jobs:
               2>/dev/null || echo "NOT_FOUND"
           )
 
-          echo "Current status:"
-          echo "  $STATUS"
+          echo "Current status: $STATUS"
 
           if [[ "$STATUS" == "NOT_FOUND" ]]
           then
@@ -2712,8 +2329,6 @@ jobs:
           if [[ "$STATUS" == "DELETE_FAILED" ]]
           then
 
-            echo ""
-
             echo "Retrying with FORCE_DELETE_STACK."
 
             aws cloudformation delete-stack \
@@ -2726,7 +2341,7 @@ jobs:
           elif [[ "$STATUS" == "DELETE_IN_PROGRESS" ]]
           then
 
-            echo "Root deletion is already in progress."
+            echo "Deletion already in progress."
 
           else
 
@@ -2760,11 +2375,7 @@ jobs:
           echo "FINAL ROOT DELETION WAIT"
           echo "=================================================="
 
-          MAX_SECONDS="$ROOT_DELETE_WAIT_SECONDS"
-
-          ELAPSED=0
-
-          while [[ "$ELAPSED" -lt "$MAX_SECONDS" ]]
+          for ATTEMPT in $(seq 1 80)
           do
 
             STATUS=$(
@@ -2777,11 +2388,9 @@ jobs:
                 2>/dev/null || echo "NOT_FOUND"
             )
 
-            echo ""
+            echo "Attempt $ATTEMPT / 80"
 
-            echo "Elapsed: ${ELAPSED}s"
-
-            echo "Status : $STATUS"
+            echo "Status: $STATUS"
 
             if [[ "$STATUS" == "NOT_FOUND" ]]
             then
@@ -2812,11 +2421,7 @@ jobs:
 
             sleep 15
 
-            ELAPSED=$((ELAPSED + 15))
-
           done
-
-          echo ""
 
           echo "Final root deletion wait completed."
 
@@ -2916,8 +2521,7 @@ jobs:
 
           echo ""
 
-          echo "If the Charlie Cafe ECR repository is absent,"
-          echo "the repository was deleted."
+          echo "If charlie-cafe is absent, the ECR repository was deleted."
 
 
       # ======================================================
@@ -2934,7 +2538,7 @@ jobs:
           set +e
 
           echo "=================================================="
-          echo "FINAL TEMPLATE S3 STACK VERIFICATION"
+          echo "FINAL S3 STACK VERIFICATION"
           echo "=================================================="
 
           if aws cloudformation describe-stacks \
@@ -2995,8 +2599,7 @@ jobs:
 
             echo "WARNING: Root stack still exists."
 
-            echo "Status:"
-            echo "  $STATUS"
+            echo "Status: $STATUS"
 
           else
 
@@ -3007,73 +2610,10 @@ jobs:
 
       # ======================================================
       # STEP 45
-      # VERIFY CLOUDFRONT
-      # ======================================================
-      #
-      # If the CloudFront distribution was discovered earlier,
-      # verify that it no longer exists.
-      #
-      # ======================================================
-
-      - name: "Step 45 - Verify CloudFront"
-
-        shell: bash
-
-        run: |
-
-          set +e
-
-          echo "=================================================="
-          echo "FINAL CLOUDFRONT VERIFICATION"
-          echo "=================================================="
-
-          DISTRIBUTION_ID="${{ steps.cloudfront.outputs.distribution_id }}"
-
-          if [[ -z "$DISTRIBUTION_ID" ]]
-          then
-
-            echo "No CloudFront distribution was discovered."
-
-            echo "Nothing to verify."
-
-            exit 0
-
-          fi
-
-          echo "Distribution ID:"
-          echo "  $DISTRIBUTION_ID"
-
-          if aws cloudfront get-distribution \
-            --id "$DISTRIBUTION_ID" \
-            --no-cli-pager \
-            >/dev/null 2>&1
-          then
-
-            echo ""
-
-            echo "WARNING: CloudFront distribution still exists."
-
-            aws cloudfront get-distribution \
-              --id "$DISTRIBUTION_ID" \
-              --query "Distribution.[Id,Status,DistributionConfig.Enabled,DomainName]" \
-              --output table \
-              --no-cli-pager
-
-          else
-
-            echo ""
-
-            echo "CloudFront distribution deleted successfully."
-
-          fi
-
-
-      # ======================================================
-      # STEP 46
       # FINAL CLOUDFORMATION VERIFICATION
       # ======================================================
 
-      - name: "Step 46 - Final CloudFormation Verification"
+      - name: "Step 45 - Final CloudFormation Verification"
 
         shell: bash
 
@@ -3105,19 +2645,13 @@ jobs:
             --output table \
             --no-cli-pager
 
-          echo ""
-
-          echo "Expected result:"
-          echo "  Main-CloudFormation       -> absent"
-          echo "  CharlieCafe-ECS-Stack    -> absent"
-
 
       # ======================================================
-      # STEP 47
+      # STEP 46
       # FINAL CLEANUP SUMMARY
       # ======================================================
 
-      - name: "Step 47 - Final Cleanup Summary"
+      - name: "Step 46 - Final Cleanup Summary"
 
         shell: bash
 
@@ -3161,161 +2695,57 @@ jobs:
 
           echo ""
 
-          echo "  1.  Checkout repository"
+          echo "  1. Discover Root Stack"
 
-          echo "  2.  Configure AWS credentials"
+          echo "  2. Discover CharlieCafe-ECS-Stack"
 
-          echo "  3.  Verify AWS account"
+          echo "  3. Stop ECS Service"
 
-          echo "  4.  Discover root stack"
+          echo "  4. Wait for ECS Tasks"
 
-          echo "  5.  Display root resources"
+          echo "  5. Delete ECR Images"
 
-          echo "  6.  Discover standalone ECS/ECR stack"
+          echo "  6. Delete CharlieCafe-ECS-Stack"
 
-          echo "  7.  Display ECS/ECR resources"
+          echo "  7. Clean Docker Containers"
 
-          echo "  8.  Discover ECS cluster"
+          echo "  8. Clean Docker Images"
 
-          echo "  9.  Discover ECS service"
+          echo "  9. Clean Docker Volumes"
 
-          echo " 10.  Discover ECR repository"
+          echo " 10. Clean Docker Networks"
 
-          echo " 11.  Stop ECS service"
+          echo " 11. Empty S3 Template Bucket"
 
-          echo " 12.  Wait for ECS tasks"
+          echo " 12. Delete Template Bucket Stack"
 
-          echo " 13.  Delete ECR images"
+          echo " 13. Disable RDS Deletion Protection"
 
-          echo " 14.  Delete CharlieCafe-ECS-Stack"
+          echo " 14. Discover Nested ECS Stack"
 
-          echo " 15.  Discover EC2 instances"
+          echo " 15. Delete ROOT Stack"
 
-          echo " 16.  Clean Docker containers"
+          echo " 16. CloudFormation Deletes Nested Stacks"
 
-          echo " 17.  Clean Docker images"
+          echo " 17. Monitor Root Deletion"
 
-          echo " 18.  Clean Docker volumes"
+          echo " 18. Inspect DELETE_FAILED Resources"
 
-          echo " 19.  Clean Docker networks"
+          echo " 19. Retry ECS Cleanup"
 
-          echo " 20.  Discover template S3 bucket"
+          echo " 20. Retry ALB Cleanup"
 
-          echo " 21.  Empty template S3 bucket"
+          echo " 21. Retry Target Group Cleanup"
 
-          echo " 22.  Delete template bucket stack"
+          echo " 22. FORCE_DELETE_STACK if required"
 
-          echo " 23.  Discover RDS nested stack"
+          echo " 23. Verify ECS"
 
-          echo " 24.  Discover RDS instance"
+          echo " 24. Verify ECR"
 
-          echo " 25.  Disable RDS deletion protection"
+          echo " 25. Verify S3"
 
-          echo " 26.  Discover nested ECS stack"
-
-          echo " 27.  Disable root termination protection"
-
-          echo " 28.  Discover website S3 bucket"
-
-          echo " 29.  Discover CloudFront distribution"
-
-          echo " 30.  Disable CloudFront"
-
-          echo " 31.  Wait for CloudFront deployment"
-
-          echo " 32.  Delete CloudFront distribution"
-
-          echo " 33.  Wait for CloudFront deletion"
-
-          echo " 34.  Empty website S3 bucket"
-
-          echo " 35.  Delete ROOT CloudFormation stack"
-
-          echo " 36.  CloudFormation deletes nested stacks"
-
-          echo " 37.  Monitor root deletion"
-
-          echo " 38.  Inspect DELETE_FAILED resources"
-
-          echo " 39.  Retry nested ECS cleanup"
-
-          echo " 40.  Retry ALB cleanup"
-
-          echo " 41.  Retry Target Group cleanup"
-
-          echo " 42.  Retry root deletion"
-
-          echo " 43.  FORCE_DELETE_STACK if required"
-
-          echo " 44.  Final root deletion wait"
-
-          echo " 45.  Verify standalone ECS stack"
-
-          echo " 46.  Verify ECS"
-
-          echo " 47.  Verify ECR"
-
-          echo " 48.  Verify template bucket stack"
-
-          echo " 49.  Verify root stack"
-
-          echo " 50.  Verify CloudFront"
-
-          echo " 51.  Final CloudFormation verification"
-
-          echo ""
-
-          echo "=========================================================="
-
-          echo "CLOUDFRONT CLEANUP FLOW"
-
-          echo "=========================================================="
-
-          echo ""
-
-          echo "  Website S3 Bucket"
-
-          echo "        |"
-
-          echo "        v"
-
-          echo "  Discover CloudFront"
-
-          echo "        |"
-
-          echo "        v"
-
-          echo "  Disable CloudFront"
-
-          echo "        |"
-
-          echo "        v"
-
-          echo "  Wait Until Deployed/Disabled"
-
-          echo "        |"
-
-          echo "        v"
-
-          echo "  Delete CloudFront"
-
-          echo "        |"
-
-          echo "        v"
-
-          echo "  Wait Until Deleted"
-
-          echo "        |"
-
-          echo "        v"
-
-          echo "  Empty Website S3 Bucket"
-
-          echo "        |"
-
-          echo "        v"
-
-          echo "  Delete Root Stack"
+          echo " 26. Verify CloudFormation"
 
           echo ""
 
