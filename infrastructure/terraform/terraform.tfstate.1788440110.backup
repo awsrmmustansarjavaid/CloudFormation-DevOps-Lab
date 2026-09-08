@@ -1,0 +1,549 @@
+{
+  "version": 4,
+  "terraform_version": "1.15.7",
+  "serial": 5,
+  "lineage": "74b1658b-7ebd-1d24-b4b3-230abe839964",
+  "outputs": {
+    "alb_arn": {
+      "value": "arn:aws:elasticloadbalancing:us-east-1:537236558357:loadbalancer/app/CharlieCafe-TF-ALB/ef49181907738f28",
+      "type": "string"
+    },
+    "alb_dns_name": {
+      "value": "CharlieCafe-TF-ALB-1442142958.us-east-1.elb.amazonaws.com",
+      "type": "string"
+    },
+    "alb_security_group_id": {
+      "value": null,
+      "type": "string"
+    },
+    "application_url": {
+      "value": "http://CharlieCafe-TF-ALB-1442142958.us-east-1.elb.amazonaws.com",
+      "type": "string"
+    },
+    "cloudwatch_logs_vpc_endpoint_id": {
+      "value": null,
+      "type": "string"
+    },
+    "container_port": {
+      "value": 80,
+      "type": "number"
+    },
+    "deployment_summary": {
+      "value": {
+        "alb_dns_name": "CharlieCafe-TF-ALB-1442142958.us-east-1.elb.amazonaws.com",
+        "application_name": "CharlieCafe-TF",
+        "application_url": "http://CharlieCafe-TF-ALB-1442142958.us-east-1.elb.amazonaws.com",
+        "aws_region": "us-east-1",
+        "container_port": 80,
+        "ecr_image": null,
+        "ecr_repository": null,
+        "ecs_cluster": null,
+        "ecs_service": null,
+        "environment": "tf-lab",
+        "project_name": "CharlieCafe-TF-Lab",
+        "task_definition": null,
+        "task_family": null,
+        "vpc_id": null
+      },
+      "type": [
+        "object",
+        {
+          "alb_dns_name": "string",
+          "application_name": "string",
+          "application_url": "string",
+          "aws_region": "string",
+          "container_port": "number",
+          "ecr_image": "string",
+          "ecr_repository": "string",
+          "ecs_cluster": "string",
+          "ecs_service": "string",
+          "environment": "string",
+          "project_name": "string",
+          "task_definition": "string",
+          "task_family": "string",
+          "vpc_id": "string"
+        }
+      ]
+    },
+    "ecr_api_vpc_endpoint_id": {
+      "value": null,
+      "type": "string"
+    },
+    "ecr_dkr_vpc_endpoint_id": {
+      "value": null,
+      "type": "string"
+    },
+    "ecr_image_url": {
+      "value": null,
+      "type": "string"
+    },
+    "ecr_repository_name": {
+      "value": null,
+      "type": "string"
+    },
+    "ecr_repository_uri": {
+      "value": null,
+      "type": "string"
+    },
+    "ecs_cluster_arn": {
+      "value": null,
+      "type": "string"
+    },
+    "ecs_cluster_name": {
+      "value": null,
+      "type": "string"
+    },
+    "ecs_log_group_name": {
+      "value": null,
+      "type": "string"
+    },
+    "ecs_service_arn": {
+      "value": null,
+      "type": "string"
+    },
+    "ecs_service_name": {
+      "value": null,
+      "type": "string"
+    },
+    "ecs_task_definition_arn": {
+      "value": null,
+      "type": "string"
+    },
+    "ecs_task_definition_family": {
+      "value": null,
+      "type": "string"
+    },
+    "ecs_task_execution_role_arn": {
+      "value": "arn:aws:iam::537236558357:role/CharlieCafe-TF-ECSTaskExecutionRole",
+      "type": "string"
+    },
+    "ecs_task_role_arn": {
+      "value": "arn:aws:iam::537236558357:role/CharlieCafe-TF-ECSTaskRole",
+      "type": "string"
+    },
+    "ecs_task_security_group_id": {
+      "value": null,
+      "type": "string"
+    },
+    "private_route_table_id": {
+      "value": null,
+      "type": "string"
+    },
+    "private_subnet_ids": {
+      "value": [
+        null,
+        null
+      ],
+      "type": [
+        "tuple",
+        [
+          "dynamic",
+          "dynamic"
+        ]
+      ]
+    },
+    "public_subnet_ids": {
+      "value": [
+        null,
+        null
+      ],
+      "type": [
+        "tuple",
+        [
+          "dynamic",
+          "dynamic"
+        ]
+      ]
+    },
+    "s3_vpc_endpoint_id": {
+      "value": null,
+      "type": "string"
+    },
+    "target_group_arn": {
+      "value": "arn:aws:elasticloadbalancing:us-east-1:537236558357:targetgroup/CharlieCafe-TF-TG/3b5ba29844154e3d",
+      "type": "string"
+    },
+    "target_group_name": {
+      "value": "CharlieCafe-TF-TG",
+      "type": "string"
+    },
+    "vpc_endpoint_security_group_id": {
+      "value": null,
+      "type": "string"
+    },
+    "vpc_id": {
+      "value": null,
+      "type": "string"
+    }
+  },
+  "resources": [
+    {
+      "mode": "data",
+      "type": "aws_region",
+      "name": "current",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "description": "US East (N. Virginia)",
+            "endpoint": "ec2.us-east-1.amazonaws.com",
+            "id": "us-east-1",
+            "name": "us-east-1",
+            "region": "us-east-1"
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "aws_db_subnet_group",
+      "name": "mysql",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "arn": "arn:aws:rds:us-east-1:537236558357:subgrp:charliecafe-tf-rds-subnet-group",
+            "description": "Subnet group for CharlieCafe Terraform RDS MySQL",
+            "id": "charliecafe-tf-rds-subnet-group",
+            "name": "charliecafe-tf-rds-subnet-group",
+            "name_prefix": "",
+            "region": "us-east-1",
+            "subnet_ids": [
+              "subnet-091268fe7dd53e9dc",
+              "subnet-09659151261271ba5"
+            ],
+            "supported_network_types": [
+              "IPV4"
+            ],
+            "tags": {
+              "Name": "CharlieCafe-TF-RDS-SubnetGroup"
+            },
+            "tags_all": {
+              "Environment": "tf-lab",
+              "ManagedBy": "Terraform",
+              "Name": "CharlieCafe-TF-RDS-SubnetGroup",
+              "Project": "CharlieCafe-TF-Lab"
+            },
+            "vpc_id": "vpc-01da0c2e17756e273"
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0,
+          "identity": {
+            "account_id": "537236558357",
+            "name": "charliecafe-tf-rds-subnet-group",
+            "region": "us-east-1"
+          },
+          "private": "eyJzY2hlbWFfdmVyc2lvbiI6IjAifQ=="
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "aws_iam_role",
+      "name": "ecs_task",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "arn": "arn:aws:iam::537236558357:role/CharlieCafe-TF-ECSTaskRole",
+            "assume_role_policy": "{\"Statement\":[{\"Action\":\"sts:AssumeRole\",\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"ecs-tasks.amazonaws.com\"}}],\"Version\":\"2012-10-17\"}",
+            "create_date": "2026-08-28T10:27:47Z",
+            "description": "",
+            "force_detach_policies": false,
+            "id": "CharlieCafe-TF-ECSTaskRole",
+            "inline_policy": [],
+            "managed_policy_arns": [],
+            "max_session_duration": 3600,
+            "name": "CharlieCafe-TF-ECSTaskRole",
+            "name_prefix": "",
+            "path": "/",
+            "permissions_boundary": "",
+            "tags": {
+              "Name": "CharlieCafe-TF-ECSTaskRole",
+              "Terraform": "true"
+            },
+            "tags_all": {
+              "Environment": "tf-lab",
+              "ManagedBy": "Terraform",
+              "Name": "CharlieCafe-TF-ECSTaskRole",
+              "Project": "CharlieCafe-TF-Lab",
+              "Terraform": "true"
+            },
+            "unique_id": "AROAX2FOLKIKX2THZVFVW"
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0,
+          "identity": {
+            "account_id": "537236558357",
+            "name": "CharlieCafe-TF-ECSTaskRole"
+          },
+          "private": "eyJzY2hlbWFfdmVyc2lvbiI6IjAifQ=="
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "aws_iam_role",
+      "name": "ecs_task_execution",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "arn": "arn:aws:iam::537236558357:role/CharlieCafe-TF-ECSTaskExecutionRole",
+            "assume_role_policy": "{\"Statement\":[{\"Action\":\"sts:AssumeRole\",\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"ecs-tasks.amazonaws.com\"}}],\"Version\":\"2012-10-17\"}",
+            "create_date": "2026-08-28T10:27:47Z",
+            "description": "",
+            "force_detach_policies": false,
+            "id": "CharlieCafe-TF-ECSTaskExecutionRole",
+            "inline_policy": [],
+            "managed_policy_arns": [
+              "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+            ],
+            "max_session_duration": 3600,
+            "name": "CharlieCafe-TF-ECSTaskExecutionRole",
+            "name_prefix": "",
+            "path": "/",
+            "permissions_boundary": "",
+            "tags": {
+              "Name": "CharlieCafe-TF-ECSTaskExecutionRole",
+              "Terraform": "true"
+            },
+            "tags_all": {
+              "Environment": "tf-lab",
+              "ManagedBy": "Terraform",
+              "Name": "CharlieCafe-TF-ECSTaskExecutionRole",
+              "Project": "CharlieCafe-TF-Lab",
+              "Terraform": "true"
+            },
+            "unique_id": "AROAX2FOLKIK3CJKK7VSR"
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0,
+          "identity": {
+            "account_id": "537236558357",
+            "name": "CharlieCafe-TF-ECSTaskExecutionRole"
+          },
+          "private": "eyJzY2hlbWFfdmVyc2lvbiI6IjAifQ=="
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "aws_lb",
+      "name": "charlie_cafe",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "access_logs": [
+              {
+                "bucket": "",
+                "enabled": false,
+                "prefix": ""
+              }
+            ],
+            "arn": "arn:aws:elasticloadbalancing:us-east-1:537236558357:loadbalancer/app/CharlieCafe-TF-ALB/ef49181907738f28",
+            "arn_suffix": "app/CharlieCafe-TF-ALB/ef49181907738f28",
+            "client_keep_alive": 3600,
+            "connection_logs": [
+              {
+                "bucket": "",
+                "enabled": false,
+                "prefix": ""
+              }
+            ],
+            "customer_owned_ipv4_pool": "",
+            "desync_mitigation_mode": "defensive",
+            "dns_name": "CharlieCafe-TF-ALB-1442142958.us-east-1.elb.amazonaws.com",
+            "dns_record_client_routing_policy": null,
+            "drop_invalid_header_fields": false,
+            "enable_cross_zone_load_balancing": true,
+            "enable_deletion_protection": false,
+            "enable_http2": true,
+            "enable_prefix_for_ipv6_source_nat": "off",
+            "enable_tls_version_and_cipher_suite_headers": false,
+            "enable_waf_fail_open": false,
+            "enable_xff_client_port": false,
+            "enable_zonal_shift": false,
+            "enforce_security_group_inbound_rules_on_private_link_traffic": "",
+            "health_check_logs": [
+              {
+                "bucket": "",
+                "enabled": false,
+                "prefix": ""
+              }
+            ],
+            "id": "arn:aws:elasticloadbalancing:us-east-1:537236558357:loadbalancer/app/CharlieCafe-TF-ALB/ef49181907738f28",
+            "idle_timeout": 60,
+            "internal": false,
+            "ip_address_type": "ipv4",
+            "ipam_pools": [],
+            "load_balancer_type": "application",
+            "minimum_load_balancer_capacity": [],
+            "name": "CharlieCafe-TF-ALB",
+            "name_prefix": "",
+            "preserve_host_header": false,
+            "region": "us-east-1",
+            "secondary_ips_auto_assigned_per_subnet": null,
+            "security_groups": [
+              "sg-07c42b9a33d268a27"
+            ],
+            "subnet_mapping": [
+              {
+                "allocation_id": "",
+                "ipv6_address": "",
+                "outpost_id": "",
+                "private_ipv4_address": "",
+                "subnet_id": "subnet-02432676a011351fc"
+              },
+              {
+                "allocation_id": "",
+                "ipv6_address": "",
+                "outpost_id": "",
+                "private_ipv4_address": "",
+                "subnet_id": "subnet-0c2f3802cabcd7d5c"
+              }
+            ],
+            "subnets": [
+              "subnet-02432676a011351fc",
+              "subnet-0c2f3802cabcd7d5c"
+            ],
+            "tags": {
+              "Name": "CharlieCafe-TF-ALB",
+              "Terraform": "true"
+            },
+            "tags_all": {
+              "Environment": "tf-lab",
+              "ManagedBy": "Terraform",
+              "Name": "CharlieCafe-TF-ALB",
+              "Project": "CharlieCafe-TF-Lab",
+              "Terraform": "true"
+            },
+            "timeouts": null,
+            "vpc_id": "vpc-01da0c2e17756e273",
+            "xff_header_processing_mode": "append",
+            "zone_id": "Z35SXDOTRQ7X7K"
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0,
+          "identity": {
+            "arn": "arn:aws:elasticloadbalancing:us-east-1:537236558357:loadbalancer/app/CharlieCafe-TF-ALB/ef49181907738f28"
+          },
+          "private": "eyJlMmJmYjczMC1lY2FhLTExZTYtOGY4OC0zNDM2M2JjN2M0YzAiOnsiY3JlYXRlIjo2MDAwMDAwMDAwMDAsImRlbGV0ZSI6NjAwMDAwMDAwMDAwLCJ1cGRhdGUiOjYwMDAwMDAwMDAwMH0sInNjaGVtYV92ZXJzaW9uIjoiMCJ9"
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "aws_lb_target_group",
+      "name": "charlie_cafe",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "schema_version": 0,
+          "attributes": {
+            "arn": "arn:aws:elasticloadbalancing:us-east-1:537236558357:targetgroup/CharlieCafe-TF-TG/3b5ba29844154e3d",
+            "arn_suffix": "targetgroup/CharlieCafe-TF-TG/3b5ba29844154e3d",
+            "connection_termination": null,
+            "deregistration_delay": "300",
+            "health_check": [
+              {
+                "enabled": true,
+                "healthy_threshold": 2,
+                "interval": 30,
+                "matcher": "200",
+                "path": "/",
+                "port": "traffic-port",
+                "protocol": "HTTP",
+                "timeout": 5,
+                "unhealthy_threshold": 3
+              }
+            ],
+            "id": "arn:aws:elasticloadbalancing:us-east-1:537236558357:targetgroup/CharlieCafe-TF-TG/3b5ba29844154e3d",
+            "ip_address_type": "ipv4",
+            "lambda_multi_value_headers_enabled": null,
+            "load_balancer_arns": [
+              "arn:aws:elasticloadbalancing:us-east-1:537236558357:loadbalancer/app/CharlieCafe-TF-ALB/ef49181907738f28"
+            ],
+            "load_balancing_algorithm_type": "round_robin",
+            "load_balancing_anomaly_mitigation": "off",
+            "load_balancing_cross_zone_enabled": "use_load_balancer_configuration",
+            "name": "CharlieCafe-TF-TG",
+            "name_prefix": "",
+            "port": 80,
+            "preserve_client_ip": null,
+            "protocol": "HTTP",
+            "protocol_version": "HTTP1",
+            "proxy_protocol_v2": null,
+            "region": "us-east-1",
+            "slow_start": 0,
+            "stickiness": [
+              {
+                "cookie_duration": 86400,
+                "cookie_name": "",
+                "enabled": false,
+                "type": "lb_cookie"
+              }
+            ],
+            "tags": {
+              "Name": "CharlieCafe-TF-TG",
+              "Terraform": "true"
+            },
+            "tags_all": {
+              "Environment": "tf-lab",
+              "ManagedBy": "Terraform",
+              "Name": "CharlieCafe-TF-TG",
+              "Project": "CharlieCafe-TF-Lab",
+              "Terraform": "true"
+            },
+            "target_control_port": 0,
+            "target_failover": [
+              {
+                "on_deregistration": null,
+                "on_unhealthy": null
+              }
+            ],
+            "target_group_health": [
+              {
+                "dns_failover": [
+                  {
+                    "minimum_healthy_targets_count": "1",
+                    "minimum_healthy_targets_percentage": "off"
+                  }
+                ],
+                "unhealthy_state_routing": [
+                  {
+                    "minimum_healthy_targets_count": 1,
+                    "minimum_healthy_targets_percentage": "off"
+                  }
+                ]
+              }
+            ],
+            "target_health_state": [
+              {
+                "enable_unhealthy_connection_termination": null,
+                "unhealthy_draining_interval": null
+              }
+            ],
+            "target_type": "ip",
+            "vpc_id": "vpc-01da0c2e17756e273"
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0,
+          "identity": {
+            "arn": "arn:aws:elasticloadbalancing:us-east-1:537236558357:targetgroup/CharlieCafe-TF-TG/3b5ba29844154e3d"
+          },
+          "private": "eyJzY2hlbWFfdmVyc2lvbiI6IjAifQ=="
+        }
+      ]
+    }
+  ],
+  "check_results": null
+}
