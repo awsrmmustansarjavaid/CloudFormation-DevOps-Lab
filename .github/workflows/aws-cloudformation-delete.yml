@@ -1817,55 +1817,57 @@ jobs:
             --no-cli-pager
 
           echo ""
-          echo "CloudFront deletion request submitted."      
-    
+          echo "CloudFront deletion request submitted."   
+      
+      # ======================================================
+      # STEP 31
+      # WAIT FOR CLOUDFRONT DELETION
+      # ======================================================
 
-    # ======================================================
-    # STEP 31
-    # WAIT FOR CLOUDFRONT DELETION
-    # ======================================================
+      - name: "Step 31 - Wait For CloudFront Deletion"
 
-    - name: "Step 31 - Wait For CloudFront Deletion"
+        if: steps.cloudfront.outputs.distribution_id != ''
 
-      if: steps.cloudfront.outputs.distribution_id != ''
+        shell: bash
 
-      shell: bash
+        run: |
 
-      run: |
+          set -euo pipefail
 
-        set -euo pipefail
+          DISTRIBUTION_ID="${{ steps.cloudfront.outputs.distribution_id }}"
 
-        DISTRIBUTION_ID="${{ steps.cloudfront.outputs.distribution_id }}"
+          echo "Waiting for CloudFront distribution deletion..."
 
-        echo "Waiting for CloudFront distribution deletion..."
+          for ATTEMPT in $(seq 1 60)
+          do
 
-        for ATTEMPT in $(seq 1 60)
-        do
+            if aws cloudfront get-distribution \
+              --id "$DISTRIBUTION_ID" \
+              --no-cli-pager \
+              >/dev/null 2>&1
+            then
 
-          if aws cloudfront get-distribution \
-            --id "$DISTRIBUTION_ID" \
-            --no-cli-pager \
-            >/dev/null 2>&1
-          then
+              echo "Attempt $ATTEMPT / 60"
 
-            echo "Attempt $ATTEMPT / 60"
-            echo "CloudFront distribution still exists."
+              echo "CloudFront distribution still exists."
 
-            sleep 30
+              sleep 30
 
-          else
+            else
 
-            echo ""
-            echo "CloudFront distribution no longer exists."
+              echo ""
 
-            exit 0
+              echo "CloudFront distribution no longer exists."
 
-          fi
+              exit 0
 
-        done
+            fi
 
-        echo ""
-        echo "WARNING: CloudFront distribution still exists after waiting."
+          done
+
+          echo ""
+
+          echo "WARNING: CloudFront distribution still exists after waiting."
 
       # ======================================================
       # STEP 32
