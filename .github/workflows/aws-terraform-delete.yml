@@ -47,7 +47,6 @@
 #   7. ECR
 #   8. Application Load Balancers
 #   9. Target Groups
-#   10. CloudFront Distributions
 #
 # Additional dependency cleanup is also performed where necessary:
 #
@@ -59,21 +58,6 @@
 #   - Route Tables
 #   - Internet Gateways
 #   - EFS mount targets/filesystems
-#
-# CLOUDFRONT NOTES
-# ---------------------------------------------------------------------
-#
-# CloudFront distributions cannot be deleted directly. AWS requires:
-#
-#   1. The distribution to be DISABLED (Enabled = false)
-#   2. The distribution to reach Status = "Deployed" after that change
-#   3. Only then can DeleteDistribution succeed (with the latest ETag)
-#
-# Both cleanup passes (main job Step 23.5, final sweep Step 5.5)
-# implement this disable -> wait -> delete sequence, and both restrict
-# themselves to distributions carrying:
-#
-#   Project = CharlieCafe-TF-Lab
 #
 # =====================================================================
 # SAFETY MODEL
@@ -234,12 +218,6 @@ env:
 
   # -------------------------------------------------------------------
   # CLOUDFRONT
-  #
-  # CLOUDFRONT_NAME_PREFIX is matched against each distribution's
-  # "Comment" field (CloudFront has no native "Name" tag/attribute),
-  # in addition to the Project tag. This gives CloudFront the same
-  # two-layer safety net (tag + name/comment prefix) used by VPC,
-  # ALB, ECS, and ECR below.
   # -------------------------------------------------------------------
 
   CLOUDFRONT_NAME_PREFIX: CharlieCafe-TF-
@@ -1596,25 +1574,17 @@ jobs:
 
           echo ""
           echo "Terraform destroy retry completed successfully."
-
-      # ===============================================================
+      
+          
+            # ===============================================================
       # STEP 23.5
       # CLEANUP CLOUDFRONT DISTRIBUTIONS
       #
       # CloudFront distributions must be disabled and fully deployed
       # before they can be deleted.
       #
-      # Distributions are selected by EITHER:
-      #
-      #   Project tag = CharlieCafe-TF-Lab
-      #
-      # OR:
-      #
-      #   Comment starts with CharlieCafe-TF-
-      #
-      # (CloudFront distributions have no native "Name" field, so the
-      # Comment field doubles as the name-prefix safety net used by
-      # other resource types in this workflow.)
+      # Only distributions carrying the Charlie Cafe Project tag
+      # are selected.
       # ===============================================================
 
       - name: "Step 23.5 - Cleanup Terraform CloudFront Distributions"
@@ -1647,26 +1617,17 @@ jobs:
             [[ -z "$DISTRIBUTION_ID" ]] && continue
             [[ "$DISTRIBUTION_ID" == "None" ]] && continue
 
-            DISTRIBUTION_DATA="$(
+            DISTRIBUTION_ARN="$(
               aws cloudfront get-distribution \
                 --id "$DISTRIBUTION_ID" \
-                --output json \
+                --query "Distribution.ARN" \
+                --output text \
                 --no-cli-pager \
                 2>/dev/null || true
             )"
 
-            [[ -z "$DISTRIBUTION_DATA" ]] && continue
-
-            DISTRIBUTION_ARN="$(
-              echo "$DISTRIBUTION_DATA" |
-                jq -r '.Distribution.ARN // empty'
-            )"
-
             [[ -z "$DISTRIBUTION_ARN" ]] && continue
-
-            # -------------------------------------------------------
-            # Match 1: Project tag.
-            # -------------------------------------------------------
+            [[ "$DISTRIBUTION_ARN" == "None" ]] && continue
 
             TAG_MATCH="$(
               aws cloudfront list-tags-for-resource \
@@ -1677,23 +1638,7 @@ jobs:
                 2>/dev/null || true
             )"
 
-            # -------------------------------------------------------
-            # Match 2: Comment field name prefix.
-            # -------------------------------------------------------
-
-            COMMENT="$(
-              echo "$DISTRIBUTION_DATA" |
-                jq -r '.Distribution.DistributionConfig.Comment // empty'
-            )"
-
-            NAME_MATCH="false"
-
-            if [[ "$COMMENT" == "$CLOUDFRONT_NAME_PREFIX"* ]]; then
-              NAME_MATCH="true"
-            fi
-
-            if [[ "$TAG_MATCH" == "$PROJECT_TAG_VALUE" ||
-                  "$NAME_MATCH" == "true" ]]; then
+            if [[ "$TAG_MATCH" == "$PROJECT_TAG_VALUE" ]]; then
 
               echo "$DISTRIBUTION_ID" >> "$DISTRIBUTIONS_FILE"
 
@@ -1868,7 +1813,7 @@ jobs:
           done < "$DISTRIBUTIONS_FILE"
 
           echo ""
-          echo "CloudFront cleanup completed."
+          echo "CloudFront cleanup completed."      
 
       # ===============================================================
       # STEP 24
@@ -2796,74 +2741,6 @@ jobs:
 
           fi
 
-          # -------------------------------------------------------
-          # CloudFront: matched the same way Step 23.5 selects
-          # distributions (Project tag OR Comment name prefix).
-          # -------------------------------------------------------
-
-          CLOUDFRONT_REMAINING=0
-
-          ALL_DISTRIBUTIONS="$(
-            aws cloudfront list-distributions \
-              --query "DistributionList.Items[].Id" \
-              --output text \
-              --no-cli-pager \
-              2>/dev/null || true
-          )"
-
-          for DISTRIBUTION_ID in $ALL_DISTRIBUTIONS; do
-
-            [[ -z "$DISTRIBUTION_ID" ]] && continue
-            [[ "$DISTRIBUTION_ID" == "None" ]] && continue
-
-            DISTRIBUTION_DATA="$(
-              aws cloudfront get-distribution \
-                --id "$DISTRIBUTION_ID" \
-                --output json \
-                --no-cli-pager \
-                2>/dev/null || true
-            )"
-
-            [[ -z "$DISTRIBUTION_DATA" ]] && continue
-
-            DISTRIBUTION_ARN="$(
-              echo "$DISTRIBUTION_DATA" |
-                jq -r '.Distribution.ARN // empty'
-            )"
-
-            [[ -z "$DISTRIBUTION_ARN" ]] && continue
-
-            TAG_MATCH="$(
-              aws cloudfront list-tags-for-resource \
-                --resource "$DISTRIBUTION_ARN" \
-                --query "Tags.Items[?Key=='$PROJECT_TAG_KEY' && Value=='$PROJECT_TAG_VALUE'].Value" \
-                --output text \
-                --no-cli-pager \
-                2>/dev/null || true
-            )"
-
-            COMMENT="$(
-              echo "$DISTRIBUTION_DATA" |
-                jq -r '.Distribution.DistributionConfig.Comment // empty'
-            )"
-
-            if [[ "$TAG_MATCH" == "$PROJECT_TAG_VALUE" ||
-                  "$COMMENT" == "$CLOUDFRONT_NAME_PREFIX"* ]]; then
-
-              CLOUDFRONT_REMAINING=$((CLOUDFRONT_REMAINING + 1))
-
-            fi
-
-          done
-
-          if [[ "$CLOUDFRONT_REMAINING" -gt 0 ]]; then
-
-            echo "Remaining Charlie Cafe CloudFront distribution(s): $CLOUDFRONT_REMAINING"
-
-            REMAINING=$((REMAINING + 1))
-
-          fi
-
           echo ""
           echo "Known resource remaining count:"
           echo "  $REMAINING"
@@ -2975,7 +2852,7 @@ jobs:
           echo "  $PROJECT_REMAINING"
 
           echo ""
-          echo "Known Charlie Cafe resources remaining (includes CloudFront):"
+          echo "Known Charlie Cafe resources remaining:"
           echo "  $KNOWN_REMAINING"
 
           echo ""
@@ -3129,13 +3006,6 @@ jobs:
           echo "  ${{ github.event.inputs.cleanup_orphans }}"
 
           echo ""
-          echo "Resources targeted by this job (in addition to Terraform state):"
-          echo "  ECS, ECR, RDS, ALB/Target Groups, EFS, EC2, NAT Gateways,"
-          echo "  VPC Endpoints, Elastic IPs, ENIs, CloudFront, S3, DynamoDB,"
-          echo "  CloudWatch Logs, Secrets Manager, IAM roles, Security Groups,"
-          echo "  Subnets, Route Tables, Internet Gateways, VPC"
-
-          echo ""
           echo "Terraform destroy plan:"
           echo "  ${{ steps.terraform_destroy_plan.outcome }}"
 
@@ -3156,7 +3026,7 @@ jobs:
           echo "  ${{ steps.final_scan.outcome }}"
 
           echo ""
-          echo "Final known-resource scan (includes CloudFront):"
+          echo "Final known-resource scan:"
           echo "  ${{ steps.known_scan.outcome }}"
 
           echo ""
@@ -3196,7 +3066,6 @@ jobs:
   #   ALB
   #   ECS
   #   ECR
-  #   CloudFront
   #
   # The final sweep gets another opportunity to remove them.
   # ===================================================================
@@ -3660,7 +3529,7 @@ jobs:
           echo ""
           echo "Final RDS cleanup completed."
 
-      # ===============================================================
+            # ===============================================================
       # FINAL SWEEP STEP 5.5
       # CLOUDFRONT
       #
@@ -3668,14 +3537,11 @@ jobs:
       # The workflow waits for the distribution to become Deployed.
       # The distribution is then deleted.
       #
-      # Distributions are selected by EITHER:
+      # Only distributions with:
       #
-      #   Project=CharlieCafe-TF-Lab (tag)
+      #   Project=CharlieCafe-TF-Lab
       #
-      # OR:
-      #
-      #   Comment starts with CharlieCafe-TF- (name-prefix safety net,
-      #   matching the same pattern used for VPC/ALB/ECS/ECR above)
+      # are selected.
       # ===============================================================
 
       - name: "Final Sweep Step 5.5 - Delete Charlie Cafe CloudFront"
@@ -3704,22 +3570,17 @@ jobs:
             [[ -z "$DISTRIBUTION_ID" ]] && continue
             [[ "$DISTRIBUTION_ID" == "None" ]] && continue
 
-            DISTRIBUTION_DATA="$(
+            DISTRIBUTION_ARN="$(
               aws cloudfront get-distribution \
                 --id "$DISTRIBUTION_ID" \
-                --output json \
+                --query "Distribution.ARN" \
+                --output text \
                 --no-cli-pager \
                 2>/dev/null || true
             )"
 
-            [[ -z "$DISTRIBUTION_DATA" ]] && continue
-
-            DISTRIBUTION_ARN="$(
-              echo "$DISTRIBUTION_DATA" |
-                jq -r '.Distribution.ARN // empty'
-            )"
-
             [[ -z "$DISTRIBUTION_ARN" ]] && continue
+            [[ "$DISTRIBUTION_ARN" == "None" ]] && continue
 
             TAG_MATCH="$(
               aws cloudfront list-tags-for-resource \
@@ -3730,22 +3591,8 @@ jobs:
                 2>/dev/null || true
             )"
 
-            COMMENT="$(
-              echo "$DISTRIBUTION_DATA" |
-                jq -r '.Distribution.DistributionConfig.Comment // empty'
-            )"
-
-            NAME_MATCH="false"
-
-            if [[ "$COMMENT" == "$CLOUDFRONT_NAME_PREFIX"* ]]; then
-              NAME_MATCH="true"
-            fi
-
-            if [[ "$TAG_MATCH" == "$PROJECT_TAG_VALUE" ||
-                  "$NAME_MATCH" == "true" ]]; then
-
+            if [[ "$TAG_MATCH" == "$PROJECT_TAG_VALUE" ]]; then
               echo "$DISTRIBUTION_ID" >> "$CLOUDFRONT_FILE"
-
             fi
 
           done
@@ -3893,7 +3740,7 @@ jobs:
           done < "$CLOUDFRONT_FILE"
 
           echo ""
-          echo "Final CloudFront cleanup completed."
+          echo "Final CloudFront cleanup completed."      
 
       # ===============================================================
       # FINAL SWEEP STEP 6
@@ -5372,6 +5219,290 @@ jobs:
 
       # ===============================================================
       # FINAL SWEEP STEP 21
+      # CLOUDFRONT DISTRIBUTIONS
+      #
+      # CloudFront distributions cannot be deleted while they are
+      # enabled.
+      #
+      # Therefore the cleanup order is:
+      #
+      #   1. Discover CloudFront distributions
+      #   2. Disable enabled distributions
+      #   3. Wait until CloudFront finishes deployment
+      #   4. Delete the distributions
+      #
+      # This step is intentionally written as a final sweep so that
+      # CloudFront resources left behind by Terraform can also be
+      # cleaned up.
+      # ===============================================================
+
+      - name: "Final Sweep Step 21 - Delete CloudFront Distributions"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================================="
+          echo "FINAL CLOUDFRONT DISTRIBUTION CLEANUP"
+          echo "=============================================================="
+
+          echo ""
+          echo "Discovering CloudFront distributions..."
+
+          # -----------------------------------------------------------
+          # CloudFront is a global service.
+          #
+          # CloudFront API calls do NOT use AWS_REGION in the same
+          # way as regional services such as EC2 or S3.
+          #
+          # CloudFront is managed from us-east-1 / global scope.
+          # -----------------------------------------------------------
+
+          DISTRIBUTION_IDS="$(
+            aws cloudfront list-distributions \
+              --query "DistributionList.Items[].Id" \
+              --output text \
+              --no-cli-pager \
+              2>/dev/null || true
+          )"
+
+          # -----------------------------------------------------------
+          # Nothing found.
+          # -----------------------------------------------------------
+
+          if [[ -z "$DISTRIBUTION_IDS" || "$DISTRIBUTION_IDS" == "None" ]]; then
+            echo ""
+            echo "No CloudFront distributions found."
+            echo ""
+            echo "Final CloudFront cleanup completed."
+            exit 0
+          fi
+
+          echo ""
+          echo "CloudFront distributions discovered:"
+          echo "$DISTRIBUTION_IDS"
+
+          # -----------------------------------------------------------
+          # STEP 1
+          # Disable every discovered CloudFront distribution.
+          #
+          # A CloudFront distribution must be disabled before AWS
+          # allows DeleteDistribution.
+          # -----------------------------------------------------------
+
+          for DISTRIBUTION_ID in $DISTRIBUTION_IDS; do
+
+            [[ -z "$DISTRIBUTION_ID" ]] && continue
+            [[ "$DISTRIBUTION_ID" == "None" ]] && continue
+
+            echo ""
+            echo "--------------------------------------------------------------"
+            echo "Processing CloudFront distribution:"
+            echo "  $DISTRIBUTION_ID"
+            echo "--------------------------------------------------------------"
+
+            # ---------------------------------------------------------
+            # Get the current CloudFront distribution configuration.
+            #
+            # The ETag is required by the update-distribution API.
+            # ---------------------------------------------------------
+
+            DISTRIBUTION_INFO="$(
+              aws cloudfront get-distribution-config \
+                --id "$DISTRIBUTION_ID" \
+                --query "{ETag:ETag,Config:DistributionConfig}" \
+                --output json \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            if [[ -z "$DISTRIBUTION_INFO" || "$DISTRIBUTION_INFO" == "null" ]]; then
+              echo ""
+              echo "Unable to retrieve distribution configuration:"
+              echo "  $DISTRIBUTION_ID"
+              echo "Skipping."
+              continue
+            fi
+
+            # ---------------------------------------------------------
+            # Extract the ETag.
+            # ---------------------------------------------------------
+
+            ETAG="$(
+              echo "$DISTRIBUTION_INFO" |
+                jq -r '.ETag // empty'
+            )"
+
+            # ---------------------------------------------------------
+            # Extract the current Enabled value.
+            # ---------------------------------------------------------
+
+            ENABLED="$(
+              echo "$DISTRIBUTION_INFO" |
+                jq -r '.Config.Enabled // false'
+            )"
+
+            echo ""
+            echo "Current distribution status:"
+            echo "  Enabled: $ENABLED"
+            echo "  ETag:    $ETAG"
+
+            # ---------------------------------------------------------
+            # STEP 2
+            # Disable the distribution if it is currently enabled.
+            #
+            # We use the existing distribution configuration and only
+            # change:
+            #
+            #   Enabled = false
+            #
+            # All other CloudFront configuration is preserved.
+            # ---------------------------------------------------------
+
+            if [[ "$ENABLED" == "true" ]]; then
+
+              echo ""
+              echo "Disabling CloudFront distribution:"
+              echo "  $DISTRIBUTION_ID"
+
+              UPDATED_CONFIG="$(
+                echo "$DISTRIBUTION_INFO" |
+                  jq '.Config | .Enabled = false'
+              )"
+
+              echo "$UPDATED_CONFIG" > "/tmp/cloudfront-${DISTRIBUTION_ID}.json"
+
+              aws cloudfront update-distribution \
+                --id "$DISTRIBUTION_ID" \
+                --if-match "$ETAG" \
+                --distribution-config "file:///tmp/cloudfront-${DISTRIBUTION_ID}.json" \
+                --no-cli-pager
+
+              echo ""
+              echo "Disable request submitted:"
+              echo "  $DISTRIBUTION_ID"
+
+            else
+
+              echo ""
+              echo "CloudFront distribution is already disabled:"
+              echo "  $DISTRIBUTION_ID"
+
+            fi
+
+          done
+
+          # ===========================================================
+          # STEP 3
+          # WAIT FOR CLOUDFRONT DISTRIBUTIONS TO BECOME DEPLOYED
+          #
+          # CloudFront changes are asynchronous.
+          #
+          # We cannot immediately call DeleteDistribution after
+          # disabling it.
+          #
+          # AWS must first propagate the disabled configuration.
+          # ===========================================================
+
+          echo ""
+          echo "=============================================================="
+          echo "WAITING FOR CLOUDFRONT DISTRIBUTIONS"
+          echo "=============================================================="
+
+          for DISTRIBUTION_ID in $DISTRIBUTION_IDS; do
+
+            [[ -z "$DISTRIBUTION_ID" ]] && continue
+            [[ "$DISTRIBUTION_ID" == "None" ]] && continue
+
+            echo ""
+            echo "Waiting for distribution to become Deployed:"
+            echo "  $DISTRIBUTION_ID"
+
+            # ---------------------------------------------------------
+            # CloudFront waiter waits until the distribution has
+            # completed its latest deployment.
+            #
+            # This is required before attempting deletion.
+            # ---------------------------------------------------------
+
+            aws cloudfront wait distribution-deployed \
+              --id "$DISTRIBUTION_ID" \
+              --no-cli-pager
+
+            echo ""
+            echo "CloudFront distribution is now deployed:"
+            echo "  $DISTRIBUTION_ID"
+
+          done
+
+          # ===========================================================
+          # STEP 4
+          # DELETE CLOUDFRONT DISTRIBUTIONS
+          # ===========================================================
+
+          echo ""
+          echo "=============================================================="
+          echo "DELETING CLOUDFRONT DISTRIBUTIONS"
+          echo "=============================================================="
+
+          for DISTRIBUTION_ID in $DISTRIBUTION_IDS; do
+
+            [[ -z "$DISTRIBUTION_ID" ]] && continue
+            [[ "$DISTRIBUTION_ID" == "None" ]] && continue
+
+            echo ""
+            echo "Getting latest ETag:"
+            echo "  $DISTRIBUTION_ID"
+
+            # ---------------------------------------------------------
+            # The ETag may have changed after the disable operation.
+            #
+            # Therefore we MUST retrieve a fresh ETag before deletion.
+            # ---------------------------------------------------------
+
+            FINAL_ETAG="$(
+              aws cloudfront get-distribution \
+                --id "$DISTRIBUTION_ID" \
+                --query "ETag" \
+                --output text \
+                --no-cli-pager \
+                2>/dev/null || true
+            )"
+
+            if [[ -z "$FINAL_ETAG" || "$FINAL_ETAG" == "None" ]]; then
+              echo ""
+              echo "Unable to retrieve final ETag:"
+              echo "  $DISTRIBUTION_ID"
+              echo "Skipping deletion."
+              continue
+            fi
+
+            echo ""
+            echo "Deleting CloudFront distribution:"
+            echo "  $DISTRIBUTION_ID"
+
+            aws cloudfront delete-distribution \
+              --id "$DISTRIBUTION_ID" \
+              --if-match "$FINAL_ETAG" \
+              --no-cli-pager \
+              2>/dev/null || true
+
+            echo ""
+            echo "Delete request submitted:"
+            echo "  $DISTRIBUTION_ID"
+
+          done
+
+          # ===========================================================
+          # FINAL MESSAGE
+          # ===========================================================
+
+          echo ""
+          echo "=============================================================="
+          echo "FINAL CLOUDFRONT CLEANUP COMPLETED"
+          echo "=============================================================="
+
+      # ===============================================================
+      # FINAL SWEEP STEP 22
       # FINAL RESOURCE VERIFICATION
       #
       # This is deliberately informational.
@@ -5381,7 +5512,7 @@ jobs:
       # able to remove.
       # ===============================================================
 
-      - name: "Final Sweep Step 21 - Final AWS Resource Verification"
+      - name: "Final Sweep Step 22 - Final AWS Resource Verification"
         id: final_verification
         shell: bash
         run: |
@@ -5604,78 +5735,6 @@ jobs:
           fi
 
           echo ""
-          echo "8. CLOUDFRONT VERIFICATION"
-          echo "---------------------------------------------------------------"
-
-          CLOUDFRONT_MATCH=""
-
-          ALL_DISTRIBUTIONS="$(
-            aws cloudfront list-distributions \
-              --query "DistributionList.Items[].Id" \
-              --output text \
-              --no-cli-pager \
-              2>/dev/null || true
-          )"
-
-          for DISTRIBUTION_ID in $ALL_DISTRIBUTIONS; do
-
-            [[ -z "$DISTRIBUTION_ID" ]] && continue
-            [[ "$DISTRIBUTION_ID" == "None" ]] && continue
-
-            DISTRIBUTION_DATA="$(
-              aws cloudfront get-distribution \
-                --id "$DISTRIBUTION_ID" \
-                --output json \
-                --no-cli-pager \
-                2>/dev/null || true
-            )"
-
-            [[ -z "$DISTRIBUTION_DATA" ]] && continue
-
-            DISTRIBUTION_ARN="$(
-              echo "$DISTRIBUTION_DATA" |
-                jq -r '.Distribution.ARN // empty'
-            )"
-
-            [[ -z "$DISTRIBUTION_ARN" ]] && continue
-
-            TAG_MATCH="$(
-              aws cloudfront list-tags-for-resource \
-                --resource "$DISTRIBUTION_ARN" \
-                --query "Tags.Items[?Key=='$PROJECT_TAG_KEY' && Value=='$PROJECT_TAG_VALUE'].Value" \
-                --output text \
-                --no-cli-pager \
-                2>/dev/null || true
-            )"
-
-            COMMENT="$(
-              echo "$DISTRIBUTION_DATA" |
-                jq -r '.Distribution.DistributionConfig.Comment // empty'
-            )"
-
-            if [[ "$TAG_MATCH" == "$PROJECT_TAG_VALUE" ||
-                  "$COMMENT" == "$CLOUDFRONT_NAME_PREFIX"* ]]; then
-
-              CLOUDFRONT_MATCH="$CLOUDFRONT_MATCH $DISTRIBUTION_ID"
-
-            fi
-
-          done
-
-          if [[ -n "$CLOUDFRONT_MATCH" ]]; then
-
-            echo "Remaining Charlie Cafe CloudFront distribution(s):"
-            echo "$CLOUDFRONT_MATCH"
-
-            REMAINING=$((REMAINING + 1))
-
-          else
-
-            echo "[OK] No Charlie Cafe CloudFront distribution remains."
-
-          fi
-
-          echo ""
           echo "================================================================"
           echo "FINAL SWEEP RESULT"
           echo "================================================================"
@@ -5703,7 +5762,6 @@ jobs:
             echo "[OK] ECR"
             echo "[OK] Application Load Balancer"
             echo "[OK] Target Groups"
-            echo "[OK] CloudFront"
             echo ""
             echo "Final AWS sweep completed successfully."
 
@@ -5728,13 +5786,13 @@ jobs:
           echo "================================================================"
 
       # ===============================================================
-      # FINAL SWEEP STEP 22
+      # FINAL SWEEP STEP 23
       # SUMMARY
       #
       # ALWAYS RUNS.
       # ===============================================================
 
-      - name: "Final Sweep Step 22 - Cleanup Summary"
+      - name: "Final Sweep Step 23 - Cleanup Summary"
         if: always()
         shell: bash
         run: |
@@ -5767,7 +5825,6 @@ jobs:
           echo "  [7]  ECR"
           echo "  [8]  Application Load Balancers"
           echo "  [9]  Target Groups"
-          echo "  [10] CloudFront Distributions"
 
           echo ""
           echo "Additional dependency cleanup:"
