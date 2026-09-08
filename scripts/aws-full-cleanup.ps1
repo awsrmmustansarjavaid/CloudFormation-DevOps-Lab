@@ -11,79 +11,101 @@
 #
 # Resources handled:
 #
-#   1. CloudFront distributions
-#   2. S3 buckets and all objects/versions/delete markers
-#   3. ECS services
-#   4. ECS tasks
-#   5. ECS clusters
-#   6. ECR repositories
-#   7. RDS DB instances
-#   8. RDS DB clusters
-#   9. Secrets Manager secrets
-#  10. VPC endpoints
-#  11. NAT gateways
-#  12. Elastic IPs associated with NAT gateways
-#  13. Internet gateways
-#  14. Route tables
-#  15. Network interfaces
-#  16. Subnets
-#  17. Security groups
-#  18. VPCs
+#   1.  CloudFront distributions
+#   2.  S3 buckets and all objects/versions/delete markers
+#   3.  ECS services
+#   4.  ECS tasks
+#   5.  ECS clusters
+#   6.  ECR repositories
+#   7.  RDS DB instances
+#   8.  RDS DB clusters
+#   9.  Secrets Manager secrets
+#   10. VPC endpoints
+#   11. NAT gateways
+#   12. Elastic IP addresses
+#   13. Internet gateways
+#   14. Route tables
+#   15. Network interfaces
+#   16. Subnets
+#   17. Security groups
+#   18. VPCs
 #
 # IMPORTANT:
 #
-#   This script is DESTRUCTIVE.
+#   This script is DESTRUCTIVE when -Execute is supplied.
 #
-#   Preview:
+#   PREVIEW:
+#
 #       .\aws-full-cleanup.ps1 -Region us-east-1
 #
-#   Actual deletion:
+#   ACTUAL DELETION:
+#
 #       .\aws-full-cleanup.ps1 -Region us-east-1 -Execute
 #
-#   The script does NOT delete anything unless -Execute is supplied.
+#   The script asks for:
+#
+#       DELETE
+#
+#   before performing destructive operations.
 #
 # ================================================================
+
 
 [CmdletBinding()]
 param(
 
     # ------------------------------------------------------------
-    # AWS region containing the lab resources
+    # AWS region containing the lab resources.
     # ------------------------------------------------------------
+
     [Parameter(Mandatory = $false)]
     [string]$Region = "us-east-1",
 
+
     # ------------------------------------------------------------
-    # AWS CLI profile
+    # Optional AWS CLI profile.
     #
-    # Leave empty to use the default AWS CLI credentials.
+    # Leave empty to use the default AWS CLI profile.
     #
-    # Example:
+    # Examples:
     #
     #   -Profile "default"
+    #
     #   -Profile "dev"
     # ------------------------------------------------------------
+
     [Parameter(Mandatory = $false)]
     [string]$Profile = "",
+
 
     # ------------------------------------------------------------
     # Actually perform deletion.
     #
-    # Without this switch the script is PREVIEW ONLY.
+    # Without -Execute:
+    #
+    #   PREVIEW ONLY
+    #
+    # With -Execute:
+    #
+    #   resources are actually deleted.
     # ------------------------------------------------------------
+
     [switch]$Execute,
 
+
     # ------------------------------------------------------------
-    # By default, default VPCs are protected.
+    # Default VPC protection.
     #
-    # Use:
+    # By default the script DOES NOT delete default VPCs.
+    #
+    # To intentionally delete default VPCs:
     #
     #   -DeleteDefaultVpc
-    #
-    # only if you intentionally want default VPC deletion.
     # ------------------------------------------------------------
+
     [switch]$DeleteDefaultVpc
 )
+
 
 # ================================================================
 # GLOBAL SETTINGS
@@ -91,14 +113,27 @@ param(
 
 $ErrorActionPreference = "Continue"
 
+
+# ---------------------------------------------------------------
 # Maximum retry count for operations that may temporarily fail.
+# ---------------------------------------------------------------
+
 $MaxRetries = 10
 
-# Seconds between retry attempts.
+
+# ---------------------------------------------------------------
+# Delay between retries.
+# ---------------------------------------------------------------
+
 $RetryDelaySeconds = 10
 
+
+# ---------------------------------------------------------------
 # NAT gateway deletion can take several minutes.
+# ---------------------------------------------------------------
+
 $NatWaitSeconds = 15
+
 
 # ================================================================
 # AWS CLI COMMAND BUILDER
@@ -112,6 +147,11 @@ function Get-AwsBaseArgs {
         "--no-cli-pager"
     )
 
+
+    # ------------------------------------------------------------
+    # Add AWS profile if supplied.
+    # ------------------------------------------------------------
+
     if (-not [string]::IsNullOrWhiteSpace($Profile)) {
 
         $args += @(
@@ -120,8 +160,10 @@ function Get-AwsBaseArgs {
         )
     }
 
+
     return $args
 }
+
 
 # ================================================================
 # RUN AWS CLI
@@ -130,16 +172,20 @@ function Get-AwsBaseArgs {
 function Invoke-AwsCli {
 
     param(
+
         [Parameter(Mandatory = $true)]
         [string[]]$Arguments
     )
+
 
     $baseArgs = Get-AwsBaseArgs
 
     $finalArgs = $baseArgs + $Arguments
 
+
     & aws @finalArgs 2>&1
 }
+
 
 # ================================================================
 # RUN AWS CLI AND RETURN JSON
@@ -148,25 +194,33 @@ function Invoke-AwsCli {
 function Invoke-AwsJson {
 
     param(
+
         [Parameter(Mandatory = $true)]
         [string[]]$Arguments
     )
 
+
     $output = Invoke-AwsCli -Arguments $Arguments
+
 
     if ($LASTEXITCODE -ne 0) {
 
         return $null
     }
 
-    if ([string]::IsNullOrWhiteSpace(($output -join ""))) {
+
+    $text = $output -join "`n"
+
+
+    if ([string]::IsNullOrWhiteSpace($text)) {
 
         return $null
     }
 
+
     try {
 
-        return ($output -join "`n") | ConvertFrom-Json
+        return $text | ConvertFrom-Json
     }
     catch {
 
@@ -174,47 +228,115 @@ function Invoke-AwsJson {
     }
 }
 
+
+# ================================================================
+# WRITE UTF-8 WITHOUT BOM
+# ================================================================
+#
+# IMPORTANT FOR WINDOWS POWERSHELL 5.1
+#
+# Windows PowerShell 5.1:
+#
+#     Set-Content -Encoding UTF8
+#
+# writes a UTF-8 BOM.
+#
+# Some AWS CLI JSON parameters can fail when that BOM is present.
+#
+# This helper always writes UTF-8 WITHOUT BOM.
+#
+# ================================================================
+
+function Write-Utf8NoBomFile {
+
+    param(
+
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+
+        [Parameter(Mandatory = $true)]
+        [string]$Content
+    )
+
+
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+
+    [System.IO.File]::WriteAllText(
+        $Path,
+        $Content,
+        $utf8NoBom
+    )
+}
+
+
 # ================================================================
 # LOGGING FUNCTIONS
 # ================================================================
 
 function Write-Info {
 
-    param([string]$Message)
+    param(
+        [string]$Message
+    )
+
 
     Write-Host "[INFO] $Message" -ForegroundColor Cyan
 }
 
+
 function Write-Success {
 
-    param([string]$Message)
+    param(
+        [string]$Message
+    )
+
 
     Write-Host "[PASS] $Message" -ForegroundColor Green
 }
 
+
 function Write-WarningMessage {
 
-    param([string]$Message)
+    param(
+        [string]$Message
+    )
+
 
     Write-Host "[WARN] $Message" -ForegroundColor Yellow
 }
 
+
 function Write-Failure {
 
-    param([string]$Message)
+    param(
+        [string]$Message
+    )
+
 
     Write-Host "[FAIL] $Message" -ForegroundColor Red
 }
 
+
 function Write-Section {
 
-    param([string]$Title)
+    param(
+        [string]$Title
+    )
+
 
     Write-Host ""
-    Write-Host "============================================================" -ForegroundColor DarkCyan
+
+    Write-Host "============================================================" `
+        -ForegroundColor DarkCyan
+
     Write-Host $Title -ForegroundColor White
-    Write-Host "============================================================" -ForegroundColor DarkCyan
+
+    Write-Host "============================================================" `
+        -ForegroundColor DarkCyan
 }
+
 
 # ================================================================
 # EXECUTION GUARD
@@ -225,66 +347,96 @@ function Confirm-Execution {
     if ($Execute) {
 
         Write-WarningMessage "DESTRUCTIVE MODE ENABLED."
+
         Write-WarningMessage "AWS resources WILL be deleted."
 
         Write-Host ""
 
+
         $confirmation = Read-Host "Type DELETE to continue"
+
 
         if ($confirmation -ne "DELETE") {
 
-            Write-WarningMessage "Confirmation failed. Cleanup cancelled."
+            Write-WarningMessage `
+                "Confirmation failed. Cleanup cancelled."
 
             exit 1
         }
 
+
         return
     }
 
+
     Write-WarningMessage "PREVIEW MODE."
-    Write-WarningMessage "No resources will actually be deleted."
-    Write-WarningMessage "Use -Execute to perform deletion."
+
+    Write-WarningMessage `
+        "No resources will actually be deleted."
+
+    Write-WarningMessage `
+        "Use -Execute to perform deletion."
 
     Write-Host ""
 }
 
+
 # ================================================================
-# AWS CLI CHECK
+# 01 - AWS CLI CHECK
 # ================================================================
 
 function Test-AwsCli {
 
     Write-Section "01 - AWS CLI CHECK"
 
+
+    # ------------------------------------------------------------
+    # Check AWS CLI.
+    # ------------------------------------------------------------
+
     $awsVersion = aws --version 2>&1
+
 
     if ($LASTEXITCODE -ne 0) {
 
-        Write-Failure "AWS CLI is not installed or not available in PATH."
+        Write-Failure `
+            "AWS CLI is not installed or not available in PATH."
 
         exit 1
     }
 
+
     Write-Info "AWS CLI: $awsVersion"
+
+
+    # ------------------------------------------------------------
+    # Test AWS authentication.
+    # ------------------------------------------------------------
 
     $identity = Invoke-AwsJson -Arguments @(
         "sts"
         "get-caller-identity"
     )
 
+
     if ($null -eq $identity) {
 
-        Write-Failure "Unable to authenticate to AWS."
+        Write-Failure `
+            "Unable to authenticate to AWS."
 
         exit 1
     }
 
+
     Write-Success "AWS authentication successful."
 
     Write-Info "Account ID: $($identity.Account)"
+
     Write-Info "User/Role: $($identity.Arn)"
+
     Write-Info "Region: $Region"
 }
+
 
 # ================================================================
 # WAIT FUNCTION
@@ -296,176 +448,795 @@ function Wait-Seconds {
         [int]$Seconds
     )
 
+
     Start-Sleep -Seconds $Seconds
 }
 
+
 # ================================================================
-# 02 - CLOUDFRONT
+# 02 - CLOUDFRONT CLEANUP
 # ================================================================
 #
-# CloudFront is GLOBAL.
+# CloudFront is a GLOBAL AWS service.
 #
-# It does not use the normal regional AWS resource model.
+# Therefore this function deliberately does NOT depend on the
+# normal regional Invoke-AwsCli helper.
 #
-# AWS requires a distribution to be disabled before deletion.
+# CloudFront operations use:
+#
+#     us-east-1
+#
+# This function:
+#
+#   1. Discovers all distributions.
+#   2. Supports multiple distributions.
+#   3. Supports different distribution IDs/names.
+#   4. Handles enabled distributions.
+#   5. Handles already-disabled distributions.
+#   6. Disables enabled distributions.
+#   7. Waits for deployment.
+#   8. Gets a fresh ETag.
+#   9. Deletes the distribution.
+#
+# IMPORTANT:
+#
+# CloudFront requires a distribution to be disabled before deletion.
+#
 # ================================================================
 
 function Remove-CloudFront {
 
     Write-Section "02 - CLOUDFRONT CLEANUP"
 
-    $data = Invoke-AwsJson -Arguments @(
+
+    Write-Info "CloudFront is a global AWS service."
+
+    Write-Info `
+        "Using direct AWS CLI CloudFront discovery..."
+
+
+    # ------------------------------------------------------------
+    # CloudFront control-plane region.
+    #
+    # Do NOT use the user-selected application region here.
+    # ------------------------------------------------------------
+
+    $cloudFrontRegion = "us-east-1"
+
+
+    Write-Info `
+        "Running AWS CloudFront list-distributions..."
+
+
+    # ============================================================
+    # DISCOVER DISTRIBUTIONS
+    # ============================================================
+
+    $listArgs = @(
         "cloudfront"
         "list-distributions"
+        "--region"
+        $cloudFrontRegion
+        "--no-cli-pager"
+        "--output"
+        "json"
     )
 
-    if ($null -eq $data) {
 
-        Write-Info "No CloudFront distributions found."
+    # ------------------------------------------------------------
+    # Add profile if supplied.
+    # ------------------------------------------------------------
+
+    if (-not [string]::IsNullOrWhiteSpace($Profile)) {
+
+        $listArgs += @(
+            "--profile"
+            $Profile
+        )
+    }
+
+
+    # ------------------------------------------------------------
+    # Execute directly.
+    #
+    # We intentionally do NOT use Invoke-AwsCli here.
+    # ------------------------------------------------------------
+
+    $listOutput = & aws @listArgs 2>&1
+
+
+    # IMPORTANT:
+    #
+    # Capture LASTEXITCODE immediately.
+    # ------------------------------------------------------------
+
+    $listExitCode = $LASTEXITCODE
+
+
+    if ($listExitCode -ne 0) {
+
+        Write-Failure `
+            "AWS CLI CloudFront discovery failed."
+
+
+        Write-Host ""
+
+        Write-Host "AWS CLI ERROR:" `
+            -ForegroundColor Red
+
+        Write-Host `
+            "------------------------------------------------------------" `
+            -ForegroundColor DarkRed
+
+
+        foreach ($line in $listOutput) {
+
+            Write-Host $line -ForegroundColor Red
+        }
+
+
+        Write-Host `
+            "------------------------------------------------------------" `
+            -ForegroundColor DarkRed
+
+
+        Write-Host ""
+
 
         return
     }
 
-    if ($null -eq $data.DistributionList.Items) {
 
-        Write-Info "No CloudFront distributions found."
+    # ============================================================
+    # PARSE JSON
+    # ============================================================
+
+    $listText = $listOutput -join "`n"
+
+
+    if ([string]::IsNullOrWhiteSpace($listText)) {
+
+        Write-Info `
+            "CloudFront returned an empty response."
 
         return
     }
 
-    foreach ($distribution in $data.DistributionList.Items) {
 
-        $id = $distribution.Id
-        $enabled = $distribution.Enabled
+    try {
 
-        Write-Info "CloudFront distribution: $id"
+        $cloudFrontData = $listText | ConvertFrom-Json
+    }
+    catch {
+
+        Write-Failure `
+            "Unable to parse CloudFront JSON response."
+
+        Write-Host $_.Exception.Message `
+            -ForegroundColor Red
+
+        return
+    }
+
+
+    # ============================================================
+    # GET DISTRIBUTIONS
+    # ============================================================
+
+    if ($null -eq $cloudFrontData.DistributionList) {
+
+        Write-Info `
+            "CloudFront DistributionList was empty."
+
+        return
+    }
+
+
+    if ($null -eq $cloudFrontData.DistributionList.Items) {
+
+        Write-Info `
+            "No CloudFront distributions found."
+
+        return
+    }
+
+
+    # ------------------------------------------------------------
+    # Force array handling.
+    #
+    # This is important when AWS returns:
+    #
+    #   1 distribution
+    #
+    # instead of:
+    #
+    #   multiple distributions
+    # ------------------------------------------------------------
+
+    $distributions = @(
+        $cloudFrontData.DistributionList.Items
+    )
+
+
+    if ($distributions.Count -eq 0) {
+
+        Write-Info `
+            "No CloudFront distributions found."
+
+        return
+    }
+
+
+    Write-Success `
+        "Found $($distributions.Count) CloudFront distribution(s)."
+
+
+    # ============================================================
+    # DISPLAY ALL DISTRIBUTIONS
+    # ============================================================
+
+    foreach ($distribution in $distributions) {
+
+        Write-Host ""
+
+        Write-Host `
+            "------------------------------------------------------------" `
+            -ForegroundColor DarkGray
+
+
+        Write-Info `
+            "Distribution ID : $($distribution.Id)"
+
+        Write-Info `
+            "Status          : $($distribution.Status)"
+
+        Write-Info `
+            "Enabled         : $($distribution.Enabled)"
+
+        Write-Info `
+            "Domain          : $($distribution.DomainName)"
+
+
+        Write-Host `
+            "------------------------------------------------------------" `
+            -ForegroundColor DarkGray
+    }
+
+
+    # ============================================================
+    # PROCESS EACH DISTRIBUTION
+    # ============================================================
+
+    foreach ($distribution in $distributions) {
+
+        $distributionId = [string]$distribution.Id
+
+
+        Write-Section `
+            "CLOUDFRONT: $distributionId"
+
+
+        Write-Info `
+            "Distribution ID: $distributionId"
+
+        Write-Info `
+            "Enabled: $($distribution.Enabled)"
+
+
+        # ========================================================
+        # PREVIEW MODE
+        # ========================================================
 
         if (-not $Execute) {
 
-            Write-WarningMessage "PREVIEW: Would disable/delete CloudFront $id"
+            if ($distribution.Enabled -eq $true) {
+
+                Write-WarningMessage `
+                    "PREVIEW: Would DISABLE distribution $distributionId"
+
+                Write-WarningMessage `
+                    "PREVIEW: Would wait for CloudFront deployment."
+
+                Write-WarningMessage `
+                    "PREVIEW: Would DELETE distribution $distributionId"
+            }
+            else {
+
+                Write-WarningMessage `
+                    "PREVIEW: Distribution is already disabled."
+
+                Write-WarningMessage `
+                    "PREVIEW: Would DELETE distribution $distributionId"
+            }
+
 
             continue
         }
 
-        # --------------------------------------------------------
-        # Get current distribution configuration.
-        # --------------------------------------------------------
 
-        $config = Invoke-AwsJson -Arguments @(
+        # ========================================================
+        # GET CURRENT DISTRIBUTION CONFIGURATION
+        # ========================================================
+
+        Write-Info `
+            "Retrieving CloudFront configuration..."
+
+
+        $configArgs = @(
             "cloudfront"
             "get-distribution-config"
             "--id"
-            $id
+            $distributionId
+            "--region"
+            $cloudFrontRegion
+            "--no-cli-pager"
+            "--output"
+            "json"
         )
 
-        if ($null -eq $config) {
 
-            Write-Failure "Unable to read CloudFront configuration: $id"
+        if (-not [string]::IsNullOrWhiteSpace($Profile)) {
+
+            $configArgs += @(
+                "--profile"
+                $Profile
+            )
+        }
+
+
+        $configOutput = & aws @configArgs 2>&1
+
+        $configExitCode = $LASTEXITCODE
+
+
+        if ($configExitCode -ne 0) {
+
+            Write-Failure `
+                "Failed to retrieve CloudFront configuration for $distributionId."
+
+
+            foreach ($line in $configOutput) {
+
+                Write-Host $line -ForegroundColor Red
+            }
+
 
             continue
         }
 
-        $etag = $config.ETag
-        $distributionConfig = $config.DistributionConfig
 
-        # --------------------------------------------------------
-        # Disable distribution if required.
-        # --------------------------------------------------------
+        # ========================================================
+        # PARSE CONFIGURATION
+        # ========================================================
 
-        if ($enabled) {
+        try {
 
-            Write-Info "Disabling CloudFront distribution: $id"
+            $configData = (
+                $configOutput -join "`n"
+            ) | ConvertFrom-Json
+        }
+        catch {
+
+            Write-Failure `
+                "Unable to parse CloudFront configuration for $distributionId."
+
+            Write-Host $_.Exception.Message `
+                -ForegroundColor Red
+
+            continue
+        }
+
+
+        $etag = $configData.ETag
+
+        $distributionConfig = `
+            $configData.DistributionConfig
+
+
+        if ([string]::IsNullOrWhiteSpace($etag)) {
+
+            Write-Failure `
+                "CloudFront ETag not found for $distributionId."
+
+            continue
+        }
+
+
+        if ($null -eq $distributionConfig) {
+
+            Write-Failure `
+                "CloudFront DistributionConfig not found for $distributionId."
+
+            continue
+        }
+
+
+        # ========================================================
+        # DISABLE ENABLED DISTRIBUTION
+        # ========================================================
+
+        if ($distributionConfig.Enabled -eq $true) {
+
+            Write-Info `
+                "Distribution is ENABLED."
+
+            Write-Info `
+                "Disabling distribution..."
+
+
+            # ----------------------------------------------------
+            # Change:
+            #
+            #     Enabled: true
+            #
+            # to:
+            #
+            #     Enabled: false
+            # ----------------------------------------------------
 
             $distributionConfig.Enabled = $false
 
-            $tempFile = Join-Path $env:TEMP "cloudfront-$id.json"
 
-            $distributionConfig |
-                ConvertTo-Json -Depth 100 |
-                Set-Content -Path $tempFile -Encoding UTF8
+            # ----------------------------------------------------
+            # Convert configuration to JSON.
+            # ----------------------------------------------------
 
-            Invoke-AwsCli -Arguments @(
+            $configJson = `
+                $distributionConfig |
+                ConvertTo-Json -Depth 100
+
+
+            # ----------------------------------------------------
+            # Create temporary JSON file.
+            # ----------------------------------------------------
+
+            $tempConfig = Join-Path `
+                $env:TEMP `
+                "cloudfront-$distributionId-$([guid]::NewGuid()).json"
+
+
+            # ----------------------------------------------------
+            # IMPORTANT:
+            #
+            # Write UTF-8 WITHOUT BOM.
+            #
+            # This fixes the exact error:
+            #
+            #   Expected: '=', received: '∩'
+            #
+            # that occurred with:
+            #
+            #   Set-Content -Encoding UTF8
+            #
+            # on Windows PowerShell 5.1.
+            # ----------------------------------------------------
+
+            Write-Utf8NoBomFile `
+                -Path $tempConfig `
+                -Content $configJson
+
+
+            # ----------------------------------------------------
+            # Verify temporary file exists.
+            # ----------------------------------------------------
+
+            if (-not (Test-Path $tempConfig)) {
+
+                Write-Failure `
+                    "Temporary CloudFront configuration file was not created."
+
+                continue
+            }
+
+
+            # ====================================================
+            # UPDATE DISTRIBUTION
+            # ====================================================
+
+            $updateArgs = @(
                 "cloudfront"
                 "update-distribution"
                 "--id"
-                $id
+                $distributionId
+                "--distribution-config"
+                "file://$tempConfig"
                 "--if-match"
                 $etag
-                "--distribution-config"
-                "file://$tempFile"
-            ) | Out-Null
+                "--region"
+                $cloudFrontRegion
+                "--no-cli-pager"
+            )
 
-            Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
 
-            Write-Info "Waiting for CloudFront distribution to become deployed..."
+            if (-not [string]::IsNullOrWhiteSpace($Profile)) {
 
-            Invoke-AwsCli -Arguments @(
+                $updateArgs += @(
+                    "--profile"
+                    $Profile
+                )
+            }
+
+
+            Write-Info `
+                "Submitting CloudFront disable request..."
+
+
+            $updateOutput = & aws @updateArgs 2>&1
+
+            $updateExitCode = $LASTEXITCODE
+
+
+            # ----------------------------------------------------
+            # Delete temporary file.
+            # ----------------------------------------------------
+
+            if (Test-Path $tempConfig) {
+
+                Remove-Item `
+                    -Path $tempConfig `
+                    -Force `
+                    -ErrorAction SilentlyContinue
+            }
+
+
+            # ====================================================
+            # CHECK UPDATE RESULT
+            # ====================================================
+
+            if ($updateExitCode -ne 0) {
+
+                Write-Failure `
+                    "Failed to disable CloudFront distribution $distributionId."
+
+
+                Write-Host ""
+
+                foreach ($line in $updateOutput) {
+
+                    Write-Host $line -ForegroundColor Red
+                }
+
+
+                continue
+            }
+
+
+            Write-Success `
+                "Disable request submitted for $distributionId."
+
+
+            # ====================================================
+            # WAIT FOR CLOUDFRONT DEPLOYMENT
+            # ====================================================
+
+            Write-Info `
+                "Waiting for CloudFront deployment..."
+
+
+            $waitArgs = @(
                 "cloudfront"
                 "wait"
                 "distribution-deployed"
                 "--id"
-                $id
-            ) | Out-Null
+                $distributionId
+                "--region"
+                $cloudFrontRegion
+                "--no-cli-pager"
+            )
+
+
+            if (-not [string]::IsNullOrWhiteSpace($Profile)) {
+
+                $waitArgs += @(
+                    "--profile"
+                    $Profile
+                )
+            }
+
+
+            $waitOutput = & aws @waitArgs 2>&1
+
+            $waitExitCode = $LASTEXITCODE
+
+
+            if ($waitOutput) {
+
+                foreach ($line in $waitOutput) {
+
+                    Write-Host $line
+                }
+            }
+
+
+            if ($waitExitCode -ne 0) {
+
+                Write-Failure `
+                    "CloudFront deployment wait failed for $distributionId."
+
+
+                continue
+            }
+
+
+            Write-Success `
+                "CloudFront distribution is deployed with Enabled=false."
+        }
+        else {
+
+            Write-Info `
+                "Distribution is already DISABLED."
         }
 
-        # --------------------------------------------------------
-        # Get fresh ETag.
-        # --------------------------------------------------------
 
-        $freshConfig = Invoke-AwsJson -Arguments @(
+        # ========================================================
+        # GET FRESH ETAG
+        # ========================================================
+        #
+        # CloudFront changes the ETag after an update.
+        #
+        # Therefore we MUST retrieve the latest ETag before
+        # attempting deletion.
+        #
+        # ========================================================
+
+        Write-Info `
+            "Retrieving fresh CloudFront ETag..."
+
+
+        $freshConfigArgs = @(
             "cloudfront"
             "get-distribution-config"
             "--id"
-            $id
+            $distributionId
+            "--region"
+            $cloudFrontRegion
+            "--no-cli-pager"
+            "--output"
+            "json"
         )
 
-        if ($null -eq $freshConfig) {
 
-            Write-Failure "Unable to get fresh CloudFront ETag: $id"
+        if (-not [string]::IsNullOrWhiteSpace($Profile)) {
+
+            $freshConfigArgs += @(
+                "--profile"
+                $Profile
+            )
+        }
+
+
+        $freshConfigOutput = `
+            & aws @freshConfigArgs 2>&1
+
+
+        $freshConfigExitCode = $LASTEXITCODE
+
+
+        if ($freshConfigExitCode -ne 0) {
+
+            Write-Failure `
+                "Unable to retrieve fresh CloudFront ETag for $distributionId."
+
+
+            foreach ($line in $freshConfigOutput) {
+
+                Write-Host $line -ForegroundColor Red
+            }
+
 
             continue
         }
 
-        $freshEtag = $freshConfig.ETag
 
-        # --------------------------------------------------------
-        # Delete distribution.
-        # --------------------------------------------------------
+        # ========================================================
+        # PARSE FRESH CONFIGURATION
+        # ========================================================
 
-        Write-Info "Deleting CloudFront distribution: $id"
+        try {
 
-        Invoke-AwsCli -Arguments @(
+            $freshConfigData = (
+                $freshConfigOutput -join "`n"
+            ) | ConvertFrom-Json
+        }
+        catch {
+
+            Write-Failure `
+                "Unable to parse fresh CloudFront configuration."
+
+            Write-Host $_.Exception.Message `
+                -ForegroundColor Red
+
+            continue
+        }
+
+
+        $freshEtag = $freshConfigData.ETag
+
+
+        if ([string]::IsNullOrWhiteSpace($freshEtag)) {
+
+            Write-Failure `
+                "Fresh CloudFront ETag is empty for $distributionId."
+
+            continue
+        }
+
+
+        # ========================================================
+        # DELETE DISTRIBUTION
+        # ========================================================
+
+        Write-Info `
+            "Deleting CloudFront distribution $distributionId..."
+
+
+        $deleteArgs = @(
             "cloudfront"
             "delete-distribution"
             "--id"
-            $id
+            $distributionId
             "--if-match"
             $freshEtag
-        ) | Out-Null
+            "--region"
+            $cloudFrontRegion
+            "--no-cli-pager"
+        )
 
-        if ($LASTEXITCODE -eq 0) {
 
-            Write-Success "CloudFront deleted: $id"
+        if (-not [string]::IsNullOrWhiteSpace($Profile)) {
+
+            $deleteArgs += @(
+                "--profile"
+                $Profile
+            )
+        }
+
+
+        $deleteOutput = & aws @deleteArgs 2>&1
+
+        $deleteExitCode = $LASTEXITCODE
+
+
+        if ($deleteExitCode -eq 0) {
+
+            Write-Success `
+                "CloudFront distribution deleted: $distributionId"
         }
         else {
 
-            Write-Failure "CloudFront deletion failed: $id"
+            Write-Failure `
+                "CloudFront distribution deletion failed: $distributionId"
+
+
+            foreach ($line in $deleteOutput) {
+
+                Write-Host $line -ForegroundColor Red
+            }
         }
     }
+
+
+    Write-Host ""
+
+    Write-Success `
+        "CloudFront cleanup processing completed."
 }
 
+
 # ================================================================
-# 03 - S3
+# 03 - S3 CLEANUP
 # ================================================================
 
 function Remove-S3 {
 
     Write-Section "03 - S3 CLEANUP"
 
+
     $buckets = Invoke-AwsJson -Arguments @(
         "s3api"
         "list-buckets"
     )
+
 
     if ($null -eq $buckets) {
 
@@ -474,24 +1245,36 @@ function Remove-S3 {
         return
     }
 
+
     foreach ($bucket in $buckets.Buckets) {
 
         $bucketName = $bucket.Name
 
-        Write-Info "S3 bucket discovered: $bucketName"
+
+        Write-Info `
+            "S3 bucket discovered: $bucketName"
+
+
+        # --------------------------------------------------------
+        # PREVIEW MODE
+        # --------------------------------------------------------
 
         if (-not $Execute) {
 
-            Write-WarningMessage "PREVIEW: Would empty and delete bucket $bucketName"
+            Write-WarningMessage `
+                "PREVIEW: Would empty and delete bucket $bucketName"
 
             continue
         }
 
-        # --------------------------------------------------------
-        # Delete all normal objects.
-        # --------------------------------------------------------
 
-        Write-Info "Deleting normal objects from $bucketName"
+        # ========================================================
+        # DELETE NORMAL OBJECTS
+        # ========================================================
+
+        Write-Info `
+            "Deleting normal objects from $bucketName"
+
 
         Invoke-AwsCli -Arguments @(
             "s3"
@@ -500,13 +1283,14 @@ function Remove-S3 {
             "--recursive"
         ) | Out-Null
 
-        # --------------------------------------------------------
-        # Delete versioned objects and delete markers.
-        #
-        # This is important for versioned S3 buckets.
-        # --------------------------------------------------------
 
-        Write-Info "Deleting object versions and delete markers..."
+        # ========================================================
+        # DELETE VERSIONED OBJECTS / DELETE MARKERS
+        # ========================================================
+
+        Write-Info `
+            "Deleting object versions and delete markers..."
+
 
         while ($true) {
 
@@ -517,12 +1301,19 @@ function Remove-S3 {
                 $bucketName
             )
 
+
             if ($null -eq $versions) {
 
                 break
             }
 
+
             $objects = @()
+
+
+            # ----------------------------------------------------
+            # Add object versions.
+            # ----------------------------------------------------
 
             if ($versions.Versions) {
 
@@ -535,6 +1326,11 @@ function Remove-S3 {
                 }
             }
 
+
+            # ----------------------------------------------------
+            # Add delete markers.
+            # ----------------------------------------------------
+
             if ($versions.DeleteMarkers) {
 
                 foreach ($marker in $versions.DeleteMarkers) {
@@ -546,37 +1342,58 @@ function Remove-S3 {
                 }
             }
 
+
             if ($objects.Count -eq 0) {
 
                 break
             }
 
+
             # ----------------------------------------------------
-            # AWS S3 delete-objects accepts maximum 1000 objects
-            # per request.
+            # S3 allows maximum 1000 objects per delete request.
             # ----------------------------------------------------
 
-            for ($i = 0; $i -lt $objects.Count; $i += 1000) {
+            for (
+                $i = 0;
+                $i -lt $objects.Count;
+                $i += 1000
+            ) {
 
                 $end = [Math]::Min(
                     $i + 999,
                     $objects.Count - 1
                 )
 
+
                 $batch = @(
                     $objects[$i..$end]
                 )
+
 
                 $deletePayload = @{
                     Objects = $batch
                     Quiet   = $true
                 }
 
-                $tempFile = Join-Path $env:TEMP "s3-delete-$([guid]::NewGuid()).json"
 
-                $deletePayload |
-                    ConvertTo-Json -Depth 20 |
-                    Set-Content -Path $tempFile -Encoding UTF8
+                $tempFile = Join-Path `
+                    $env:TEMP `
+                    "s3-delete-$([guid]::NewGuid()).json"
+
+
+                # ------------------------------------------------
+                # Write JSON WITHOUT BOM.
+                # ------------------------------------------------
+
+                $deleteJson = `
+                    $deletePayload |
+                    ConvertTo-Json -Depth 20
+
+
+                Write-Utf8NoBomFile `
+                    -Path $tempFile `
+                    -Content $deleteJson
+
 
                 Invoke-AwsCli -Arguments @(
                     "s3api"
@@ -587,15 +1404,25 @@ function Remove-S3 {
                     "file://$tempFile"
                 ) | Out-Null
 
-                Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+
+                if (Test-Path $tempFile) {
+
+                    Remove-Item `
+                        -Path $tempFile `
+                        -Force `
+                        -ErrorAction SilentlyContinue
+                }
             }
         }
 
-        # --------------------------------------------------------
-        # Delete bucket.
-        # --------------------------------------------------------
 
-        Write-Info "Deleting S3 bucket: $bucketName"
+        # ========================================================
+        # DELETE EMPTY BUCKET
+        # ========================================================
+
+        Write-Info `
+            "Deleting S3 bucket: $bucketName"
+
 
         Invoke-AwsCli -Arguments @(
             "s3api"
@@ -604,29 +1431,35 @@ function Remove-S3 {
             $bucketName
         ) | Out-Null
 
+
         if ($LASTEXITCODE -eq 0) {
 
-            Write-Success "S3 bucket deleted: $bucketName"
+            Write-Success `
+                "S3 bucket deleted: $bucketName"
         }
         else {
 
-            Write-Failure "S3 bucket deletion failed: $bucketName"
+            Write-Failure `
+                "S3 bucket deletion failed: $bucketName"
         }
     }
 }
 
+
 # ================================================================
-# 04 - ECS SERVICES
+# 04 - ECS CLEANUP
 # ================================================================
 
 function Remove-Ecs {
 
     Write-Section "04 - ECS CLEANUP"
 
+
     $clustersData = Invoke-AwsJson -Arguments @(
         "ecs"
         "list-clusters"
     )
+
 
     if ($null -eq $clustersData) {
 
@@ -635,15 +1468,21 @@ function Remove-Ecs {
         return
     }
 
+
     foreach ($clusterArn in $clustersData.clusterArns) {
 
-        $clusterName = ($clusterArn -split "/")[-1]
+        $clusterName = (
+            $clusterArn -split "/"
+        )[-1]
 
-        Write-Info "ECS cluster: $clusterName"
 
-        # --------------------------------------------------------
-        # List services.
-        # --------------------------------------------------------
+        Write-Info `
+            "ECS cluster: $clusterName"
+
+
+        # ========================================================
+        # LIST SERVICES
+        # ========================================================
 
         $servicesData = Invoke-AwsJson -Arguments @(
             "ecs"
@@ -652,20 +1491,28 @@ function Remove-Ecs {
             $clusterArn
         )
 
+
         if ($null -ne $servicesData) {
 
             foreach ($serviceArn in $servicesData.serviceArns) {
 
-                $serviceName = ($serviceArn -split "/")[-1]
+                $serviceName = (
+                    $serviceArn -split "/"
+                )[-1]
 
-                Write-Info "ECS service: $serviceName"
+
+                Write-Info `
+                    "ECS service: $serviceName"
+
 
                 if (-not $Execute) {
 
-                    Write-WarningMessage "PREVIEW: Would delete ECS service $serviceName"
+                    Write-WarningMessage `
+                        "PREVIEW: Would delete ECS service $serviceName"
 
                     continue
                 }
+
 
                 # ------------------------------------------------
                 # Scale service to zero.
@@ -682,8 +1529,9 @@ function Remove-Ecs {
                     "0"
                 ) | Out-Null
 
+
                 # ------------------------------------------------
-                # Delete service.
+                # Force delete service.
                 # ------------------------------------------------
 
                 Invoke-AwsCli -Arguments @(
@@ -696,15 +1544,26 @@ function Remove-Ecs {
                     "--force"
                 ) | Out-Null
 
-                Write-Success "ECS service deleted: $serviceName"
+
+                if ($LASTEXITCODE -eq 0) {
+
+                    Write-Success `
+                        "ECS service deleted: $serviceName"
+                }
+                else {
+
+                    Write-Failure `
+                        "ECS service deletion failed: $serviceName"
+                }
             }
         }
 
-        if ($Execute) {
 
-            # ----------------------------------------------------
-            # Stop running ECS tasks.
-            # ----------------------------------------------------
+        # ========================================================
+        # STOP RUNNING TASKS
+        # ========================================================
+
+        if ($Execute) {
 
             $tasksData = Invoke-AwsJson -Arguments @(
                 "ecs"
@@ -715,11 +1574,14 @@ function Remove-Ecs {
                 "RUNNING"
             )
 
+
             if ($null -ne $tasksData) {
 
                 foreach ($taskArn in $tasksData.taskArns) {
 
-                    Write-Info "Stopping ECS task: $taskArn"
+                    Write-Info `
+                        "Stopping ECS task: $taskArn"
+
 
                     Invoke-AwsCli -Arguments @(
                         "ecs"
@@ -732,11 +1594,14 @@ function Remove-Ecs {
                 }
             }
 
-            # ----------------------------------------------------
-            # Delete ECS cluster.
-            # ----------------------------------------------------
 
-            Write-Info "Deleting ECS cluster: $clusterName"
+            # ====================================================
+            # DELETE ECS CLUSTER
+            # ====================================================
+
+            Write-Info `
+                "Deleting ECS cluster: $clusterName"
+
 
             Invoke-AwsCli -Arguments @(
                 "ecs"
@@ -745,30 +1610,36 @@ function Remove-Ecs {
                 $clusterArn
             ) | Out-Null
 
+
             if ($LASTEXITCODE -eq 0) {
 
-                Write-Success "ECS cluster deleted: $clusterName"
+                Write-Success `
+                    "ECS cluster deleted: $clusterName"
             }
             else {
 
-                Write-Failure "ECS cluster deletion failed: $clusterName"
+                Write-Failure `
+                    "ECS cluster deletion failed: $clusterName"
             }
         }
     }
 }
 
+
 # ================================================================
-# 05 - ECR
+# 05 - ECR CLEANUP
 # ================================================================
 
 function Remove-Ecr {
 
     Write-Section "05 - ECR CLEANUP"
 
+
     $repos = Invoke-AwsJson -Arguments @(
         "ecr"
         "describe-repositories"
     )
+
 
     if ($null -eq $repos) {
 
@@ -777,18 +1648,24 @@ function Remove-Ecr {
         return
     }
 
+
     foreach ($repo in $repos.repositories) {
 
         $repoName = $repo.repositoryName
 
-        Write-Info "ECR repository: $repoName"
+
+        Write-Info `
+            "ECR repository: $repoName"
+
 
         if (-not $Execute) {
 
-            Write-WarningMessage "PREVIEW: Would force-delete ECR repository $repoName"
+            Write-WarningMessage `
+                "PREVIEW: Would force-delete ECR repository $repoName"
 
             continue
         }
+
 
         Invoke-AwsCli -Arguments @(
             "ecr"
@@ -798,53 +1675,67 @@ function Remove-Ecr {
             "--force"
         ) | Out-Null
 
+
         if ($LASTEXITCODE -eq 0) {
 
-            Write-Success "ECR repository deleted: $repoName"
+            Write-Success `
+                "ECR repository deleted: $repoName"
         }
         else {
 
-            Write-Failure "ECR repository deletion failed: $repoName"
+            Write-Failure `
+                "ECR repository deletion failed: $repoName"
         }
     }
 }
 
+
 # ================================================================
-# 06 - RDS
+# 06 - RDS CLEANUP
 # ================================================================
 
 function Remove-Rds {
 
     Write-Section "06 - RDS CLEANUP"
 
-    # ------------------------------------------------------------
-    # DB INSTANCES
-    # ------------------------------------------------------------
+
+    # ============================================================
+    # RDS DB INSTANCES
+    # ============================================================
 
     $instances = Invoke-AwsJson -Arguments @(
         "rds"
         "describe-db-instances"
     )
 
+
     if ($null -ne $instances) {
 
         foreach ($db in $instances.DBInstances) {
 
-            $identifier = $db.DBInstanceIdentifier
+            $identifier = `
+                $db.DBInstanceIdentifier
 
-            Write-Info "RDS DB instance: $identifier"
+
+            Write-Info `
+                "RDS DB instance: $identifier"
+
 
             if (-not $Execute) {
 
-                Write-WarningMessage "PREVIEW: Would delete RDS instance $identifier"
+                Write-WarningMessage `
+                    "PREVIEW: Would delete RDS instance $identifier"
 
                 continue
             }
 
+
             # ----------------------------------------------------
-            # Delete without creating a final snapshot.
+            # Delete without final snapshot.
             #
-            # Change this if you need a backup.
+            # IMPORTANT:
+            #
+            # This is destructive.
             # ----------------------------------------------------
 
             Invoke-AwsCli -Arguments @(
@@ -856,40 +1747,51 @@ function Remove-Rds {
                 "--delete-automated-backups"
             ) | Out-Null
 
+
             if ($LASTEXITCODE -eq 0) {
 
-                Write-Success "RDS deletion requested: $identifier"
+                Write-Success `
+                    "RDS deletion requested: $identifier"
             }
             else {
 
-                Write-Failure "RDS deletion failed: $identifier"
+                Write-Failure `
+                    "RDS deletion failed: $identifier"
             }
         }
     }
 
-    # ------------------------------------------------------------
-    # DB CLUSTERS / AURORA
-    # ------------------------------------------------------------
+
+    # ============================================================
+    # RDS DB CLUSTERS / AURORA
+    # ============================================================
 
     $clusters = Invoke-AwsJson -Arguments @(
         "rds"
         "describe-db-clusters"
     )
 
+
     if ($null -ne $clusters) {
 
         foreach ($cluster in $clusters.DBClusters) {
 
-            $identifier = $cluster.DBClusterIdentifier
+            $identifier = `
+                $cluster.DBClusterIdentifier
 
-            Write-Info "RDS cluster: $identifier"
+
+            Write-Info `
+                "RDS cluster: $identifier"
+
 
             if (-not $Execute) {
 
-                Write-WarningMessage "PREVIEW: Would delete RDS cluster $identifier"
+                Write-WarningMessage `
+                    "PREVIEW: Would delete RDS cluster $identifier"
 
                 continue
             }
+
 
             Invoke-AwsCli -Arguments @(
                 "rds"
@@ -899,51 +1801,65 @@ function Remove-Rds {
                 "--skip-final-snapshot"
             ) | Out-Null
 
+
             if ($LASTEXITCODE -eq 0) {
 
-                Write-Success "RDS cluster deletion requested: $identifier"
+                Write-Success `
+                    "RDS cluster deletion requested: $identifier"
             }
             else {
 
-                Write-Failure "RDS cluster deletion failed: $identifier"
+                Write-Failure `
+                    "RDS cluster deletion failed: $identifier"
             }
         }
     }
 }
 
+
 # ================================================================
-# 07 - SECRETS MANAGER
+# 07 - SECRETS MANAGER CLEANUP
 # ================================================================
 
 function Remove-Secrets {
 
     Write-Section "07 - SECRETS MANAGER CLEANUP"
 
+
     $secrets = Invoke-AwsJson -Arguments @(
         "secretsmanager"
         "list-secrets"
     )
 
+
     if ($null -eq $secrets) {
 
-        Write-Info "No Secrets Manager secrets found."
+        Write-Info `
+            "No Secrets Manager secrets found."
 
         return
     }
 
+
     foreach ($secret in $secrets.SecretList) {
 
         $arn = $secret.ARN
+
         $name = $secret.Name
 
-        Write-Info "Secret: $name"
+
+        Write-Info `
+            "Secret: $name"
+
 
         if (-not $Execute) {
 
-            Write-WarningMessage "PREVIEW: Would delete secret $name"
+            Write-WarningMessage `
+                "PREVIEW: Would delete secret $name"
 
             continue
         }
+
 
         Invoke-AwsCli -Arguments @(
             "secretsmanager"
@@ -953,49 +1869,62 @@ function Remove-Secrets {
             "--force-delete-without-recovery"
         ) | Out-Null
 
+
         if ($LASTEXITCODE -eq 0) {
 
-            Write-Success "Secret deleted: $name"
+            Write-Success `
+                "Secret deleted: $name"
         }
         else {
 
-            Write-Failure "Secret deletion failed: $name"
+            Write-Failure `
+                "Secret deletion failed: $name"
         }
     }
 }
 
+
 # ================================================================
-# 08 - VPC ENDPOINTS
+# 08 - VPC ENDPOINT CLEANUP
 # ================================================================
 
 function Remove-VpcEndpoints {
 
     Write-Section "08 - VPC ENDPOINT CLEANUP"
 
+
     $data = Invoke-AwsJson -Arguments @(
         "ec2"
         "describe-vpc-endpoints"
     )
 
+
     if ($null -eq $data) {
 
-        Write-Info "No VPC endpoints found."
+        Write-Info `
+            "No VPC endpoints found."
 
         return
     }
+
 
     foreach ($endpoint in $data.VpcEndpoints) {
 
         $id = $endpoint.VpcEndpointId
 
-        Write-Info "VPC endpoint: $id"
+
+        Write-Info `
+            "VPC endpoint: $id"
+
 
         if (-not $Execute) {
 
-            Write-WarningMessage "PREVIEW: Would delete VPC endpoint $id"
+            Write-WarningMessage `
+                "PREVIEW: Would delete VPC endpoint $id"
 
             continue
         }
+
 
         Invoke-AwsCli -Arguments @(
             "ec2"
@@ -1004,24 +1933,29 @@ function Remove-VpcEndpoints {
             $id
         ) | Out-Null
 
+
         if ($LASTEXITCODE -eq 0) {
 
-            Write-Success "VPC endpoint deleted: $id"
+            Write-Success `
+                "VPC endpoint deletion requested: $id"
         }
         else {
 
-            Write-Failure "VPC endpoint deletion failed: $id"
+            Write-Failure `
+                "VPC endpoint deletion failed: $id"
         }
     }
 }
 
+
 # ================================================================
-# 09 - NAT GATEWAYS
+# 09 - NAT GATEWAY CLEANUP
 # ================================================================
 
 function Remove-NatGateways {
 
     Write-Section "09 - NAT GATEWAY CLEANUP"
+
 
     $data = Invoke-AwsJson -Arguments @(
         "ec2"
@@ -1030,25 +1964,33 @@ function Remove-NatGateways {
         "Name=state,Values=available,pending,failed"
     )
 
+
     if ($null -eq $data) {
 
-        Write-Info "No NAT gateways found."
+        Write-Info `
+            "No NAT gateways found."
 
         return
     }
+
 
     foreach ($nat in $data.NatGateways) {
 
         $natId = $nat.NatGatewayId
 
-        Write-Info "NAT gateway: $natId"
+
+        Write-Info `
+            "NAT gateway: $natId"
+
 
         if (-not $Execute) {
 
-            Write-WarningMessage "PREVIEW: Would delete NAT gateway $natId"
+            Write-WarningMessage `
+                "PREVIEW: Would delete NAT gateway $natId"
 
             continue
         }
+
 
         Invoke-AwsCli -Arguments @(
             "ec2"
@@ -1057,25 +1999,35 @@ function Remove-NatGateways {
             $natId
         ) | Out-Null
 
+
         if ($LASTEXITCODE -eq 0) {
 
-            Write-Success "NAT gateway deletion requested: $natId"
+            Write-Success `
+                "NAT gateway deletion requested: $natId"
         }
         else {
 
-            Write-Failure "NAT gateway deletion failed: $natId"
+            Write-Failure `
+                "NAT gateway deletion failed: $natId"
         }
     }
 
-    # ------------------------------------------------------------
-    # Wait for NAT gateways to disappear.
-    # ------------------------------------------------------------
+
+    # ============================================================
+    # WAIT FOR NAT GATEWAYS
+    # ============================================================
 
     if ($Execute) {
 
-        Write-Info "Waiting for NAT gateways to finish deleting..."
+        Write-Info `
+            "Waiting for NAT gateways to finish deleting..."
 
-        for ($attempt = 1; $attempt -le 40; $attempt++) {
+
+        for (
+            $attempt = 1;
+            $attempt -le 40;
+            $attempt++
+        ) {
 
             $remaining = Invoke-AwsJson -Arguments @(
                 "ec2"
@@ -1084,68 +2036,98 @@ function Remove-NatGateways {
                 "Name=state,Values=pending,available,deleting"
             )
 
-            if ($null -eq $remaining -or
-                $null -eq $remaining.NatGateways -or
-                $remaining.NatGateways.Count -eq 0) {
 
-                Write-Success "NAT gateways are gone."
+            if (
+                $null -eq $remaining -or
+                $null -eq $remaining.NatGateways -or
+                $remaining.NatGateways.Count -eq 0
+            ) {
+
+                Write-Success `
+                    "NAT gateways are gone."
 
                 break
             }
 
-            Write-Info "NAT gateways still deleting. Waiting..."
 
-            Wait-Seconds -Seconds $NatWaitSeconds
+            Write-Info `
+                "NAT gateways still deleting. Waiting..."
+
+
+            Wait-Seconds `
+                -Seconds $NatWaitSeconds
         }
     }
 }
 
+
 # ================================================================
-# 10 - ELASTIC IP ADDRESSES
+# 10 - ELASTIC IP CLEANUP
 # ================================================================
 #
-# NAT gateways may have Elastic IPs.
+# Release only UNASSOCIATED Elastic IP addresses.
 #
-# Release only EIPs that are NOT currently associated.
+# Associated EIPs are skipped.
+#
+# NAT gateway EIPs normally become available after NAT gateway
+# deletion completes.
+#
 # ================================================================
 
 function Remove-UnassociatedElasticIps {
 
     Write-Section "10 - ELASTIC IP CLEANUP"
 
+
     $data = Invoke-AwsJson -Arguments @(
         "ec2"
         "describe-addresses"
     )
 
+
     if ($null -eq $data) {
 
-        Write-Info "No Elastic IPs found."
+        Write-Info `
+            "No Elastic IPs found."
 
         return
     }
 
+
     foreach ($address in $data.Addresses) {
 
         $allocationId = $address.AllocationId
+
         $publicIp = $address.PublicIp
+
         $associationId = $address.AssociationId
+
+
+        # --------------------------------------------------------
+        # Skip associated addresses.
+        # --------------------------------------------------------
 
         if ($associationId) {
 
-            Write-Info "EIP still associated: $publicIp"
+            Write-Info `
+                "EIP still associated: $publicIp"
 
             continue
         }
 
-        Write-Info "Unassociated EIP: $publicIp"
+
+        Write-Info `
+            "Unassociated EIP: $publicIp"
+
 
         if (-not $Execute) {
 
-            Write-WarningMessage "PREVIEW: Would release EIP $publicIp"
+            Write-WarningMessage `
+                "PREVIEW: Would release EIP $publicIp"
 
             continue
         }
+
 
         if ($allocationId) {
 
@@ -1156,56 +2138,75 @@ function Remove-UnassociatedElasticIps {
                 $allocationId
             ) | Out-Null
 
+
             if ($LASTEXITCODE -eq 0) {
 
-                Write-Success "EIP released: $publicIp"
+                Write-Success `
+                    "EIP released: $publicIp"
             }
             else {
 
-                Write-Failure "EIP release failed: $publicIp"
+                Write-Failure `
+                    "EIP release failed: $publicIp"
             }
         }
     }
 }
 
+
 # ================================================================
-# 11 - INTERNET GATEWAYS
+# 11 - INTERNET GATEWAY CLEANUP
 # ================================================================
 
 function Remove-InternetGateways {
 
     Write-Section "11 - INTERNET GATEWAY CLEANUP"
 
+
     $data = Invoke-AwsJson -Arguments @(
         "ec2"
         "describe-internet-gateways"
     )
 
+
     if ($null -eq $data) {
 
-        Write-Info "No Internet Gateways found."
+        Write-Info `
+            "No Internet Gateways found."
 
         return
     }
+
 
     foreach ($igw in $data.InternetGateways) {
 
         $igwId = $igw.InternetGatewayId
 
-        Write-Info "Internet Gateway: $igwId"
+
+        Write-Info `
+            "Internet Gateway: $igwId"
+
 
         if (-not $Execute) {
 
-            Write-WarningMessage "PREVIEW: Would detach/delete IGW $igwId"
+            Write-WarningMessage `
+                "PREVIEW: Would detach/delete IGW $igwId"
 
             continue
         }
+
+
+        # ========================================================
+        # DETACH FROM ALL VPCS
+        # ========================================================
 
         foreach ($attachment in $igw.Attachments) {
 
             if ($attachment.VpcId) {
 
-                Write-Info "Detaching $igwId from VPC $($attachment.VpcId)"
+                Write-Info `
+                    "Detaching $igwId from VPC $($attachment.VpcId)"
+
 
                 Invoke-AwsCli -Arguments @(
                     "ec2"
@@ -1218,6 +2219,11 @@ function Remove-InternetGateways {
             }
         }
 
+
+        # ========================================================
+        # DELETE IGW
+        # ========================================================
+
         Invoke-AwsCli -Arguments @(
             "ec2"
             "delete-internet-gateway"
@@ -1225,75 +2231,94 @@ function Remove-InternetGateways {
             $igwId
         ) | Out-Null
 
+
         if ($LASTEXITCODE -eq 0) {
 
-            Write-Success "Internet Gateway deleted: $igwId"
+            Write-Success `
+                "Internet Gateway deleted: $igwId"
         }
         else {
 
-            Write-Failure "Internet Gateway deletion failed: $igwId"
+            Write-Failure `
+                "Internet Gateway deletion failed: $igwId"
         }
     }
 }
 
+
 # ================================================================
-# 12 - ROUTE TABLES
+# 12 - ROUTE TABLE CLEANUP
 # ================================================================
 
 function Remove-RouteTables {
 
     Write-Section "12 - ROUTE TABLE CLEANUP"
 
+
     $data = Invoke-AwsJson -Arguments @(
         "ec2"
         "describe-route-tables"
     )
 
+
     if ($null -eq $data) {
 
-        Write-Info "No route tables found."
+        Write-Info `
+            "No route tables found."
 
         return
     }
+
 
     foreach ($rt in $data.RouteTables) {
 
         $routeTableId = $rt.RouteTableId
 
+
         # --------------------------------------------------------
-        # Main route tables cannot be deleted.
-        # They disappear automatically when their VPC disappears.
+        # Main route tables cannot be deleted manually.
+        # They are removed with their VPC.
         # --------------------------------------------------------
 
         $isMain = $false
+
 
         foreach ($association in $rt.Associations) {
 
             if ($association.Main -eq $true) {
 
                 $isMain = $true
+
+                break
             }
         }
 
+
         if ($isMain) {
 
-            Write-Info "Skipping main route table: $routeTableId"
+            Write-Info `
+                "Skipping main route table: $routeTableId"
 
             continue
         }
 
-        Write-Info "Route table: $routeTableId"
+
+        Write-Info `
+            "Route table: $routeTableId"
+
 
         if (-not $Execute) {
 
-            Write-WarningMessage "PREVIEW: Would delete route table $routeTableId"
+            Write-WarningMessage `
+                "PREVIEW: Would delete route table $routeTableId"
 
             continue
         }
 
-        # --------------------------------------------------------
-        # Delete explicit route-table associations.
-        # --------------------------------------------------------
+
+        # ========================================================
+        # DISASSOCIATE ROUTE TABLE
+        # ========================================================
 
         foreach ($association in $rt.Associations) {
 
@@ -1308,6 +2333,11 @@ function Remove-RouteTables {
             }
         }
 
+
+        # ========================================================
+        # DELETE ROUTE TABLE
+        # ========================================================
+
         Invoke-AwsCli -Arguments @(
             "ec2"
             "delete-route-table"
@@ -1315,71 +2345,102 @@ function Remove-RouteTables {
             $routeTableId
         ) | Out-Null
 
+
         if ($LASTEXITCODE -eq 0) {
 
-            Write-Success "Route table deleted: $routeTableId"
+            Write-Success `
+                "Route table deleted: $routeTableId"
         }
         else {
 
-            Write-WarningMessage "Route table could not be deleted: $routeTableId"
+            Write-WarningMessage `
+                "Route table could not be deleted: $routeTableId"
         }
     }
 }
 
+
 # ================================================================
-# 13 - NETWORK INTERFACES
+# 13 - NETWORK INTERFACE CLEANUP
 # ================================================================
 #
-# Some ENIs are AWS-managed and cannot be manually deleted.
+# Only AVAILABLE ENIs can normally be manually deleted.
 #
-# We attempt deletion only where AWS permits it.
+# ENIs in use by AWS services are skipped.
+#
+# Examples of service-owned ENIs:
+#
+#   Lambda
+#   ECS
+#   VPC endpoints
+#   Load balancers
+#   RDS
+#   EFS
+#
+# The owning service must be deleted first.
+#
 # ================================================================
 
 function Remove-NetworkInterfaces {
 
     Write-Section "13 - NETWORK INTERFACE CLEANUP"
 
+
     $data = Invoke-AwsJson -Arguments @(
         "ec2"
         "describe-network-interfaces"
     )
 
+
     if ($null -eq $data) {
 
-        Write-Info "No network interfaces found."
+        Write-Info `
+            "No network interfaces found."
 
         return
     }
 
+
     foreach ($eni in $data.NetworkInterfaces) {
 
         $eniId = $eni.NetworkInterfaceId
+
         $status = $eni.Status
+
         $description = $eni.Description
 
-        Write-Info "ENI: $eniId"
-        Write-Info "Status: $status"
-        Write-Info "Description: $description"
+
+        Write-Info `
+            "ENI: $eniId"
+
+        Write-Info `
+            "Status: $status"
+
+        Write-Info `
+            "Description: $description"
+
 
         # --------------------------------------------------------
         # Only available ENIs can normally be deleted manually.
-        # In-use AWS-managed ENIs must be removed by deleting the
-        # service that owns them.
         # --------------------------------------------------------
 
         if ($status -ne "available") {
 
-            Write-WarningMessage "Skipping ENI because it is in use: $eniId"
+            Write-WarningMessage `
+                "Skipping ENI because it is in use: $eniId"
 
             continue
         }
+
 
         if (-not $Execute) {
 
-            Write-WarningMessage "PREVIEW: Would delete available ENI $eniId"
+            Write-WarningMessage `
+                "PREVIEW: Would delete available ENI $eniId"
 
             continue
         }
+
 
         Invoke-AwsCli -Arguments @(
             "ec2"
@@ -1388,49 +2449,62 @@ function Remove-NetworkInterfaces {
             $eniId
         ) | Out-Null
 
+
         if ($LASTEXITCODE -eq 0) {
 
-            Write-Success "ENI deleted: $eniId"
+            Write-Success `
+                "ENI deleted: $eniId"
         }
         else {
 
-            Write-WarningMessage "Could not delete ENI: $eniId"
+            Write-WarningMessage `
+                "Could not delete ENI: $eniId"
         }
     }
 }
 
+
 # ================================================================
-# 14 - SUBNETS
+# 14 - SUBNET CLEANUP
 # ================================================================
 
 function Remove-Subnets {
 
     Write-Section "14 - SUBNET CLEANUP"
 
+
     $data = Invoke-AwsJson -Arguments @(
         "ec2"
         "describe-subnets"
     )
 
+
     if ($null -eq $data) {
 
-        Write-Info "No subnets found."
+        Write-Info `
+            "No subnets found."
 
         return
     }
+
 
     foreach ($subnet in $data.Subnets) {
 
         $subnetId = $subnet.SubnetId
 
-        Write-Info "Subnet: $subnetId"
+
+        Write-Info `
+            "Subnet: $subnetId"
+
 
         if (-not $Execute) {
 
-            Write-WarningMessage "PREVIEW: Would delete subnet $subnetId"
+            Write-WarningMessage `
+                "PREVIEW: Would delete subnet $subnetId"
 
             continue
         }
+
 
         Invoke-AwsCli -Arguments @(
             "ec2"
@@ -1439,63 +2513,79 @@ function Remove-Subnets {
             $subnetId
         ) | Out-Null
 
+
         if ($LASTEXITCODE -eq 0) {
 
-            Write-Success "Subnet deleted: $subnetId"
+            Write-Success `
+                "Subnet deleted: $subnetId"
         }
         else {
 
-            Write-WarningMessage "Subnet could not be deleted: $subnetId"
+            Write-WarningMessage `
+                "Subnet could not be deleted: $subnetId"
         }
     }
 }
 
+
 # ================================================================
-# 15 - SECURITY GROUPS
+# 15 - SECURITY GROUP CLEANUP
 # ================================================================
 
 function Remove-SecurityGroups {
 
     Write-Section "15 - SECURITY GROUP CLEANUP"
 
+
     $data = Invoke-AwsJson -Arguments @(
         "ec2"
         "describe-security-groups"
     )
 
+
     if ($null -eq $data) {
 
-        Write-Info "No security groups found."
+        Write-Info `
+            "No security groups found."
 
         return
     }
 
+
     foreach ($sg in $data.SecurityGroups) {
 
         $groupId = $sg.GroupId
+
         $groupName = $sg.GroupName
+
         $vpcId = $sg.VpcId
 
+
         # --------------------------------------------------------
-        # Default security groups cannot be deleted.
-        # They disappear with their VPC.
+        # Default security groups cannot be deleted manually.
         # --------------------------------------------------------
 
         if ($groupName -eq "default") {
 
-            Write-Info "Skipping default security group: $groupId"
+            Write-Info `
+                "Skipping default security group: $groupId"
 
             continue
         }
 
-        Write-Info "Security Group: $groupName ($groupId)"
+
+        Write-Info `
+            "Security Group: $groupName ($groupId)"
+
 
         if (-not $Execute) {
 
-            Write-WarningMessage "PREVIEW: Would delete security group $groupId"
+            Write-WarningMessage `
+                "PREVIEW: Would delete security group $groupId"
 
             continue
         }
+
 
         Invoke-AwsCli -Arguments @(
             "ec2"
@@ -1504,58 +2594,80 @@ function Remove-SecurityGroups {
             $groupId
         ) | Out-Null
 
+
         if ($LASTEXITCODE -eq 0) {
 
-            Write-Success "Security group deleted: $groupId"
+            Write-Success `
+                "Security group deleted: $groupId"
         }
         else {
 
-            Write-WarningMessage "Security group could not be deleted: $groupId"
+            Write-WarningMessage `
+                "Security group could not be deleted: $groupId"
         }
     }
 }
 
+
 # ================================================================
-# 16 - VPCS
+# 16 - VPC CLEANUP
 # ================================================================
 
 function Remove-Vpcs {
 
     Write-Section "16 - VPC CLEANUP"
 
+
     $data = Invoke-AwsJson -Arguments @(
         "ec2"
         "describe-vpcs"
     )
 
+
     if ($null -eq $data) {
 
-        Write-Info "No VPCs found."
+        Write-Info `
+            "No VPCs found."
 
         return
     }
 
+
     foreach ($vpc in $data.Vpcs) {
 
         $vpcId = $vpc.VpcId
+
         $isDefault = $vpc.IsDefault
 
-        Write-Info "VPC: $vpcId"
+
+        Write-Info `
+            "VPC: $vpcId"
+
+
+        # --------------------------------------------------------
+        # Protect default VPC by default.
+        # --------------------------------------------------------
 
         if ($isDefault -and -not $DeleteDefaultVpc) {
 
-            Write-WarningMessage "Skipping DEFAULT VPC: $vpcId"
-            Write-WarningMessage "Use -DeleteDefaultVpc if you intentionally want to delete it."
+            Write-WarningMessage `
+                "Skipping DEFAULT VPC: $vpcId"
+
+            Write-WarningMessage `
+                "Use -DeleteDefaultVpc if you intentionally want to delete it."
 
             continue
         }
+
 
         if (-not $Execute) {
 
-            Write-WarningMessage "PREVIEW: Would delete VPC $vpcId"
+            Write-WarningMessage `
+                "PREVIEW: Would delete VPC $vpcId"
 
             continue
         }
+
 
         Invoke-AwsCli -Arguments @(
             "ec2"
@@ -1564,68 +2676,103 @@ function Remove-Vpcs {
             $vpcId
         ) | Out-Null
 
+
         if ($LASTEXITCODE -eq 0) {
 
-            Write-Success "VPC deleted: $vpcId"
+            Write-Success `
+                "VPC deleted: $vpcId"
         }
         else {
 
-            Write-Failure "VPC deletion failed: $vpcId"
-            Write-WarningMessage "There may still be a dependency attached to this VPC."
+            Write-Failure `
+                "VPC deletion failed: $vpcId"
+
+            Write-WarningMessage `
+                "There may still be a dependency attached to this VPC."
         }
     }
 }
+
 
 # ================================================================
 # MAIN EXECUTION
 # ================================================================
 
 Write-Host ""
-Write-Host "################################################################" -ForegroundColor Red
-Write-Host "#              AWS COMPLETE CLEANUP SCRIPT                    #" -ForegroundColor Red
-Write-Host "################################################################" -ForegroundColor Red
+
+Write-Host `
+    "################################################################" `
+    -ForegroundColor Red
+
+Write-Host `
+    "#              AWS COMPLETE CLEANUP SCRIPT                    #" `
+    -ForegroundColor Red
+
+Write-Host `
+    "################################################################" `
+    -ForegroundColor Red
+
 Write-Host ""
 
-Write-Info "AWS Region: $Region"
+
+Write-Info `
+    "AWS Region: $Region"
+
 
 if ($Execute) {
 
-    Write-WarningMessage "MODE: DESTRUCTIVE EXECUTION"
+    Write-WarningMessage `
+        "MODE: DESTRUCTIVE EXECUTION"
 }
 else {
 
-    Write-WarningMessage "MODE: PREVIEW ONLY"
+    Write-WarningMessage `
+        "MODE: PREVIEW ONLY"
 }
+
 
 Write-Host ""
 
-# ---------------------------------------------------------------
-# Confirm execution mode.
-# ---------------------------------------------------------------
+
+# ================================================================
+# CONFIRM EXECUTION MODE
+# ================================================================
 
 Confirm-Execution
 
-# ---------------------------------------------------------------
-# Validate AWS CLI and credentials.
-# ---------------------------------------------------------------
+
+# ================================================================
+# VALIDATE AWS CLI / CREDENTIALS
+# ================================================================
 
 Test-AwsCli
+
 
 # ================================================================
 # RESOURCE DELETION ORDER
 # ================================================================
 #
-# The order is extremely important.
-#
-# Application resources
+# CloudFront
 #       ↓
-# Network endpoints
+# S3
 #       ↓
-# NAT
+# ECS
 #       ↓
-# Internet Gateway
+# ECR
 #       ↓
-# ENIs
+# RDS
+#       ↓
+# Secrets Manager
+#       ↓
+# VPC endpoints
+#       ↓
+# NAT gateways
+#       ↓
+# Elastic IPs
+#       ↓
+# Internet gateways
+#       ↓
+# Network interfaces
 #       ↓
 # Route tables
 #       ↓
@@ -1633,9 +2780,10 @@ Test-AwsCli
 #       ↓
 # Security groups
 #       ↓
-# VPC
+# VPCs
 #
 # ================================================================
+
 
 Remove-CloudFront
 
@@ -1667,29 +2815,50 @@ Remove-SecurityGroups
 
 Remove-Vpcs
 
+
 # ================================================================
 # FINAL MESSAGE
 # ================================================================
 
 Write-Section "17 - CLEANUP COMPLETE"
 
+
 if ($Execute) {
 
-    Write-Success "Cleanup process finished."
+    Write-Success `
+        "Cleanup process finished."
+
 
     Write-Host ""
-    Write-Info "Some AWS resources may still be deleting asynchronously."
-    Write-Info "Run the script again if dependencies remain."
-    Write-Info "This is especially common with RDS, NAT gateways and CloudFront."
+
+    Write-Info `
+        "Some AWS resources may still be deleting asynchronously."
+
+    Write-Info `
+        "Run the script again if dependencies remain."
+
+    Write-Info `
+        "This is especially common with RDS, NAT gateways and CloudFront."
 }
 else {
 
-    Write-WarningMessage "Preview finished."
-    Write-WarningMessage "Nothing was deleted."
+    Write-WarningMessage `
+        "Preview finished."
+
+    Write-WarningMessage `
+        "Nothing was deleted."
+
     Write-Host ""
-    Write-Info "To actually delete resources run:"
+
+    Write-Info `
+        "To actually delete resources run:"
+
     Write-Host ""
-    Write-Host ".\aws-full-cleanup.ps1 -Region $Region -Execute" -ForegroundColor Yellow
+
+    Write-Host `
+        ".\aws-full-cleanup.ps1 -Region $Region -Execute" `
+        -ForegroundColor Yellow
 }
+
 
 Write-Host ""
